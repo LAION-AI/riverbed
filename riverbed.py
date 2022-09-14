@@ -189,26 +189,30 @@ class Riverbed:
     return (" ".join([d for d in doc if d]))
 
 
-  # creating a kenlm model as well as getting ngram weighted by the language modeling weights (not the counts) of the words
+  # creating tokenizer with a kenlm model as well as getting ngram weighted by the language modeling weights (not the counts) of the words
   # we can run this in incremental mode or batched mode (just concatenate all the files togehter)
   #TODO: To save memory, save away the __tmp__.arpa file at each iteration (sorted label), and re-read in the cumulative arpa file while processing the new arpa file. 
-  def get_ngram(self, project_name, files, unigram=None,  lmplz_loc="./riverbed/bin/lmplz", stopword_max_len=10, num_stopwords=75, max_ngram_size=25, \
+  def create_tokenizer(self, project_name, files, unigram=None,  lmplz_loc="./riverbed/bin/lmplz", stopword_max_len=10, num_stopwords=75, max_ngram_size=25, \
                 non_words = "،♪↓↑→←━\₨₡€¥£¢¤™®©¶§←«»⊥∀⇒⇔√­­♣️♥️♠️♦️‘’¿*’-ツ¯‿─★┌┴└┐▒∎µ•●°。¦¬≥≤±≠¡×÷¨´:।`~�_“”/|!~@#$%^&*•()【】[]{}-_+–=<>·;…?:.,\'\"", \
                 min_compound_weight=1.0, do_final_tokenize=True, stopword=None, min_num_words=5, do_collapse_values=True, do_tokenize_with_ngram=True, use_synonyms=True):
-      #TODO, strop non_words
+      #TODO, strip non_words
+      
+      ngram2weight =self.ngram2weight = {} if not hasattr(self, 'ngram2weight') else self.ngram2weight
+      compound = self.compound = {} if not hasattr(self, 'compound') else self.compound
+      synonyms = self.synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
+      ontology= self.ontology = {} if not hasattr(self, 'ontology') else self.ontology
+      stopword = self.stopword = {} if not hasattr(self, 'stopword') else self.stopword
+    
       if lmplz_loc != "./riverbed/bin/lmplz" and not os.path.exists("./lmplz"):
         os.system(f"cp {lmplz_loc} ./lmplz")
         lmplz = "./lmplz"
       else:
         lmplz = lmplz_loc
       os.system(f"chmod u+x {lmplz}")
-      ngram2weight, compound, synonyms, stopword, ontology  = self.ngram2weight, self.compound, self.synonyms, self.stopword, self.ontology 
-      if stopword is None: stopword = {}
       if unigram is None: unigram = {}
-      if compound is None: compound = {}
-      if ngram2weight is None: ngram2weight ={}
-      if ontology is None: ontology = {}
-      if synonyms is None: synonyms = {}
+      if ngram2weight:
+        for word in ngram2weight.keys():
+          if "_" not in word: unigram[word] = max(unigram.get(word,0), ngram2weight[word])
       arpa = {}
       if os.path.exists(f"{project_name}.arpa"):
         with open(f"{project_name}.arpa", "rb") as af:
@@ -736,7 +740,7 @@ class Riverbed:
                                                 prefix_extractors = default_prefix_extractors, dedup=True, \
                                                 span_lfs = [], verbose_snrokel=True, \
                                                 batch_id_prefix = 0, seen = None, span2jsonl_file_idx = None, \
-                                                clusters = None, label2tf = None, df = None, span2cluster_label = None, label_models = None \
+                                                clusters = None, label2tf = None, df = None, span2cluster_label = None, label_models = None, auto_create_tokenizer=True, \
                                                 ):
     self.ngram2weight = {} if not hasattr(self, 'ngram2weight') else self.ngram2weight
     self.compound = {} if not hasattr(self, 'compound') else self.compound
@@ -747,6 +751,8 @@ class Riverbed:
       kenlm_model = self.kenlm_model = kenlm.LanguageModel(f"{project_name}.arpa")
     else:
       kenlm_model = self.kenlm_model = None
+    if kenlm_model is None and auto_create_tokenizer:
+      
     running_features_per_label = {}
     file_name = files.pop()
     f = open(file_name) 
