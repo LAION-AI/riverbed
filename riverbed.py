@@ -464,12 +464,16 @@ class Riverbed:
           text = text.replace(entity, 'The Location').replace(entity.replace(" ", "_"), 'The Location')
         elif label in ('DATE', ):
           text = text.replace(entity, 'The Date').replace(entity.replace(" ", "_"), 'The Date')
+        elif label in ('LAW', ):
+          text = text.replace(entity, 'The Law').replace(entity.replace(" ", "_"), 'The Law')  
     for _ in range(3):
       text = text.replace("The Person and The Person", "The Person").replace("The Person The Person", "The Person").replace("The Person, The Person", "The Person")
       text = text.replace("The Facility and The Facility", "The Facility").replace("The Facility The Facility", "The Facility").replace("The Facility, The Facility", "The Facility")
       text = text.replace("The Organization and The Organization", "The Organization").replace("The Organization The Organization", "The Organization").replace("The Organization, The Organization", "The Organization")
       text = text.replace("The Location and The Location", "The Location").replace("The Location The Location", "The Location").replace("The Location, The Location", "The Location")
-      text = text.replace("The Date and The Date", "The Date").replace("The Date The Date", "The Date").replace("The Date, The Date", "The Location")
+      text = text.replace("The Date and The Date", "The Date").replace("The Date The Date", "The Date").replace("The Date, The Date", "The Date")
+      text = text.replace("The Law and The Law", "The Law").replace("The Law The Law", "The Law").replace("The Law, The Law", "The Law")
+      
     return text
 
   def create_spans(self, curr_file_size, batch, text_span_size=1000, ner_to_simplify=()):
