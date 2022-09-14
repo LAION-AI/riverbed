@@ -47,6 +47,7 @@ import pandas as pd
 from snorkel.labeling import labeling_function
 import itertools
 from nltk.corpus import stopwords
+import pickle
 if torch.cuda.is_available():
   device = 'cuda'
 else:
@@ -904,4 +905,12 @@ class Riverbed:
         
     return {'clusters': clusters, 'span2cluster_label': span2cluster_label, 'span2jsonl_file_idx': span2jsonl_file_idx, 'label_models': label_models, \
             'batch_id_prefix': batch_id_prefix, 'seen': seen, 'label2tf': label2tf, 'df': df,  'label_models': label_models} 
+
+  def save_pretrained(self, project_name):
+      pickle.dump(self, open(f"{project_name}.pickle", "wb"))
+    
+  @staticmethod
+  def from_pretrained(project_name):
+      self = pickle.load(open(f"{project_name}.pickle", "rb"))
+      return self
 
