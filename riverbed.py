@@ -88,7 +88,7 @@ class Riverbed:
       return self.pp(doc_log_score, doc_length)
 
   ### TODO: option to do ngram2weight, ontology and synonyms in lowercase
-  def create_ontology_and_synonyms(self, file_name,  words_per_ontology_cluster = 10, batch_size=1000000, epoch = 10):
+  def create_ontology_and_synonyms(self, file_name, stopword, words_per_ontology_cluster = 10, batch_size=1000000, epoch = 10):
     ngram2weight =  self.ngram2weight
     old_synonyms = self.synonyms
     model = fasttext.train_unsupervised(file_name, epoch=epoch)
@@ -154,7 +154,10 @@ class Riverbed:
       items = [v for v in vals if "_" not in v]
       if len(items) > 1:
         items.sort(key=lambda a: ngram2weight.get(a, len(a)))
-        new_ontology[items[0]] = items
+        stopwords_only = [a for a in items if a in stopword or a in stopwords_set]
+        new_ontology[stopwords_only[0]] = stopwords_only
+        not_stopwords = [a for a in items if a not in stopword and a not in stopwords_set]
+        new_ontology[not_stopwords[0]] = not_stopwords
     for word, key in old_synonyms.items():
       if word not in  new_ontology.get(key, []):
         new_ontology[key] = new_ontology.get(key, []) + [word]
@@ -238,11 +241,11 @@ class Riverbed:
                   for l in f:
                     l = tokenize_with_ngram(l.strip(), compound, ngram2weight, min_compound_weight=min_compound_weight, synonyms=synonyms)
                     if do_final_tokenize and times == num_iter-1:
-                      l = tokenize_with_ngram(l.strip(), compound, ngram2weight, min_compound_weight=0, synonyms=synonyms)
+                      l = self.tokenize_with_ngram(l.strip(), min_compound_weight=0, compound=compound, ngram2weight=ngram2weight,  synonyms=synonyms)
                     tmp2.write(l+"\n")  
               os.system(f"mv __tmp__2_{file_name} __tmp__{file_name}")
               if use_synonyms:
-                ontology, synonyms = create_ontology_and_synonyms(f"__tmp__{file_name}", ngram2weight, synonyms)     
+                ontology, synonyms = self.create_ontology_and_synonyms(f"__tmp__{file_name}", stopword, ngram2weight, synonyms)     
             if do_collapse_values:
               os.system(f"./{lmplz} --collapse_values  --discount_fallback  --skip_symbols -o 5 --prune {min_num_words}  --arpa {file_name}.arpa <  __tmp__{file_name}") ##
             else:
