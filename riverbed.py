@@ -442,24 +442,31 @@ class Riverbed:
   # TODO: have an option NOT to simplify the prefix. 
   def simplify_text(self, text, ents, ner_to_simplify=()):
     ngram2weight, compound, synonyms  = self.ngram2weight, self.compound, self.synonyms
-    if not ner_to_simplify and not synonyms: return text
+    if not ner_to_simplify and not synonyms: return text, []
     # first tokenize
     if compound or synonyms or ngram2weight:
       text = self.tokenize(text)  
+    swapped_ents = []
     # as a fallback, we will use spacy for other ners.  
-    for entity, label, cnt in ents:
+    for entity, label in ents:
       if label in ner_to_simplify:
-        if label == 'ORG':
+        if label == 'ORG' and entity in text:
+          swapped_ents.append((entity, text.count(entity)))
           text = text.replace(entity, 'The Organization').replace(entity.replace(" ", "_"), 'The Organization')
         elif label == 'PERSON':
+          swapped_ents.append((entity, text.count(entity)))
           text = text.replace(entity, 'The Person').replace(entity.replace(" ", "_"), 'The Person')
         elif label == 'FAC':
+          swapped_ents.append((entity, text.count(entity)))
           text = text.replace(entity, 'The Facility').replace(entity.replace(" ", "_"), 'The Facility')
         elif label in ('GPE', 'LOC'):
+          swapped_ents.append((entity, text.count(entity)))
           text = text.replace(entity, 'The Location').replace(entity.replace(" ", "_"), 'The Location')
         elif label in ('DATE', ):
+          swapped_ents.append((entity, text.count(entity)))
           text = text.replace(entity, 'The Date').replace(entity.replace(" ", "_"), 'The Date')
         elif label in ('LAW', ):
+          swapped_ents.append((entity, text.count(entity)))
           text = text.replace(entity, 'The Law').replace(entity.replace(" ", "_"), 'The Law')  
     for _ in range(3):
       text = text.replace("The Person and The Person", "The Person").replace("The Person The Person", "The Person").replace("The Person, The Person", "The Person")
@@ -469,7 +476,7 @@ class Riverbed:
       text = text.replace("The Date and The Date", "The Date").replace("The Date The Date", "The Date").replace("The Date, The Date", "The Date")
       text = text.replace("The Law and The Law", "The Law").replace("The Law The Law", "The Law").replace("The Law, The Law", "The Law")
       
-    return text
+    return text, swapped_ents
 
   def create_spans(self, curr_file_size, batch, text_span_size=1000, ner_to_simplify=()):
       ngram2weight, compound, synonyms  = self.ngram2weight, self.compound, self.synonyms
@@ -493,12 +500,13 @@ class Riverbed:
             text2 = prefix +" || ... " + text[offset:max_rng].strip()
           else:
             text2 = text[offset:max_rng].strip()
-          tokenized_text = self.simplify_text(text2, ents, ner_to_simplify) 
+          tokenized_text, swapped_ents = self.simplify_text(text2, ents, ner_to_simplify) 
           sub_span = copy.copy(span)
           sub_span['position'] += offset/curr_file_size
           sub_span['offset'] = offset
           sub_span['text'] = text2
           sub_span['tokenized_text'] = tokenized_text 
+          sub_span['swapped_ents'] = swapped_ents
           batch2.append(sub_span)
           offset = max_rng
 
@@ -647,11 +655,14 @@ class Riverbed:
         if item in cluster_leaf2idx:
           span = cluster_batch[cluster_leaf2idx[item]]
           text = span['tokenized_text']
-          ents =  list(itertools.chain(*[[a[0].replace(" ", "_")]*a[-1] for a in span['ents']]))
+          ents =  list(itertools.chain(*[[a[0].replace(" ", "_")]*a[-1] for a in span['swapped_ents']]))
           if span['offset'] == 0:
-            prefix, text = text.split("||",1)
-            prefix = prefix.split(":")[-1].split(";")[-1].strip()
-            text = prefix.split() + text.split() + ents
+            if "||" in text:
+              prefix, text = text.split("||",1)
+              prefix = prefix.split(":")[-1].split(";")[-1].strip()
+              text = prefix.split() + text.split() + ents
+            else:
+               text = text.split() + ents
           else:
             text = text.split("||",1)[-1].strip().split() + ents
           text = [a.lower().strip("~!@#$%^&*()<>,.:;")  for a in text if a not in ('conclusion:', 'intro:', 'section:', 'none', 'none.')  ]
@@ -798,7 +809,6 @@ class Riverbed:
             if not dedup or (hash_id not in seen):
                 curr_ents = list(itertools.chain(*[[(e.text, e.label_)] if '||' not in e.text else [(e.text.split("||")[0].strip(), e.label_), (e.text.split("||")[-1].strip(), e.label_)] for e in spacy_nlp(curr).ents]))
                 curr_ents = [e for e in curr_ents if e[0]]
-                curr_ents = [[a[0], a[1], b] for a, b in Counter(curr_ents).items()]
                 curr_ents.sort(key=lambda a: len(a[0]), reverse=True)
                 batch.append({'file_name': file_name, 'lineno': curr_lineno, 'text': curr, 'ents': curr_ents, 'position':curr_position})
                 seen[hash_id] = 1
@@ -840,7 +850,6 @@ class Riverbed:
                 if not dedup or (hash_id not in seen):
                   curr_ents = list(itertools.chain(*[[(e.text, e.label_)] if '||' not in e.text else [(e.text.split("||")[0].strip(), e.label_), (e.text.split("||")[-1].strip(), e.label_)] for e in spacy_nlp(curr).ents]))
                   curr_ents = [e for e in curr_ents if e[0]]
-                  curr_ents = [[a[0], a[1], b] for a, b in Counter(curr_ents).items()]
                   curr_ents.sort(key=lambda a: len(a[0]), reverse=True)
                   batch.append({'file_name': file_name, 'lineno': curr_lineno, 'text': curr, 'ents': curr_ents, 'position':curr_position})
                   seen[hash_id] = 1
@@ -874,7 +883,6 @@ class Riverbed:
           if not dedup or (hash_id not in seen):
             curr_ents = list(itertools.chain(*[[(e.text, e.label_)] if '||' not in e.text else [(e.text.split("||")[0].strip(), e.label_), (e.text.split("||")[-1].strip(), e.label_)] for e in spacy_nlp(curr).ents]))
             curr_ents = [e for e in curr_ents if e[0]]
-            curr_ents = [[a[0], a[1], b] for a, b in Counter(curr_ents).items()]
             curr_ents.sort(key=lambda a: len(a[0]), reverse=True)
             batch.append({'file_name': file_name, 'lineno': curr_lineno, 'text': curr, 'ents': curr_ents, 'position':curr_position})
             seen[hash_id] = 1
