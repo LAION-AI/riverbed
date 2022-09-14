@@ -631,7 +631,7 @@ class Riverbed:
   def create_cluster_and_label_one_batch(self, jsonl_file, batch_id_prefix, jsonl_file_idx, jsonl_file_idx_for_curr_batch, retained_spans_per_cluster, span_lfs, cluster_batch, cluster_vecs, clusters, span2cluster_label, \
                                         span_per_cluster, kmeans_batch_size, label2tf=None, df=None, domain_stopword_set=stopwords_set, verbose_snrokel=False):
     ngram2weight  = self.ngram2weight
-    clusters, span2cluster_label = create_cluster_for_spans(batch_id_prefix, cluster_batch, cluster_vecs, clusters, span2cluster_label, span_per_cluster=span_per_cluster, kmeans_batch_size=kmeans_batch_size)
+    clusters, span2cluster_label = self.create_cluster_for_spans(batch_id_prefix, cluster_batch, cluster_vecs, clusters, span2cluster_label, span_per_cluster=span_per_cluster, kmeans_batch_size=kmeans_batch_size)
     #all leaf nodes of the cluster are stored as a triple of (file_name, lineno, offset)
     cluster_leaf2idx = dict([((b['file_name'], b['lineno'], b['offset']), idx) for idx, b in enumerate(cluster_batch) ])
     new_cluster_batch = []
