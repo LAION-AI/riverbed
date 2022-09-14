@@ -336,12 +336,6 @@ class Riverbed:
 
       for word, weight in top_stopword:
         stopword[word] = min(stopword.get(word, 100), weight)
-
-      with open (f"{project_name}_stopword.tsv", "w", encoding="utf8") as o:
-          stopword_list = list(stopword.items())
-          stopword_list.sort(key=lambda a: a[1], reverse=True)
-          for word, weight in stopword_list:
-            o.write (str(weight)+"\t"+word+"\n")
       self.ngram2weight, self.compound, self.synonyms, self.stopword, self.ontology = ngram2weight, compound, synonyms, stopword, ontology 
       return ngram2weight, compound, synonyms, stopword, ontology 
 
@@ -452,8 +446,8 @@ class Riverbed:
     # first tokenize
     if compound or synonyms or ngram2weight:
       text = self.tokenize(text)  
-    # as a fallback, we will use spacy for other ners.           
-    for entity, label in ents:
+    # as a fallback, we will use spacy for other ners.  
+    for entity, label, cnt in ents:
       if label in ner_to_simplify:
         if label == 'ORG':
           text = text.replace(entity, 'The Organization').replace(entity.replace(" ", "_"), 'The Organization')
@@ -652,10 +646,14 @@ class Riverbed:
       for item in values:
         if item in cluster_leaf2idx:
           span = cluster_batch[cluster_leaf2idx[item]]
+          text = span['tokenized_text']
+          ents =  list(itertools.chain(*[[a[0].replace(" ", "_")]*a[-1] for a in span['ents']]))
           if span['offset'] == 0:
-            text = span['text'].split() 
+            prefix, text = text.split("||",1)
+            prefix = prefix.split(":")[-1].split(";")[-1].strip()
+            text = prefix.split() + text.split() + ents
           else:
-            text = span['text'].split("||",1)[-1].strip().split() 
+            text = text.split("||",1)[-1].strip().split() + ents
           text = [a.lower().strip("~!@#$%^&*()<>,.:;")  for a in text if a not in ('conclusion:', 'intro:', 'section:', 'none', 'none.')  ]
           text = [a for a in text if len(a) > 1 and a not in domain_stopword_set and a[0].lower() in "abcdefghijklmnopqrstuvwxyz"]
           len_text = len(text)
@@ -752,15 +750,13 @@ class Riverbed:
     
     if os.path.exists(f"{project_name}.arpa") and (not hasattr(self, 'kenlm_model') or self.kenlm_model is None):
       kenlm_model = self.kenlm_model = kenlm.LanguageModel(f"{project_name}.arpa")
-    else:
-      kenlm_model = self.kenlm_model = None
+    kenlm_model = self.kenlm_model if hasattr(self, 'kenlm_model') else None
     if kenlm_model is None and auto_create_tokenizer:
       self.create_tokenizer(project_name, files, )
       kenlm_model = self.kenlm_model = kenlm.LanguageModel(f"{project_name}.arpa")      
     running_features_per_label = {}
     file_name = files.pop()
     f = open(file_name) 
-    
     domain_stopword_set = set(list(stopwords_set) + list(stopword.keys()))
     prior_line = ""
     batch = []
@@ -802,6 +798,7 @@ class Riverbed:
             if not dedup or (hash_id not in seen):
                 curr_ents = list(itertools.chain(*[[(e.text, e.label_)] if '||' not in e.text else [(e.text.split("||")[0].strip(), e.label_), (e.text.split("||")[-1].strip(), e.label_)] for e in spacy_nlp(curr).ents]))
                 curr_ents = [e for e in curr_ents if e[0]]
+                curr_ents = [[a[0], a[1], b] for a, b in Counter(curr_ents).items()]
                 curr_ents.sort(key=lambda a: len(a[0]), reverse=True)
                 batch.append({'file_name': file_name, 'lineno': curr_lineno, 'text': curr, 'ents': curr_ents, 'position':curr_position})
                 seen[hash_id] = 1
@@ -832,6 +829,7 @@ class Riverbed:
         if len(line) < max_len_for_prefix:
           ents = list(itertools.chain(*[[(e.text, e.label_)] if '||' not in e.text else [(e.text.split("||")[0].strip(), e.label_), (e.text.split("||")[-1].strip(), e.label_)] for e in spacy_nlp(line).ents]))
           ents = [e for e in ents if e[0]]
+          ents = [[a[0], a[1], b] for a, b in Counter(ents).items()]
           for prefix, extract in prefix_extractors:
             extracted_text = extract(self, {'text':line, 'position':position, 'ents':ents}) 
             if extracted_text:
@@ -842,6 +840,7 @@ class Riverbed:
                 if not dedup or (hash_id not in seen):
                   curr_ents = list(itertools.chain(*[[(e.text, e.label_)] if '||' not in e.text else [(e.text.split("||")[0].strip(), e.label_), (e.text.split("||")[-1].strip(), e.label_)] for e in spacy_nlp(curr).ents]))
                   curr_ents = [e for e in curr_ents if e[0]]
+                  curr_ents = [[a[0], a[1], b] for a, b in Counter(curr_ents).items()]
                   curr_ents.sort(key=lambda a: len(a[0]), reverse=True)
                   batch.append({'file_name': file_name, 'lineno': curr_lineno, 'text': curr, 'ents': curr_ents, 'position':curr_position})
                   seen[hash_id] = 1
@@ -875,6 +874,7 @@ class Riverbed:
           if not dedup or (hash_id not in seen):
             curr_ents = list(itertools.chain(*[[(e.text, e.label_)] if '||' not in e.text else [(e.text.split("||")[0].strip(), e.label_), (e.text.split("||")[-1].strip(), e.label_)] for e in spacy_nlp(curr).ents]))
             curr_ents = [e for e in curr_ents if e[0]]
+            curr_ents = [[a[0], a[1], b] for a, b in Counter(curr_ents).items()]
             curr_ents.sort(key=lambda a: len(a[0]), reverse=True)
             batch.append({'file_name': file_name, 'lineno': curr_lineno, 'text': curr, 'ents': curr_ents, 'position':curr_position})
             seen[hash_id] = 1
