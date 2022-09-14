@@ -496,13 +496,13 @@ class Riverbed:
             text2 = prefix +" || ... " + text[offset:max_rng].strip()
           else:
             text2 = text[offset:max_rng].strip()
-          tokenized_text, ents = self.simplify_text(text2, ents, ner_to_simplify) 
-          sub_span = copy.copy(span)
+          tokenized_text, ents2 = self.simplify_text(text2, ents, ner_to_simplify) 
+          sub_span = copy.deepcopy(span)
           sub_span['position'] += offset/curr_file_size
           sub_span['offset'] = offset
           sub_span['text'] = text2
           sub_span['tokenized_text'] = tokenized_text 
-          sub_span['ents'] = ents
+          sub_span['ents'] = ents2
           batch2.append(sub_span)
           offset = max_rng
 
