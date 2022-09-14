@@ -442,32 +442,28 @@ class Riverbed:
   # TODO: have an option NOT to simplify the prefix. 
   def simplify_text(self, text, ents, ner_to_simplify=()):
     ngram2weight, compound, synonyms  = self.ngram2weight, self.compound, self.synonyms
-    if not ner_to_simplify and not synonyms: return text, []
+    if not ner_to_simplify and not synonyms and not ents: return text, ents
     # first tokenize
     if compound or synonyms or ngram2weight:
       text = self.tokenize(text)  
-    swapped_ents = []
+    ents2 = []
     # as a fallback, we will use spacy for other ners.  
     for entity, label in ents:
-      if label in ner_to_simplify:
-        if label == 'ORG' and entity in text:
-          swapped_ents.append((entity, text.count(entity)))
-          text = text.replace(entity, 'The Organization').replace(entity.replace(" ", "_"), 'The Organization')
-        elif label == 'PERSON':
-          swapped_ents.append((entity, text.count(entity)))
-          text = text.replace(entity, 'The Person').replace(entity.replace(" ", "_"), 'The Person')
-        elif label == 'FAC':
-          swapped_ents.append((entity, text.count(entity)))
-          text = text.replace(entity, 'The Facility').replace(entity.replace(" ", "_"), 'The Facility')
-        elif label in ('GPE', 'LOC'):
-          swapped_ents.append((entity, text.count(entity)))
-          text = text.replace(entity, 'The Location').replace(entity.replace(" ", "_"), 'The Location')
-        elif label in ('DATE', ):
-          swapped_ents.append((entity, text.count(entity)))
-          text = text.replace(entity, 'The Date').replace(entity.replace(" ", "_"), 'The Date')
-        elif label in ('LAW', ):
-          swapped_ents.append((entity, text.count(entity)))
-          text = text.replace(entity, 'The Law').replace(entity.replace(" ", "_"), 'The Law')  
+        if entity not in text: continue
+        ents2.append((entity, label,  text.count(entity)))
+        if label in ner_to_simplify:   
+          if label == 'ORG':
+            text = text.replace(entity, 'The Organization').replace(entity.replace(" ", "_"), 'The Organization')
+          elif label == 'PERSON':
+            text = text.replace(entity, 'The Person').replace(entity.replace(" ", "_"), 'The Person')
+          elif label == 'FAC':
+            text = text.replace(entity, 'The Facility').replace(entity.replace(" ", "_"), 'The Facility')
+          elif label in ('GPE', 'LOC'):
+            text = text.replace(entity, 'The Location').replace(entity.replace(" ", "_"), 'The Location')
+          elif label in ('DATE', ):
+            text = text.replace(entity, 'The Date').replace(entity.replace(" ", "_"), 'The Date')
+          elif label in ('LAW', ):
+            text = text.replace(entity, 'The Law').replace(entity.replace(" ", "_"), 'The Law')    
     for _ in range(3):
       text = text.replace("The Person and The Person", "The Person").replace("The Person The Person", "The Person").replace("The Person, The Person", "The Person")
       text = text.replace("The Facility and The Facility", "The Facility").replace("The Facility The Facility", "The Facility").replace("The Facility, The Facility", "The Facility")
@@ -476,7 +472,7 @@ class Riverbed:
       text = text.replace("The Date and The Date", "The Date").replace("The Date The Date", "The Date").replace("The Date, The Date", "The Date")
       text = text.replace("The Law and The Law", "The Law").replace("The Law The Law", "The Law").replace("The Law, The Law", "The Law")
       
-    return text, swapped_ents
+    return text, ents2
 
   def create_spans(self, curr_file_size, batch, text_span_size=1000, ner_to_simplify=()):
       ngram2weight, compound, synonyms  = self.ngram2weight, self.compound, self.synonyms
@@ -500,13 +496,13 @@ class Riverbed:
             text2 = prefix +" || ... " + text[offset:max_rng].strip()
           else:
             text2 = text[offset:max_rng].strip()
-          tokenized_text, swapped_ents = self.simplify_text(text2, ents, ner_to_simplify) 
+          tokenized_text, ents = self.simplify_text(text2, ents, ner_to_simplify) 
           sub_span = copy.copy(span)
           sub_span['position'] += offset/curr_file_size
           sub_span['offset'] = offset
           sub_span['text'] = text2
           sub_span['tokenized_text'] = tokenized_text 
-          sub_span['swapped_ents'] = swapped_ents
+          sub_span['ents'] = ents
           batch2.append(sub_span)
           offset = max_rng
 
@@ -655,7 +651,7 @@ class Riverbed:
         if item in cluster_leaf2idx:
           span = cluster_batch[cluster_leaf2idx[item]]
           text = span['tokenized_text']
-          ents =  list(itertools.chain(*[[a[0].replace(" ", "_")]*a[-1] for a in span['swapped_ents']]))
+          ents =  list(itertools.chain(*[[a[0].replace(" ", "_")]*a[-1] for a in span['ents']]))
           if span['offset'] == 0:
             if "||" in text:
               prefix, text = text.split("||",1)
@@ -665,26 +661,31 @@ class Riverbed:
                text = text.split() + ents
           else:
             text = text.split("||",1)[-1].strip().split() + ents
-          text = [a.lower().strip("~!@#$%^&*()<>,.:;")  for a in text if a not in ('conclusion:', 'intro:', 'section:', 'none', 'none.')  ]
-          text = [a for a in text if len(a) > 1 and a not in domain_stopword_set and a[0].lower() in "abcdefghijklmnopqrstuvwxyz"]
           len_text = len(text)
+          text = [a for a in text if len(a) > 1 and ("_" not in a or (a.count("_")+1 != len([b for b in a.lower().split("_") if len(b) <= 3 and b in domain_stopword_set])))  and a.lower() not in domain_stopword_set and a[0].lower() in "abcdefghijklmnopqrstuvwxyz"]
           cnts = Counter(text)
           aHash = label2tf[label] =  label2tf.get(label, {})
           for word, cnt in cnts.items():
-            aHash[word] = (ngram2weight.get(word, 1)*cnt)/len_text
+            aHash[word] = cnt/len_text
           for word in cnts.keys():
             df[word] = df.get(word,0) + 1
       
-    # create a new label from the tfidf of the words in this cluster
+    #create a new label from the tfidf of the words in this cluster
     #TODO, see how we might save away the tf-idf info as features, then we would need to recompute the tfidf if new items are added to cluster
     label2label = {}
     for label, tf in label2tf.items():
       if label.startswith(batch_id_prefix):
         tfidf = copy.copy(tf)    
         for word in list(tfidf.keys()):
-          tfidf[word]  = tfidf[word] * math.log(df[word]/len_clusters)
-        top_words = [a[0] for a in Counter(tfidf).most_common(min(len(tfidf), 5))]
+          tfidf[word]  = tfidf[word] * ngram2weight.get(word, 1) * math.log(df[word]/len_clusters)
+        top_words2 = [a[0].lower().strip("~!@#$%^&*()<>,.:;")  for a in Counter(tfidf).most_common(min(len(tfidf), 20))]
+        top_words2 = [a for a in top_words2 if a not in domain_stopword_set and ("_" not in a or (a.count("_")+1 != len([b for b in a.split("_") if len(b) <= 3 and b in domain_stopword_set])))]
+        top_words = []
+        for t in top_words2:
+          if t not in top_words:
+            top_words.append(t)
         if top_words:
+          if len(top_words) > 5: top_words = top_words[:5]
           label2 = ", ".join(top_words) 
           label2label[label] = label2
 
