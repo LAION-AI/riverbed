@@ -738,16 +738,18 @@ class Riverbed:
                                                 batch_id_prefix = 0, seen = None, span2jsonl_file_idx = None, \
                                                 clusters = None, label2tf = None, df = None, span2cluster_label = None, label_models = None \
                                                 ):
+    self.ngram2weight = {} if not hasattr(self, 'ngram2weight') else self.ngram2weight
+    self.compound = {} if not hasattr(self, 'compound') else self.compound
+    self.synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
+    stopword = self.stopword = {} if not hasattr(self, 'stopword') else self.stopword
     
     if os.path.exists(f"{project_name}.arpa") and (not hasattr(self, 'kenlm_model') or self.kenlm_model is None):
       kenlm_model = self.kenlm_model = kenlm.LanguageModel(f"{project_name}.arpa")
     else:
       kenlm_model = self.kenlm_model = None
-    stopword = {} if not hasattr(self, 'stopword') else self.stopword
     running_features_per_label = {}
     file_name = files.pop()
     f = open(file_name) 
-
     
     domain_stopword_set = set(list(stopwords_set) + list(stopword.keys()))
     prior_line = ""
