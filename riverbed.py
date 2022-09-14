@@ -358,9 +358,9 @@ class Riverbed:
       date = [e[0] for e in ents if e[1] == 'DATE']
       if date: 
         date = date[0]
-        date = dateutil_parse_ext(date)
+        date = self.dateutil_parse_ext(date)
       if  date: 
-        return 'intro: date of '+ dateutil_parse_ext(date) +"; "+text + " || "
+        return 'intro: date of '+ date +"; "+text + " || "
       else:
         return 'intro: ' +text + " || "
 
@@ -370,9 +370,9 @@ class Riverbed:
       date = [e[0] for e in ents if e[1] == 'DATE']
       if date: 
         date = date[0]
-        date = dateutil_parse_ext(date)
+        date = self.dateutil_parse_ext(date)
       if  date: 
-        return 'section: date of '+ dateutil_parse_ext(date) +"; "+text + " || "
+        return 'section: date of '+ date +"; "+text + " || "
       else:
         return  'section: ' +text + " || "
     return None
@@ -383,7 +383,7 @@ class Riverbed:
       date = [e[0] for e in ents if e[1] == 'DATE']
       if date: 
         date = date[0]
-        date = dateutil_parse_ext(date)
+        date = self.dateutil_parse_ext(date)
       if  date: 
         return 'conclusion: date of '+ date +"; "+text + " || "
       else:
@@ -528,7 +528,7 @@ class Riverbed:
                 break
         stdv = statistics.stdev(running_features)
         mn = statistics.mean (running_features)
-        relative_label = RELATIVE_LOW
+        relative_label = self.RELATIVE_LOW
       for idx, span in enumerate(batch):
         p = extractor(self, span)
         features_per_label.append(p)
@@ -540,19 +540,19 @@ class Riverbed:
           if len(running_features) > running_features_size:
             running_features.pop()    
           if abs(p-mn) >= stdv*upper_band and need_to_high:
-            relative_label = RELATIVE_HIGH
+            relative_label = self.RELATIVE_HIGH
             prior_change = idx
             need_to_high = False
             need_to_low = True
             need_to_medium = True
           elif  abs(p-mn) < stdv*upper_band and abs(p-mn) > stdv*lower_band  and need_to_medium:
-            relative_label = RELATIVE_MEDIUM
+            relative_label = self.RELATIVE_MEDIUM
             prior_change = idx
             need_to_high = True
             need_to_low = True
             need_to_medium = False
           elif abs(p-mn) <= stdv*lower_band and need_to_low:
-            relative_label = RELATIVE_LOW
+            relative_label = self.RELATIVE_LOW
             prior_change = idx
             need_to_high = False
             need_to_low = True
@@ -738,14 +738,17 @@ class Riverbed:
                                                 batch_id_prefix = 0, seen = None, span2jsonl_file_idx = None, \
                                                 clusters = None, label2tf = None, df = None, span2cluster_label = None, label_models = None \
                                                 ):
-    if os.path.exists(f"{project_name}.arpa") and self.kenlm_model is None:
+    
+    if os.path.exists(f"{project_name}.arpa") and (not hasattr(self, 'kenlm_model') or self.kenlm_model is None):
       kenlm_model = self.kenlm_model = kenlm.LanguageModel(f"{project_name}.arpa")
     else:
       kenlm_model = self.kenlm_model = None
+    stopword = {} if not hasattr(self, 'stopword') else self.stopword
     running_features_per_label = {}
     file_name = files.pop()
     f = open(file_name) 
 
+    
     domain_stopword_set = set(list(stopwords_set) + list(stopword.keys()))
     prior_line = ""
     batch = []
@@ -818,7 +821,7 @@ class Riverbed:
           ents = list(itertools.chain(*[[(e.text, e.label_)] if '||' not in e.text else [(e.text.split("||")[0].strip(), e.label_), (e.text.split("||")[-1].strip(), e.label_)] for e in spacy_nlp(line).ents]))
           ents = [e for e in ents if e[0]]
           for prefix, extract in prefix_extractors:
-            extracted_text = self.extract({'text':line, 'position':position, 'ents':ents}) 
+            extracted_text = extract(self, {'text':line, 'position':position, 'ents':ents}) 
             if extracted_text:
               line = extracted_text
               if curr: 
@@ -843,7 +846,7 @@ class Riverbed:
         # process the batches
         if len(batch) >= features_batch_size:
           cluster_batch, cluster_vecs, span2jsonl_file_idx, jsonl_file_idx = \
-            self.create_embeds_and_features_one_batch(curr_file_size, jsonl_file_idx, span2jsonl_file_idx, batch, cluster_batch, cluster_vecs, embed_batch_size, text_span_size, kenlm_model, running_features_per_label, ner_to_simplify, span_level_feature_extractors, running_features_size)
+            self.create_embeds_and_features_one_batch(curr_file_size, jsonl_file_idx, span2jsonl_file_idx, batch, cluster_batch, cluster_vecs, embed_batch_size, text_span_size,  running_features_per_label, ner_to_simplify, span_level_feature_extractors, running_features_size)
           batch = []
         # clustering, labeling and creating snorkel model in chunks
         if cluster_batch and cluster_vecs is not None and cluster_vecs.shape[0] >= labeling_batch_size:
@@ -868,7 +871,7 @@ class Riverbed:
           curr_position = position
       if batch: 
         cluster_batch, cluster_vecs, span2jsonl_file_idx, jsonl_file_idx = \
-          self.create_embeds_and_features_one_batch(curr_file_size, jsonl_file_idx, span2jsonl_file_idx, batch, cluster_batch, cluster_vecs, embed_batch_size, text_span_size, kenlm_model, running_features_per_label, ner_to_simplify, span_level_feature_extractors, running_features_size)
+          self.create_embeds_and_features_one_batch(curr_file_size, jsonl_file_idx, span2jsonl_file_idx, batch, cluster_batch, cluster_vecs, embed_batch_size, text_span_size, running_features_per_label, ner_to_simplify, span_level_feature_extractors, running_features_size)
         batch = []
       if cluster_batch and cluster_vecs is not None:
         batch_id_prefix += 1
