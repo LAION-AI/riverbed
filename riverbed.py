@@ -77,6 +77,7 @@ class Riverbed:
         return float((10.0 ** (-log_score / length)))
 
   def get_perplexity(self,  doc, kenlm_model=None):
+    if kenlm_model is None: kenlm_model = {} if not hasattr(self, 'kenlm_model') else self.kenlm_model
     doc_log_score = doc_length = 0
     doc = doc.replace("\n", " ")
     for line in doc.split(". "):
