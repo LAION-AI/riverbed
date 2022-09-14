@@ -76,22 +76,23 @@ class Riverbed:
   def pp(log_score, length):
         return float((10.0 ** (-log_score / length)))
 
-  def get_perplexity(self,  doc):
-      model, compound, ngram2weight, synonyms =  self.kenlm_model, self.compound, self.ngram2weight, self.synonyms
-      doc_log_score = doc_length = 0
-      doc = doc.replace("\n", " ")
-      for line in doc.split(". "):
-          log_score = model.score(line)
-          length = len(line.split()) + 1
-          doc_log_score += log_score
-          doc_length += length
-      return self.pp(doc_log_score, doc_length)
+  def get_perplexity(self,  doc, kenlm_model=None):
+    doc_log_score = doc_length = 0
+    doc = doc.replace("\n", " ")
+    for line in doc.split(". "):
+        log_score = kenlm_model.score(line)
+        length = len(line.split()) + 1
+        doc_log_score += log_score
+        doc_length += length
+    return self.pp(doc_log_score, doc_length)
 
   #TODO: option to do ngram2weight, ontology and synonyms in lowercase
   #TODO: hiearhical clustering
-  def create_ontology_and_synonyms(self, file_name, stopword, words_per_ontology_cluster = 10, batch_size=1000000, epoch = 10):
-    ngram2weight =  self.ngram2weight
-    old_synonyms = self.synonyms
+  def create_ontology_and_synonyms(self, file_name, synonyms=None, stopword=None, ngram2weight=None, words_per_ontology_cluster = 10, batch_size=1000000, epoch = 10):
+    if synonyms is None: synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
+    if ngram2weight is None: ngram2weight = {} if not hasattr(self, 'ngram2weight') else self.ngram2weight    
+    if stopword is None: stopword = {} if not hasattr(self, 'stopword') else self.stopword
+    old_synonyms = synonyms 
     model = fasttext.train_unsupervised(file_name, epoch=epoch)
     terms = model.get_words()
     true_k=int(len(terms)/words_per_ontology_cluster)
@@ -156,9 +157,9 @@ class Riverbed:
       if len(items) > 1:
         items.sort(key=lambda a: ngram2weight.get(a, len(a)))
         stopwords_only = [a for a in items if a in stopword or a in stopwords_set]
-        new_ontology[stopwords_only[0]] = stopwords_only
+        if stopwords_only: new_ontology[stopwords_only[0]] = stopwords_only
         not_stopwords = [a for a in items if a not in stopword and a not in stopwords_set]
-        new_ontology[not_stopwords[0]] = not_stopwords
+        if not_stopwords: new_ontology[not_stopwords[0]] = not_stopwords
     for word, key in old_synonyms.items():
       if word not in  new_ontology.get(key, []):
         new_ontology[key] = new_ontology.get(key, []) + [word]
@@ -166,13 +167,13 @@ class Riverbed:
         new_ontology[key] = new_ontology.get(key, []) + [key]
       synonyms[word] = key
       synonyms[key] = key
-    self.ontology, self.synonyms = new_ontology, synonyms
     return new_ontology, synonyms
-
+ 
 
   def tokenize(self, doc, min_compound_weight=0,  compound=None, ngram2weight=None, synonyms=None):
-    if compound is None:
-      compound, ngram2weight, synonyms =  self.compound, self.ngram2weight, self.synonyms
+    if synonyms is None: synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
+    if ngram2weight is None: ngram2weight = {} if not hasattr(self, 'ngram2weight') else self.ngram2weight    
+    if compound is None: compound = {} if not hasattr(self, 'compound') else self.compound
     doc = [synonyms.get(d,d) for d in doc.split(" ") if d.strip()]
     len_doc = len(doc)
     for i in range(len_doc-1):
@@ -247,7 +248,7 @@ class Riverbed:
                     tmp2.write(l+"\n")  
               os.system(f"mv __tmp__2_{file_name} __tmp__{file_name}")
               if use_synonyms:
-                ontology, synonyms = self.create_ontology_and_synonyms(f"__tmp__{file_name}", stopword, ngram2weight, synonyms)     
+                ontology, synonyms = self.create_ontology_and_synonyms(f"__tmp__{file_name}", stopword=stopword, ngram2weight=ngram2weight, synonyms=synonyms)     
             if do_collapse_values:
               os.system(f"./{lmplz} --collapse_values  --discount_fallback  --skip_symbols -o 5 --prune {min_num_words}  --arpa {file_name}.arpa <  __tmp__{file_name}") ##
             else:
@@ -299,7 +300,7 @@ class Riverbed:
                     tmp2.write(l+"\n")  
             os.system(f"mv __tmp__2_{file_name} __tmp__{file_name}")
             if use_synonyms:
-              ontology, synonyms = create_ontology_and_synonyms(f"__tmp__{file_name}", ngram2weight, synonyms)    
+              ontology, synonyms = self.create_ontology_and_synonyms(f"__tmp__{file_name}", stopword=stopword, ngram2weight=ngram2weight, synonyms=synonyms)    
       
       #ouotput the final kenlm .arpa file for calculating the perplexity
       ngram_cnt = {}
@@ -748,7 +749,7 @@ class Riverbed:
     else:
       kenlm_model = self.kenlm_model = None
     if kenlm_model is None and auto_create_tokenizer:
-      
+      self.create_tokenizer(project_name, files, )
     running_features_per_label = {}
     file_name = files.pop()
     f = open(file_name) 
