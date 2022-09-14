@@ -463,7 +463,9 @@ class Riverbed:
           elif label in ('DATE', ):
             text = text.replace(entity, 'The Date').replace(entity.replace(" ", "_"), 'The Date')
           elif label in ('LAW', ):
-            text = text.replace(entity, 'The Law').replace(entity.replace(" ", "_"), 'The Law')    
+            text = text.replace(entity, 'The Law').replace(entity.replace(" ", "_"), 'The Law')  
+          elif label in ('MONEY', ):
+            text = text.replace(entity, 'The Amount').replace(entity.replace(" ", "_"), 'The Amount')                
     for _ in range(3):
       text = text.replace("The Person and The Person", "The Person").replace("The Person The Person", "The Person").replace("The Person, The Person", "The Person")
       text = text.replace("The Facility and The Facility", "The Facility").replace("The Facility The Facility", "The Facility").replace("The Facility, The Facility", "The Facility")
@@ -471,6 +473,7 @@ class Riverbed:
       text = text.replace("The Location and The Location", "The Location").replace("The Location The Location", "The Location").replace("The Location, The Location", "The Location")
       text = text.replace("The Date and The Date", "The Date").replace("The Date The Date", "The Date").replace("The Date, The Date", "The Date")
       text = text.replace("The Law and The Law", "The Law").replace("The Law The Law", "The Law").replace("The Law, The Law", "The Law")
+      text = text.replace("The Amount and The Amount", "The Amount").replace("The Amount The Amount", "The Amount").replace("The Amount, The Amount", "The Amount")
       
     return text, ents2
 
