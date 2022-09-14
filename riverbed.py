@@ -87,7 +87,8 @@ class Riverbed:
           doc_length += length
       return self.pp(doc_log_score, doc_length)
 
-  ### TODO: option to do ngram2weight, ontology and synonyms in lowercase
+  #TODO: option to do ngram2weight, ontology and synonyms in lowercase
+  #TODO: hiearhical clustering
   def create_ontology_and_synonyms(self, file_name, stopword, words_per_ontology_cluster = 10, batch_size=1000000, epoch = 10):
     ngram2weight =  self.ngram2weight
     old_synonyms = self.synonyms
@@ -169,8 +170,9 @@ class Riverbed:
     return new_ontology, synonyms
 
 
-  def tokenize_with_ngram(self, doc, min_compound_weight=0):
-    compound, ngram2weight, synonyms =  self.compound, self.ngram2weight, self.synonyms
+  def tokenize(self, doc, min_compound_weight=0,  compound=None, ngram2weight=None, synonyms=None):
+    if compound is None:
+      compound, ngram2weight, synonyms =  self.compound, self.ngram2weight, self.synonyms
     doc = [synonyms.get(d,d) for d in doc.split(" ") if d.strip()]
     len_doc = len(doc)
     for i in range(len_doc-1):
@@ -197,7 +199,7 @@ class Riverbed:
   #TODO: To save memory, save away the __tmp__.arpa file at each iteration (sorted label), and re-read in the cumulative arpa file while processing the new arpa file. 
   def create_tokenizer(self, project_name, files, unigram=None,  lmplz_loc="./riverbed/bin/lmplz", stopword_max_len=10, num_stopwords=75, max_ngram_size=25, \
                 non_words = "،♪↓↑→←━\₨₡€¥£¢¤™®©¶§←«»⊥∀⇒⇔√­­♣️♥️♠️♦️‘’¿*’-ツ¯‿─★┌┴└┐▒∎µ•●°。¦¬≥≤±≠¡×÷¨´:।`~�_“”/|!~@#$%^&*•()【】[]{}-_+–=<>·;…?:.,\'\"", \
-                min_compound_weight=1.0, do_final_tokenize=True, stopword=None, min_num_words=5, do_collapse_values=True, do_tokenize_with_ngram=True, use_synonyms=True):
+                min_compound_weight=1.0, do_final_tokenize=True, stopword=None, min_num_words=5, do_collapse_values=True, do_tokenize=True, use_synonyms=True):
       #TODO, strip non_words
       
       ngram2weight =self.ngram2weight = {} if not hasattr(self, 'ngram2weight') else self.ngram2weight
@@ -215,7 +217,7 @@ class Riverbed:
       if unigram is None: unigram = {}
       if ngram2weight:
         for word in ngram2weight.keys():
-          if "_" not in word: unigram[word] = max(unigram.get(word,0), ngram2weight[word])
+          if "_" not in word: unigram[word] = min(unigram.get(word,0), ngram2weight[word])
       arpa = {}
       if os.path.exists(f"{project_name}.arpa"):
         with open(f"{project_name}.arpa", "rb") as af:
@@ -225,7 +227,7 @@ class Riverbed:
               arpa[line[1]] = min(float(line[0]), arpa.get(line[1], 0))
       #TODO, we should try to create consolidated files of around 1GB to get enough information in the arpa files
       for doc_id, file_name in enumerate(files):
-        if not do_tokenize_with_ngram: 
+        if not do_tokenize: 
           num_iter = 1
         else:
           num_iter = max(1,int(max_ngram_size/(5 *(doc_id+1))))
@@ -239,9 +241,9 @@ class Riverbed:
               with open(f"__tmp__2_{file_name}", "w", encoding="utf8") as tmp2:
                 with open(f"__tmp__{file_name}", "r") as f:
                   for l in f:
-                    l = tokenize_with_ngram(l.strip(), compound, ngram2weight, min_compound_weight=min_compound_weight, synonyms=synonyms)
+                    l = self.tokenize(l.strip(),  min_compound_weight=min_compound_weight, compound=compound, ngram2weight=ngram2weight, synonyms=synonyms)
                     if do_final_tokenize and times == num_iter-1:
-                      l = self.tokenize_with_ngram(l.strip(), min_compound_weight=0, compound=compound, ngram2weight=ngram2weight,  synonyms=synonyms)
+                      l = self.tokenize(l.strip(), min_compound_weight=0, compound=compound, ngram2weight=ngram2weight,  synonyms=synonyms)
                     tmp2.write(l+"\n")  
               os.system(f"mv __tmp__2_{file_name} __tmp__{file_name}")
               if use_synonyms:
@@ -292,8 +294,8 @@ class Riverbed:
             with open(f"__tmp__2_{file_name}", "w", encoding="utf8") as tmp2:
                 with open(f"__tmp__{file_name}", "r") as f:
                   for l in f:
-                    l = tokenize_with_ngram(l.strip(), compound, ngram2weight, min_compound_weight=min_compound_weight, synonyms=synonyms)
-                    l = tokenize_with_ngram(l.strip(), compound, ngram2weight, min_compound_weight=0, synonyms=synonyms)
+                    l = self.tokenize(l.strip(), min_compound_weight=min_compound_weight, compound=compound, ngram2weight=ngram2weight, synonyms=synonyms)
+                    l = self.tokenize(l.strip(), min_compound_weight=0, compound=compound, ngram2weight=ngram2weight, synonyms=synonyms)
                     tmp2.write(l+"\n")  
             os.system(f"mv __tmp__2_{file_name} __tmp__{file_name}")
             if use_synonyms:
@@ -407,9 +409,16 @@ class Riverbed:
       ('conclusion_with_date', conclusion_with_date) \
       ]
 
-  # for feature extraction on a single span. tuples of (feature_label, lower_band, upper_band, extractor). assumes prefix extraction has occured.
+  # for feature extraction on a single span and potentially between spans in a series. 
+  # tuples of (feature_label, lower_band, upper_band, extractor). assumes prefix extraction has occured.
   # returns data which can be used to store in the feature_label for a span. if upper_band and lower_band are set, then an additional label X_level stores
-  # the relative level lahel as well. 
+  # the relative level label as well.
+  #
+  #TODO: other potential features include similarity of embedding from its cluster centroid
+  #compound words %
+  #stopwords %
+  #tf-idf weight
+  
   default_span_level_feature_extractors = [
       ('perplexity', .5, 1.5, lambda self, span: 0.0 if self.kenlm_model is None else self.get_perplexity(span['tokenized_text'])),
       ('prefix', None, None, lambda self, span: "" if " || " not in span['text'] else  span['text'].split(" || ", 1)[0].strip()),
@@ -433,42 +442,32 @@ class Riverbed:
   # Similarly, we want similar concepts (e.g., compound words) to cluster to one canonical form.
   # we do this by collapsing to an NER label and/or creating a synonym map from compound words to known words. See create_ontology_and_synonyms
   # and we use that data to simplify the sentence here.  
+  # TODO: have an option NOT to simplify the prefix. 
   def simplify_text(self, text, ents, ner_to_simplify=()):
     ngram2weight, compound, synonyms  = self.ngram2weight, self.compound, self.synonyms
     if not ner_to_simplify and not synonyms: return text
-    # as a fallback, we will use spacy for other ners.           
-    if " || " in text:
-      prefix, _ = text.split(" || ",1)
-    else:
-      prefix = ""
+    # first tokenize
     if compounds or synonyms:
-      text = self.tokenize_with_ngram(text).replace("_", " ")   
-      print (text)
-    #print (all_ners)
+      text = self.tokenize(text)  
+    # as a fallback, we will use spacy for other ners.           
     for entity, label in ents:
       if label in ner_to_simplify:
         if label == 'ORG':
-          text = text.replace(entity, 'The Organization')
+          text = text.replace(entity, 'The Organization').replace(entity.replace(" ", "_"), 'The Organization')
         elif label == 'PERSON':
-          text = text.replace(entity, 'The Person')
+          text = text.replace(entity, 'The Person').replace(entity.replace(" ", "_"), 'The Person')
         elif label == 'FAC':
-          text = text.replace(entity, 'The Facility')
+          text = text.replace(entity, 'The Facility').replace(entity.replace(" ", "_"), 'The Facility')
         elif label in ('GPE', 'LOC'):
-          text = text.replace(entity, 'The Location')
-    text = text.replace("The Person and The Person", "The Person").replace("The Person The Person", "The Person").replace("The Person, The Person", "The Person")
-    text = text.replace("The Facility and The Facility", "The Facility").replace("The Facility The Facility", "The Facility").replace("The Facility, The Facility", "The Facility")
-    text = text.replace("The Organization and The Organization", "The Organization").replace("The Organization The Organization", "The Organization").replace("The Organization, The Organization", "The Organization")
-    text = text.replace("The Location and The Location", "The Location").replace("The Location The Location", "The Location").replace("The Location, The Location", "The Location")
-    #let's check to see if the prefix has been too garbled. We would revert back. 
-    if " || " in text:
-      prefix2, rest = text.split(" || ",1)
-    else:
-      prefix2 = ""
-    if prefix2.strip() and ":" in prefix2:
-      prefix_label, prefix2 = prefix2.split(":",1) 
-      prefix2 = prefix2.strip(". ")
-      if prefix2 in ('The Person', 'The Organization', 'The Facility', 'The Location'):
-        text = prefix +" || "+ rest.strip()
+          text = text.replace(entity, 'The Location').replace(entity.replace(" ", "_"), 'The Location')
+        elif label in ('DATE', ):
+          text = text.replace(entity, 'The Date').replace(entity.replace(" ", "_"), 'The Date')
+    for _ in range(3):
+      text = text.replace("The Person and The Person", "The Person").replace("The Person The Person", "The Person").replace("The Person, The Person", "The Person")
+      text = text.replace("The Facility and The Facility", "The Facility").replace("The Facility The Facility", "The Facility").replace("The Facility, The Facility", "The Facility")
+      text = text.replace("The Organization and The Organization", "The Organization").replace("The Organization The Organization", "The Organization").replace("The Organization, The Organization", "The Organization")
+      text = text.replace("The Location and The Location", "The Location").replace("The Location The Location", "The Location").replace("The Location, The Location", "The Location")
+      text = text.replace("The Date and The Date", "The Date").replace("The Date The Date", "The Date").replace("The Date, The Date", "The Location")
     return text
 
   def create_spans(self, curr_file_size, batch, text_span_size=1000, ner_to_simplify=()):
@@ -505,10 +504,6 @@ class Riverbed:
       return batch2
 
   #compute features and embeddings in one batch.
-  #other potential features include similarity of embedding from its cluster centroid
-  #relative change in compound words %
-  #relative change in stopwords %
-  #relative change in tf-idf weight
   def create_embeds_and_features_one_batch(self, curr_file_size, jsonl_file_idx, span2jsonl_file_idx, batch, cluster_batch, cluster_vecs, embed_batch_size=100, text_span_size=1000, running_features_per_label={}, ner_to_simplify=(), span_level_feature_extractors=default_span_level_feature_extractors, running_features_size=100):
     ngram2weight, compound, synonyms, kenlm_model  = self.ngram2weight, self.compound, self.synonyms, self.kenlm_model
     batch = self.create_spans(curr_file_size, batch, text_span_size=text_span_size, ner_to_simplify=ner_to_simplify)
@@ -586,7 +581,7 @@ class Riverbed:
     for rng in range(0, len(batch), embed_batch_size):
       max_rng = min(len(batch), rng+embed_batch_size)
       #TODO: save away the vectors (in a mmap file) to enable ANN search of batches 
-      toks = sim_tokenizer([a['tokenized_text'] for a in batch[rng:max_rng]], padding=True, truncation=True, return_tensors="pt").to(device)
+      toks = sim_tokenizer([a['tokenized_text'].replace("_", " ") for a in batch[rng:max_rng]], padding=True, truncation=True, return_tensors="pt").to(device)
       with torch.no_grad():
         dat = sim_model(**toks)
       dat = self.mean_pooling(dat, toks.attention_mask).cpu().numpy()
@@ -596,8 +591,6 @@ class Riverbed:
         cluster_vecs = np.vstack([cluster_vecs, dat])
 
     return cluster_batch, cluster_vecs, span2jsonl_file_idx, jsonl_file_idx
-
-
 
   def create_cluster_for_spans(self, batch_id_prefix, cluster_batch, cluster_vecs, clusters, span2cluster_label,  span_per_cluster=20, kmeans_batch_size=1000000, ):
       true_k=int(len(cluster_batch)/span_per_cluster)
@@ -656,8 +649,8 @@ class Riverbed:
             text = span['text'].split() 
           else:
             text = span['text'].split("||",1)[-1].strip().split() 
-          text = [a.lower().strip("~!@#$%^&*()<>,.:;")  for a in text]
-          text = [a for a in text if len(a) > 1 and a not in domain_stopword_set and a not in ('conclusion:', 'intro:', 'section:', 'none', 'none.')  and a[0].lower() in "abcdefghijklmnopqrstuvwxyz"]
+          text = [a.lower().strip("~!@#$%^&*()<>,.:;")  for a in text if a not in ('conclusion:', 'intro:', 'section:', 'none', 'none.')  ]
+          text = [a for a in text if len(a) > 1 and a not in domain_stopword_set and a[0].lower() in "abcdefghijklmnopqrstuvwxyz"]
           len_text = len(text)
           cnts = Counter(text)
           aHash = label2tf[label] =  label2tf.get(label, {})
