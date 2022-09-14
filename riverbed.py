@@ -448,7 +448,7 @@ class Riverbed:
     ngram2weight, compound, synonyms  = self.ngram2weight, self.compound, self.synonyms
     if not ner_to_simplify and not synonyms: return text
     # first tokenize
-    if compounds or synonyms:
+    if compound or synonyms or ngram2weight:
       text = self.tokenize(text)  
     # as a fallback, we will use spacy for other ners.           
     for entity, label in ents:
@@ -750,6 +750,7 @@ class Riverbed:
       kenlm_model = self.kenlm_model = None
     if kenlm_model is None and auto_create_tokenizer:
       self.create_tokenizer(project_name, files, )
+      kenlm_model = self.kenlm_model = kenlm.LanguageModel(f"{project_name}.arpa")      
     running_features_per_label = {}
     file_name = files.pop()
     f = open(file_name) 
