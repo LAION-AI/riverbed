@@ -878,7 +878,7 @@ class Riverbed:
       if cluster_batch and cluster_vecs is not None:
         batch_id_prefix += 1
         self.clusters, jsonl_file_idx_for_curr_batch, cluster_batch, cluster_vecs, span2cluster_label, label2tf, df = \
-            create_cluster_and_label_one_batch(jsonl_file, f"{batch_id_prefix}_",  jsonl_file_idx, jsonl_file_idx_for_curr_batch, retained_spans_per_cluster, span_lfs, cluster_batch, cluster_vecs, clusters, span2cluster_label, \
+            self.create_cluster_and_label_one_batch(jsonl_file, f"{batch_id_prefix}_",  jsonl_file_idx, jsonl_file_idx_for_curr_batch, retained_spans_per_cluster, span_lfs, cluster_batch, cluster_vecs, clusters, span2cluster_label, \
                                         span_per_cluster, kmeans_batch_size, label2tf, df, domain_stopword_set, verbose_snrokel )
         cluster_batch, cluster_vecs = [], None
 
