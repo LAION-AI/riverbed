@@ -172,10 +172,11 @@ class Riverbed:
     return new_ontology, synonyms
  
 
-  def tokenize(self, doc, min_compound_weight=0,  compound=None, ngram2weight=None, synonyms=None):
+  def tokenize(self, doc, min_compound_weight=0,  compound=None, ngram2weight=None, synonyms=None, use_synonyms=True):
     if synonyms is None: synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
     if ngram2weight is None: ngram2weight = {} if not hasattr(self, 'ngram2weight') else self.ngram2weight    
     if compound is None: compound = {} if not hasattr(self, 'compound') else self.compound
+    if not use_synonyms: synonyms = {} 
     doc = [synonyms.get(d,d) for d in doc.split(" ") if d.strip()]
     len_doc = len(doc)
     for i in range(len_doc-1):
@@ -327,7 +328,7 @@ class Riverbed:
         tmp_arpa.write("\n\\end\\\n\n")
       os.system(f"mv __tmp__.arpa {project_name}.arpa")
       top_stopword={} 
-      #print ('len unigram', len(unigram))
+      #TODO, cleamnup tmp files
       if unigram:
           stopword_list = [l for l in unigram.items() if len(l[0]) > 0]
           stopword_list.sort(key=lambda a: a[1])
@@ -337,7 +338,8 @@ class Riverbed:
       for word, weight in top_stopword:
         stopword[word] = min(stopword.get(word, 100), weight)
       self.ngram2weight, self.compound, self.synonyms, self.stopword, self.ontology = ngram2weight, compound, synonyms, stopword, ontology 
-      return ngram2weight, compound, synonyms, stopword, ontology 
+      self.kenlm_model = kenlm.LanguageModel(f"{project_name}.arpa")
+      return ngram2weight, compound, synonyms, stopword, ontology, self.kenlm_model 
 
   ################
   # code for doing labeling of spans of text with different features, including clustering
@@ -448,24 +450,29 @@ class Riverbed:
       text = self.tokenize(text)  
     ents2 = []
     # as a fallback, we will use spacy for other ners.  
-    for entity, label in ents:
-        if entity not in text: continue
-        ents2.append((entity, label,  text.count(entity)))
+    for idx, ent in enumerate(ents):
+        entity, label = ent
+        if f"@#@{idx}@#@" not in text: continue
+        ents2.append((entity, label,  text.count(f"@#@{idx}@#@")))
         if label in ner_to_simplify:   
           if label == 'ORG':
-            text = text.replace(entity, 'The Organization').replace(entity.replace(" ", "_"), 'The Organization')
+            text = text.replace(f"@#@{idx}@#@", 'The Organization')
           elif label == 'PERSON':
-            text = text.replace(entity, 'The Person').replace(entity.replace(" ", "_"), 'The Person')
+            text = text.replace(f"@#@{idx}@#@", 'The Person')
           elif label == 'FAC':
-            text = text.replace(entity, 'The Facility').replace(entity.replace(" ", "_"), 'The Facility')
+            text = text.replace(f"@#@{idx}@#@", 'The Facility')
           elif label in ('GPE', 'LOC'):
-            text = text.replace(entity, 'The Location').replace(entity.replace(" ", "_"), 'The Location')
+            text = text.replace(f"@#@{idx}@#@", 'The Location')
           elif label in ('DATE', ):
-            text = text.replace(entity, 'The Date').replace(entity.replace(" ", "_"), 'The Date')
+            text = text.replace(f"@#@{idx}@#@", 'The Date')
           elif label in ('LAW', ):
-            text = text.replace(entity, 'The Law').replace(entity.replace(" ", "_"), 'The Law')  
+            text = text.replace(f"@#@{idx}@#@", 'The Law')  
           elif label in ('MONEY', ):
-            text = text.replace(entity, 'The Amount').replace(entity.replace(" ", "_"), 'The Amount')                
+            text = text.replace(f"@#@{idx}@#@", 'The Amount')
+          else:
+            text = text.replace(f"@#@{idx}@#@", entity)
+        else:
+          text = text.replace(f"@#@{idx}@#@", entity)              
     for _ in range(3):
       text = text.replace("The Person and The Person", "The Person").replace("The Person The Person", "The Person").replace("The Person, The Person", "The Person")
       text = text.replace("The Facility and The Facility", "The Facility").replace("The Facility The Facility", "The Facility").replace("The Facility, The Facility", "The Facility")
@@ -482,6 +489,10 @@ class Riverbed:
       batch2 = []
       for idx, span in enumerate(batch):
         file_name, curr_lineno, ents, text  = span['file_name'], span['lineno'], span['ents'], span['text']
+        for idx, ent in enumerate(ents):
+          text = text.replace(ent[0], f' @#@{idx}@#@ ')
+        # we tokenize to make ngram words underlined, so that we don't split a span in the middle of a ngram.
+        text  = self.tokenize(text, use_synonyms=False) 
         len_text = len(text)
         prefix = ""
         if "||" in text:
@@ -496,9 +507,9 @@ class Riverbed:
             else:
               max_rng = len_text
           if prefix and offset > 0:
-            text2 = prefix +" || ... " + text[offset:max_rng].strip()
+            text2 = prefix +" || ... " + text[offset:max_rng].strip().replace("_", " ").replace("  ", " ").replace("  ", " ")
           else:
-            text2 = text[offset:max_rng].strip()
+            text2 = text[offset:max_rng].strip().replace("_", " ").replace("  ", " ").replace("  ", " ")
           tokenized_text, ents2 = self.simplify_text(text2, ents, ner_to_simplify) 
           sub_span = copy.deepcopy(span)
           sub_span['position'] += offset/curr_file_size
@@ -654,6 +665,12 @@ class Riverbed:
         if item in cluster_leaf2idx:
           span = cluster_batch[cluster_leaf2idx[item]]
           text = span['tokenized_text']
+          text = text.replace('The Organization','').replace('The_Organization','')
+          text = text.replace('The Person','').replace('The_Person','')
+          text = text.replace('The Facility','').replace('The_Facility','')
+          text = text.replace('The Date','').replace('The_Date','')
+          text = text.replace('The Law','').replace('The_Law','')
+          text = text.replace('The Amount','').replace('The_Amount','')
           ents =  list(itertools.chain(*[[a[0].replace(" ", "_")]*a[-1] for a in span['ents']]))
           if span['offset'] == 0:
             if "||" in text:
@@ -812,7 +829,7 @@ class Riverbed:
             hash_id = hash(curr)
             if not dedup or (hash_id not in seen):
                 curr_ents = list(itertools.chain(*[[(e.text, e.label_)] if '||' not in e.text else [(e.text.split("||")[0].strip(), e.label_), (e.text.split("||")[-1].strip(), e.label_)] for e in spacy_nlp(curr).ents]))
-                curr_ents = [e for e in curr_ents if e[0]]
+                curr_ents = list(set([e for e in curr_ents if e[0]]))
                 curr_ents.sort(key=lambda a: len(a[0]), reverse=True)
                 batch.append({'file_name': file_name, 'lineno': curr_lineno, 'text': curr, 'ents': curr_ents, 'position':curr_position})
                 seen[hash_id] = 1
@@ -853,7 +870,7 @@ class Riverbed:
                 hash_id = hash(curr)
                 if not dedup or (hash_id not in seen):
                   curr_ents = list(itertools.chain(*[[(e.text, e.label_)] if '||' not in e.text else [(e.text.split("||")[0].strip(), e.label_), (e.text.split("||")[-1].strip(), e.label_)] for e in spacy_nlp(curr).ents]))
-                  curr_ents = [e for e in curr_ents if e[0]]
+                  curr_ents = list(set([e for e in curr_ents if e[0]]))
                   curr_ents.sort(key=lambda a: len(a[0]), reverse=True)
                   batch.append({'file_name': file_name, 'lineno': curr_lineno, 'text': curr, 'ents': curr_ents, 'position':curr_position})
                   seen[hash_id] = 1
@@ -886,7 +903,7 @@ class Riverbed:
           hash_id = hash(curr)
           if not dedup or (hash_id not in seen):
             curr_ents = list(itertools.chain(*[[(e.text, e.label_)] if '||' not in e.text else [(e.text.split("||")[0].strip(), e.label_), (e.text.split("||")[-1].strip(), e.label_)] for e in spacy_nlp(curr).ents]))
-            curr_ents = [e for e in curr_ents if e[0]]
+            curr_ents = list(set([e for e in curr_ents if e[0]]))
             curr_ents.sort(key=lambda a: len(a[0]), reverse=True)
             batch.append({'file_name': file_name, 'lineno': curr_lineno, 'text': curr, 'ents': curr_ents, 'position':curr_position})
             seen[hash_id] = 1
