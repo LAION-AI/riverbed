@@ -67,7 +67,7 @@ if sim_model is None:
   else:
     sim_model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2').eval().to(device)
   spacy_nlp = spacy.load('en_core_web_md')
-  stopwords_set = set(stopwords.words('english') + ['may', 'include', 'including'])
+  stopwords_set = set(stopwords.words('english') + ['could', 'should', 'shall', 'can', 'might', 'may', 'include', 'including'])
 
 class Riverbed:
   def __init__(self):
@@ -676,9 +676,9 @@ class Riverbed:
             if "||" in text:
               prefix, text = text.split("||",1)
               prefix = prefix.split(":")[-1].split(";")[-1].strip()
-              text = prefix.split() + text.split() + ents
+              text = prefix.split() + text.replace("(", " ( ").replace(")", " ) ").split() + ents
             else:
-               text = text.split() + ents
+               text = text.replace("(", " ( ").replace(")", " ) ").split() + ents
           else:
             text = text.split("||",1)[-1].strip().split() + ents
           len_text = len(text)
@@ -697,7 +697,7 @@ class Riverbed:
       if label.startswith(batch_id_prefix):
         tfidf = copy.copy(tf)    
         for word in list(tfidf.keys()):
-          tfidf[word]  = tfidf[word] * ngram2weight.get(word, 1) * math.log(df[word]/len_clusters)
+          tfidf[word]  = tfidf[word] * min(1.5, ngram2weight.get(word, 1)) * math.log(len_clusters/(1+df[word]))
         top_words2 = [a[0].lower().strip("~!@#$%^&*()<>,.:;")  for a in Counter(tfidf).most_common(min(len(tfidf), 40))]
         top_words2 = [a for a in top_words2 if a not in domain_stopword_set and ("_" not in a or (a.count("_")+1 != len([b for b in a.split("_") if  b in domain_stopword_set])))]
         top_words = []
