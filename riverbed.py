@@ -67,7 +67,7 @@ if sim_model is None:
   else:
     sim_model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2').eval().to(device)
   spacy_nlp = spacy.load('en_core_web_md')
-  stopwords_set = set(stopwords.words('english'))
+  stopwords_set = set(stopwords.words('english') + ['may', 'include', 'including'])
 
 class Riverbed:
   def __init__(self):
@@ -682,7 +682,7 @@ class Riverbed:
           else:
             text = text.split("||",1)[-1].strip().split() + ents
           len_text = len(text)
-          text = [a for a in text if len(a) > 1 and ("_" not in a or (a.count("_")+1 != len([b for b in a.lower().split("_") if len(b) <= 3 and b in domain_stopword_set])))  and a.lower() not in domain_stopword_set and a[0].lower() in "abcdefghijklmnopqrstuvwxyz"]
+          text = [a for a in text if len(a) > 1 and ("_" not in a or (a.count("_")+1 != len([b for b in a.lower().split("_") if  b in domain_stopword_set])))  and a.lower() not in domain_stopword_set and a[0].lower() in "abcdefghijklmnopqrstuvwxyz"]
           cnts = Counter(text)
           aHash = label2tf[label] =  label2tf.get(label, {})
           for word, cnt in cnts.items():
@@ -698,8 +698,8 @@ class Riverbed:
         tfidf = copy.copy(tf)    
         for word in list(tfidf.keys()):
           tfidf[word]  = tfidf[word] * ngram2weight.get(word, 1) * math.log(df[word]/len_clusters)
-        top_words2 = [a[0].lower().strip("~!@#$%^&*()<>,.:;")  for a in Counter(tfidf).most_common(min(len(tfidf), 20))]
-        top_words2 = [a for a in top_words2 if a not in domain_stopword_set and ("_" not in a or (a.count("_")+1 != len([b for b in a.split("_") if len(b) <= 3 and b in domain_stopword_set])))]
+        top_words2 = [a[0].lower().strip("~!@#$%^&*()<>,.:;")  for a in Counter(tfidf).most_common(min(len(tfidf), 40))]
+        top_words2 = [a for a in top_words2 if a not in domain_stopword_set and ("_" not in a or (a.count("_")+1 != len([b for b in a.split("_") if  b in domain_stopword_set])))]
         top_words = []
         for t in top_words2:
           if t not in top_words:
