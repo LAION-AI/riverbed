@@ -97,7 +97,7 @@ class Riverbed:
 
   #TODO: option to do ngram2weight, ontology and synonyms in lowercase
   #TODO: hiearhical clustering
-  def create_ontology_and_synonyms(self, file_name, synonyms=None, stopword=None, ngram2weight=None, words_per_ontology_cluster = 10, batch_size=1000000, epoch = 10):
+  def create_ontology_and_synonyms(self, file_name, synonyms=None, stopword=None, ngram2weight=None, words_per_ontology_cluster = 10, kmeans_batch_size=1024, epoch = 10):
     if synonyms is None: synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
     if ngram2weight is None: ngram2weight = {} if not hasattr(self, 'ngram2weight') else self.ngram2weight    
     if stopword is None: stopword = {} if not hasattr(self, 'stopword') else self.stopword
@@ -107,7 +107,7 @@ class Riverbed:
     true_k=int(len(terms)/words_per_ontology_cluster)
     x=np.vstack([model.get_word_vector(term) for term in model.get_words()])
     km = MiniBatchKMeans(n_clusters=true_k, init='k-means++', n_init=1,
-                                init_size=max(true_k*3,1000), batch_size=batch_size).fit(x)
+                                init_size=max(true_k*3,1000), batch_size=kmeans_batch_size).fit(x)
     ontology = {}
     for term, label in zip(terms, km.labels_):
         ontology[label] = ontology.get(label, [])+[term]
@@ -206,7 +206,7 @@ class Riverbed:
   # we can run this in incremental mode or batched mode (just concatenate all the files togehter)
   #TODO: To save memory, save away the __tmp__.arpa file at each iteration (sorted label), and re-read in the cumulative arpa file while processing the new arpa file. 
   def create_tokenizer(self, project_name, files, unigram=None,  lmplz_loc="./riverbed/bin/lmplz", stopword_max_len=10, num_stopwords=75, max_ngram_size=25, \
-                non_words = "،♪↓↑→←━\₨₡€¥£¢¤™®©¶§←«»⊥∀⇒⇔√­­♣️♥️♠️♦️‘’¿*’-ツ¯‿─★┌┴└┐▒∎µ•●°。¦¬≥≤±≠¡×÷¨´:।`~�_“”/|!~@#$%^&*•()【】[]{}-_+–=<>·;…?:.,\'\"", \
+                non_words = "،♪↓↑→←━\₨₡€¥£¢¤™®©¶§←«»⊥∀⇒⇔√­­♣️♥️♠️♦️‘’¿*’-ツ¯‿─★┌┴└┐▒∎µ•●°。¦¬≥≤±≠¡×÷¨´:।`~�_“”/|!~@#$%^&*•()【】[]{}-_+–=<>·;…?:.,\'\"", kmeans_batch_size=1024,\
                 min_compound_weight=1.0, do_final_tokenize=True, stopword=None, min_num_words=5, do_collapse_values=True, do_tokenize=True, use_synonyms=False):
       #TODO, strip non_words
       
@@ -254,7 +254,7 @@ class Riverbed:
                       l = self.tokenize(l.strip(), min_compound_weight=0, compound=compound, ngram2weight=ngram2weight,  synonyms=synonyms, use_synonyms=use_synonyms)
                     tmp2.write(l+"\n")  
               os.system(f"mv __tmp__2_{file_name} __tmp__{file_name}")
-              if use_synonyms: synonyms = self.create_ontology_and_synonyms(f"__tmp__{file_name}", stopword=stopword, ngram2weight=ngram2weight, synonyms=synonyms)     
+              if use_synonyms: synonyms = self.create_ontology_and_synonyms(f"__tmp__{file_name}", stopword=stopword, ngram2weight=ngram2weight, synonyms=synonyms, kmeans_batch_size=kmeans_batch_size)     
             if do_collapse_values:
               os.system(f"./{lmplz} --collapse_values  --discount_fallback  --skip_symbols -o 5 --prune {min_num_words}  --arpa {file_name}.arpa <  __tmp__{file_name}") ##
             else:
@@ -306,7 +306,7 @@ class Riverbed:
                     tmp2.write(l+"\n")  
             os.system(f"mv __tmp__2_{file_name} __tmp__{file_name}")
         if not use_synonyms or do_final_tokenize:
-            synonyms = self.create_ontology_and_synonyms(f"__tmp__{file_name}", stopword=stopword, ngram2weight=ngram2weight, synonyms=synonyms)    
+            synonyms = self.create_ontology_and_synonyms(f"__tmp__{file_name}", stopword=stopword, ngram2weight=ngram2weight, synonyms=synonyms, kmeans_batch_size=kmeans_batch_size)    
       
       #ouotput the final kenlm .arpa file for calculating the perplexity
       ngram_cnt = {}
@@ -770,7 +770,7 @@ class Riverbed:
 
 
   def apply_span_feature_detect_and_labeling(self, project_name, files, text_span_size=1000, max_lines_per_section=10, max_len_for_prefix=100, min_len_for_prefix=20, embed_batch_size=100, 
-                                                features_batch_size = 10000000, labeling_batch_size=10000000, kmeans_batch_size=1000000, \
+                                                features_batch_size = 10000000, labeling_batch_size=10000000, kmeans_batch_size=1024, \
                                                 span_per_cluster= 20, retained_spans_per_cluster=5, \
                                                 ner_to_simplify=(), span_level_feature_extractors=default_span_level_feature_extractors, running_features_size=100, \
                                                 prefix_extractors = default_prefix_extractors, dedup=True, \
