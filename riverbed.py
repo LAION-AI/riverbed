@@ -771,7 +771,7 @@ class Riverbed:
                                                 span_per_cluster= 20, retained_spans_per_cluster=5, \
                                                 ner_to_simplify=(), span_level_feature_extractors=default_span_level_feature_extractors, running_features_size=100, \
                                                 prefix_extractors = default_prefix_extractors, dedup=True, \
-                                                span_lfs = [], verbose_snrokel=True, \
+                                                span_lfs = [], verbose_snrokel=True, use_synonyms=False, \
                                                 batch_id_prefix = 0, seen = None, span2jsonl_file_idx = None, \
                                                 clusters = None, label2tf = None, df = None, span2cluster_label = None, label_models = None, auto_create_tokenizer=True, \
                                                 ):
@@ -784,7 +784,7 @@ class Riverbed:
       kenlm_model = self.kenlm_model = kenlm.LanguageModel(f"{project_name}.arpa")
     kenlm_model = self.kenlm_model if hasattr(self, 'kenlm_model') else None
     if kenlm_model is None and auto_create_tokenizer:
-      self.create_tokenizer(project_name, files, )
+      self.create_tokenizer(project_name, files, use_synonyms=use_synonyms)
       kenlm_model = self.kenlm_model = kenlm.LanguageModel(f"{project_name}.arpa")      
     running_features_per_label = {}
     file_name = files.pop()
