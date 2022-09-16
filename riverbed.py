@@ -254,7 +254,7 @@ class Riverbed:
                       l = self.tokenize(l.strip(), min_compound_weight=0, compound=compound, ngram2weight=ngram2weight,  synonyms=synonyms, use_synonyms=use_synonyms)
                     tmp2.write(l+"\n")  
               os.system(f"mv __tmp__2_{file_name} __tmp__{file_name}")
-              synonyms = self.create_ontology_and_synonyms(f"__tmp__{file_name}", stopword=stopword, ngram2weight=ngram2weight, synonyms=synonyms)     
+              if use_synonyms: synonyms = self.create_ontology_and_synonyms(f"__tmp__{file_name}", stopword=stopword, ngram2weight=ngram2weight, synonyms=synonyms)     
             if do_collapse_values:
               os.system(f"./{lmplz} --collapse_values  --discount_fallback  --skip_symbols -o 5 --prune {min_num_words}  --arpa {file_name}.arpa <  __tmp__{file_name}") ##
             else:
@@ -305,6 +305,7 @@ class Riverbed:
                     l = self.tokenize(l.strip(), min_compound_weight=0, compound=compound, ngram2weight=ngram2weight, synonyms=synonyms, use_synonyms=use_synonyms)
                     tmp2.write(l+"\n")  
             os.system(f"mv __tmp__2_{file_name} __tmp__{file_name}")
+        if not use_synonyms or do_final_tokenize:
             synonyms = self.create_ontology_and_synonyms(f"__tmp__{file_name}", stopword=stopword, ngram2weight=ngram2weight, synonyms=synonyms)    
       
       #ouotput the final kenlm .arpa file for calculating the perplexity
