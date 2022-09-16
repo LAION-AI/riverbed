@@ -245,9 +245,9 @@ class Riverbed:
               with open(f"__tmp__2_{file_name}", "w", encoding="utf8") as tmp2:
                 with open(f"__tmp__{file_name}", "r") as f:
                   for l in f:
-                    l = self.tokenize(l.strip(),  min_compound_weight=min_compound_weight, compound=compound, ngram2weight=ngram2weight, synonyms=synonyms)
+                    l = self.tokenize(l.strip(),  min_compound_weight=min_compound_weight, compound=compound, ngram2weight=ngram2weight, synonyms=synonyms, use_synonyms=use_synonyms)
                     if do_final_tokenize and times == num_iter-1:
-                      l = self.tokenize(l.strip(), min_compound_weight=0, compound=compound, ngram2weight=ngram2weight,  synonyms=synonyms)
+                      l = self.tokenize(l.strip(), min_compound_weight=0, compound=compound, ngram2weight=ngram2weight,  synonyms=synonyms, use_synonyms=use_synonyms)
                     tmp2.write(l+"\n")  
               os.system(f"mv __tmp__2_{file_name} __tmp__{file_name}")
               if use_synonyms:
@@ -298,8 +298,8 @@ class Riverbed:
             with open(f"__tmp__2_{file_name}", "w", encoding="utf8") as tmp2:
                 with open(f"__tmp__{file_name}", "r") as f:
                   for l in f:
-                    l = self.tokenize(l.strip(), min_compound_weight=min_compound_weight, compound=compound, ngram2weight=ngram2weight, synonyms=synonyms)
-                    l = self.tokenize(l.strip(), min_compound_weight=0, compound=compound, ngram2weight=ngram2weight, synonyms=synonyms)
+                    l = self.tokenize(l.strip(), min_compound_weight=min_compound_weight, compound=compound, ngram2weight=ngram2weight, synonyms=synonyms, use_synonyms=use_synonyms)
+                    l = self.tokenize(l.strip(), min_compound_weight=0, compound=compound, ngram2weight=ngram2weight, synonyms=synonyms, use_synonyms=use_synonyms)
                     tmp2.write(l+"\n")  
             os.system(f"mv __tmp__2_{file_name} __tmp__{file_name}")
             if use_synonyms:
