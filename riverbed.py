@@ -338,8 +338,8 @@ class Riverbed:
       for word, weight in top_stopword:
         stopword[word] = min(stopword.get(word, 100), weight)
       self.ngram2weight, self.compound, self.synonyms, self.stopword, self.ontology = ngram2weight, compound, synonyms, stopword, ontology 
-      self.kenlm_model = kenlm.LanguageModel(f"{project_name}.arpa")
-      return ngram2weight, compound, synonyms, stopword, ontology, self.kenlm_model 
+      self.kenlm_model = kenlm.LanguageModel(f"{project_name}.arpa") # should we save away the ontology. it's just a copy of synonyms
+      return {'ngram2weight':ngram2weight, 'compound': compound, 'synonyms': synonyms, 'stopword': stopword, 'ontology': ontology, 'kenlm_model': self.kenlm_model} 
 
   ################
   # code for doing labeling of spans of text with different features, including clustering
@@ -771,7 +771,7 @@ class Riverbed:
                                                 span_per_cluster= 20, retained_spans_per_cluster=5, \
                                                 ner_to_simplify=(), span_level_feature_extractors=default_span_level_feature_extractors, running_features_size=100, \
                                                 prefix_extractors = default_prefix_extractors, dedup=True, \
-                                                span_lfs = [], verbose_snrokel=True, use_synonyms=False, \
+                                                span_lfs = [], verbose_snrokel=True, \
                                                 batch_id_prefix = 0, seen = None, span2jsonl_file_idx = None, \
                                                 clusters = None, label2tf = None, df = None, span2cluster_label = None, label_models = None, auto_create_tokenizer=True, \
                                                 ):
@@ -784,7 +784,7 @@ class Riverbed:
       kenlm_model = self.kenlm_model = kenlm.LanguageModel(f"{project_name}.arpa")
     kenlm_model = self.kenlm_model if hasattr(self, 'kenlm_model') else None
     if kenlm_model is None and auto_create_tokenizer:
-      self.create_tokenizer(project_name, files, use_synonyms=use_synonyms)
+      self.create_tokenizer(project_name, files, )
       kenlm_model = self.kenlm_model = kenlm.LanguageModel(f"{project_name}.arpa")      
     running_features_per_label = {}
     file_name = files.pop()
