@@ -88,6 +88,13 @@ class Riverbed:
         doc_length += length
     return self.pp(doc_log_score, doc_length)
 
+  def get_ontology(self):
+    ontology = {}
+    synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
+    for key, val in synonyms.items():
+      ontology[val] = ontology.get(val, []) + [key]
+    return ontology
+
   #TODO: option to do ngram2weight, ontology and synonyms in lowercase
   #TODO: hiearhical clustering
   def create_ontology_and_synonyms(self, file_name, synonyms=None, stopword=None, ngram2weight=None, words_per_ontology_cluster = 10, batch_size=1000000, epoch = 10):
@@ -104,7 +111,6 @@ class Riverbed:
     ontology = {}
     for term, label in zip(terms, km.labels_):
         ontology[label] = ontology.get(label, [])+[term]
-    new_ontology = {}
     synonyms = {}
     for key, vals in ontology.items():
       items = [v for v in vals if "_" in v]
@@ -122,7 +128,6 @@ class Riverbed:
                 items_upper_case.append(v2)
           items_upper_case = list(set(items_upper_case))
           if len(items_upper_case) > 1:
-            new_ontology[syn_label] = items_upper_case
             for word in items_upper_case:
               synonyms[word] = syn_label     
         if old_syn_lower: 
@@ -131,7 +136,6 @@ class Riverbed:
           items = [v for v in items if old_synonyms.get(v) in (None, syn_label) and v not in items_upper_case]
           if len(items) > 1:
             if len(items) > 1:            
-              new_ontology[syn_label] = items
               for word in items:
                 synonyms[word] = syn_label     
         
@@ -145,34 +149,34 @@ class Riverbed:
           if len(items_upper_case)  > 1:
             items_upper_case.sort(key=lambda a: ngram2weight.get(a, len(a)))
             syn_label = items_upper_case[0]
-            new_ontology[syn_label] = items_upper_case
             for word in items_upper_case:
               synonyms[word] = syn_label
             items = [v for v in items if v not in items_upper_case]
           if len(items) > 1:
             items.sort(key=lambda a: ngram2weight.get(a, len(a)))
             syn_label = [a for a in items if a[0].lower() == a[0]][0]
-            new_ontology[syn_label] = items
             for word in items:
               synonyms[word] = syn_label
       items = [v for v in vals if "_" not in v]
       if len(items) > 1:
         items.sort(key=lambda a: ngram2weight.get(a, len(a)))
         stopwords_only = [a for a in items if a in stopword or a in stopwords_set]
-        if stopwords_only: new_ontology[stopwords_only[0]] = stopwords_only
+        if stopwords_only: 
+          label = stopwords_only[0]
+          for word in stopwords_only:
+              synonyms[word] = label
         not_stopwords = [a for a in items if a not in stopword and a not in stopwords_set]
-        if not_stopwords: new_ontology[not_stopwords[0]] = not_stopwords
+        if not_stopwords: 
+          label = not_stopwords[0]
+          for word in not_stopwords:
+              synonyms[word] = label
     for word, key in old_synonyms.items():
-      if word not in  new_ontology.get(key, []):
-        new_ontology[key] = new_ontology.get(key, []) + [word]
-      if key not in  new_ontology.get(key, []):
-        new_ontology[key] = new_ontology.get(key, []) + [key]
       synonyms[word] = key
       synonyms[key] = key
-    return new_ontology, synonyms
+    return synonyms
  
 
-  def tokenize(self, doc, min_compound_weight=0,  compound=None, ngram2weight=None, synonyms=None, use_synonyms=True):
+  def tokenize(self, doc, min_compound_weight=0,  compound=None, ngram2weight=None, synonyms=None, use_synonyms=False):
     if synonyms is None: synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
     if ngram2weight is None: ngram2weight = {} if not hasattr(self, 'ngram2weight') else self.ngram2weight    
     if compound is None: compound = {} if not hasattr(self, 'compound') else self.compound
@@ -250,8 +254,7 @@ class Riverbed:
                       l = self.tokenize(l.strip(), min_compound_weight=0, compound=compound, ngram2weight=ngram2weight,  synonyms=synonyms, use_synonyms=use_synonyms)
                     tmp2.write(l+"\n")  
               os.system(f"mv __tmp__2_{file_name} __tmp__{file_name}")
-              if use_synonyms:
-                ontology, synonyms = self.create_ontology_and_synonyms(f"__tmp__{file_name}", stopword=stopword, ngram2weight=ngram2weight, synonyms=synonyms)     
+              synonyms = self.create_ontology_and_synonyms(f"__tmp__{file_name}", stopword=stopword, ngram2weight=ngram2weight, synonyms=synonyms)     
             if do_collapse_values:
               os.system(f"./{lmplz} --collapse_values  --discount_fallback  --skip_symbols -o 5 --prune {min_num_words}  --arpa {file_name}.arpa <  __tmp__{file_name}") ##
             else:
@@ -302,8 +305,7 @@ class Riverbed:
                     l = self.tokenize(l.strip(), min_compound_weight=0, compound=compound, ngram2weight=ngram2weight, synonyms=synonyms, use_synonyms=use_synonyms)
                     tmp2.write(l+"\n")  
             os.system(f"mv __tmp__2_{file_name} __tmp__{file_name}")
-            if use_synonyms:
-              ontology, synonyms = self.create_ontology_and_synonyms(f"__tmp__{file_name}", stopword=stopword, ngram2weight=ngram2weight, synonyms=synonyms)    
+            synonyms = self.create_ontology_and_synonyms(f"__tmp__{file_name}", stopword=stopword, ngram2weight=ngram2weight, synonyms=synonyms)    
       
       #ouotput the final kenlm .arpa file for calculating the perplexity
       ngram_cnt = {}
@@ -338,8 +340,8 @@ class Riverbed:
       for word, weight in top_stopword:
         stopword[word] = min(stopword.get(word, 100), weight)
       self.ngram2weight, self.compound, self.synonyms, self.stopword, self.ontology = ngram2weight, compound, synonyms, stopword, ontology 
-      self.kenlm_model = kenlm.LanguageModel(f"{project_name}.arpa") # should we save away the ontology. it's just a copy of synonyms
-      return {'ngram2weight':ngram2weight, 'compound': compound, 'synonyms': synonyms, 'stopword': stopword, 'ontology': ontology, 'kenlm_model': self.kenlm_model} 
+      self.kenlm_model = kenlm.LanguageModel(f"{project_name}.arpa") 
+      return {'ngram2weight':ngram2weight, 'compound': compound, 'synonyms': synonyms, 'stopword': stopword,  'kenlm_model': self.kenlm_model} 
 
   ################
   # code for doing labeling of spans of text with different features, including clustering
