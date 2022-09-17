@@ -47,7 +47,7 @@ from dateutil.parser import parse as dateutil_parse
 import pandas as pd
 from snorkel.labeling import labeling_function
 import itertools
-from nltk.corpus import stopwords
+from nltk.corpus import stopwords as nltk_stopwords
 import pickle
 from collections import OrderedDict
 
@@ -93,7 +93,7 @@ class Riverbed:
         clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").eval().to(device)
         minilm_model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2').eval().to(device)
       spacy_nlp = spacy.load('en_core_web_md')
-      stopwords_set = set(stopwords.words('english') + ['could', 'should', 'shall', 'can', 'might', 'may', 'include', 'including'])
+      stopwords_set = set(nltk_stopwords.words('english') + ['could', 'should', 'shall', 'can', 'might', 'may', 'include', 'including'])
 
 
   @staticmethod
@@ -105,15 +105,44 @@ class Riverbed:
     doc_log_score = doc_length = 0
     doc = doc.replace("\n", " ")
     for line in doc.split(". "):
-        log_score = kenlm_model.score(line)
+        if "_" in line:
+          log_score = min(kenlm_model.score(line),kenlm_model.score(line.replace("_", " ")))
+        else:
+          log_score = kenlm_model.score(line)
         length = len(line.split()) + 1
         doc_log_score += log_score
         doc_length += length
     return self.pp(doc_log_score, doc_length)
 
-  def get_ontology(self):
+  def tokenize(self, doc, min_compound_weight=0,  compound=None, ngram2weight=None, synonyms=None, use_synonym_replacement=False):
+    if synonyms is None: synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
+    if ngram2weight is None: ngram2weight = {} if not hasattr(self, 'ngram2weight') else self.ngram2weight    
+    if compound is None: compound = {} if not hasattr(self, 'compound') else self.compound
+    if not use_synonym_replacement: synonyms = {} 
+    doc = [synonyms.get(d,d) for d in doc.split(" ") if d.strip()]
+    len_doc = len(doc)
+    for i in range(len_doc-1):
+        if doc[i] is None: continue
+                
+        wordArr = doc[i].strip("_").replace("__", "_").split("_")
+        if wordArr[0] in compound:
+          max_compound_len = compound[wordArr[0]]
+          for j in range(min(len_doc, i+max_compound_len), i+1, -1):
+            word = ("_".join(doc[i:j])).strip("_").replace("__", "_")
+            wordArr = word.split("_")
+            if len(wordArr) <= max_compound_len and word in ngram2weight and ngram2weight.get(word, 0) >= min_compound_weight:
+              old_word = word
+              doc[j-1] = synonyms.get(word, word).strip("_").replace("__", "_")
+              #if old_word != doc[j-1]: print (old_word, doc[j-1])
+              for k in range(i, j-1):
+                  doc[k] = None
+              break
+    return (" ".join([d for d in doc if d]))
+
+  def get_ontology(self, synonyms=None):
     ontology = {}
-    synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
+    if synonyms is None:
+      synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
     for key, val in synonyms.items():
       ontology[val] = ontology.get(val, []) + [key]
     return ontology
@@ -196,7 +225,7 @@ class Riverbed:
       terms = fast_text_model.get_words()
       cluster_vecs=np.vstack([fast_text_model.get_word_vector(term) for term in terms])
       fast_text_model = None
-      cluster_vecs = np_memmap(file_name+".fasttext_words", dat=cluster_vecs)
+      cluster_vecs = np_memmap(f"{file_name}.fasttext_words", dat=cluster_vecs)
       in_synonyms = [idx for idx, term in enumerate(terms) if term in synonyms]
       not_in_synonyms = [idx for idx, term in enumerate(terms) if term not in synonyms]
       if len(in_synonyms) >  len(not_in_synonyms)/2:
@@ -223,7 +252,7 @@ class Riverbed:
           with torch.no_grad():
             dat = minilm_model(**toks)
           dat = self.mean_pooling(dat, toks.attention_mask).cpu().numpy()
-        cluster_vecs = np_memmap(f"{file_name}.{embedder}_words", shape=[cluster_vecs.shape[0], len(ngram2weight)], dat=cluster_vecs, idxs=terms_idx[rng:max_rng])
+        cluster_vecs = np_memmap(f"{file_name}.{embedder}_words", shape=[cluster_vecs.shape[0], len(terms)], dat=cluster_vecs, idxs=terms_idx[rng:max_rng])
     for rng in range(0, len_terms_idx, 75000):
         max_rng = min(len_terms_idx, rng+75000)
         if rng > 0:
@@ -238,81 +267,10 @@ class Riverbed:
         synonyms = self.cluster_one_batch(cluster_vecs, idxs, terms2, true_k, kmeans_batch_size=kmeans_batch_size, synonyms=synonyms, stopword=stopword, ngram2weight=ngram2weight, )
     return synonyms
  
-  def generate(self, doc, max_length=1, top_next=10, perplexity_window= 30, return_tokenized=False, prefer_compounds=True, compound_look_back=4, do_eos=True):
-    # basic greedy generation using beam search. candidates for next words are from stopwords, bigrams, and compound words.
-    # generates the next word(s) giving the output the lowest perplexity at each next word. this can prefer compound words
-    orig_doc = doc
-    doc = self.tokenize(doc)
-    doc_str = doc
-    doc = doc.split()
-    next_seq = []
-    stopwords = ([(" </s>", 1.0)] if do_eos else [])+ [(" "+n, 1.0) for n in self.stopwords.keys()] + ["_"+n for n in self.stopwords.keys()]
-    for _ in range(max_length):
-      next_n = copy.copy(stopwords)
-      if len(doc) > perplexity_window:
-        doc = doc[-perplexity_window:]
-        doc_str = " ".join(doc)
-      word2next_non_stopwords = self.word2next_non_stopwords
-      if doc[-1] in word2next_non_stopwords:
-        next_words = word2next_non_stopwords[doc[-1]]
-        if len(next_words) > top_next:
-          next_word = next_words[:top_next]                  
-        next_n.extend([(doc_str, " "+n, 1.0) for n in next_words])
-      next_compound = []
-      compound2next = self.compound2next
-      doc2 = copy.copy(doc)
-      for look_back in range(min(compound_look_back,len(doc))):
-        if doc2[-1] in compound2next:
-          next_words = compound2next[doc2[-1]]
-          if len(next_words) > top_next:
-              next_word = next_words[:top_next]  
-          next_n.extend([(" ".join(doc2), ("_" if look_back == 0 else " ")+ n, weight) for n, weight in next_words])
-          doc2[-2] = doc2[-2]+"_"+doc[-1]
-          doc2 = doc2[:-1]      
-      if prefer_compounds:
-        all_perplexities =  [(self.get_perplexity(nw[0]+nw[1])*nw[2], n[1]) for nw in next_n]
-      else:
-        all_perplexities =  [(self.get_perplexity(nw[0]+nw[1]), nw[1]) for nw in next_n]
-      all_perplexities.sort(lambda a: a[0]) # we can do top_n here.
-      next_seq.append(all_perplexities[0][1])
-      if do_eos and next_seq[-1] == " </s>": break
-      doc_str = self.tokenize(doc_str+all_perplexities[0][1])
-      doc = doc_str.split()
-    if return_tokenized:
-      return self.tokenize(orig_doc + "".join(next_seq))
-    else:
-      return (orig_doc + "".join(next_seq)).replace("_", " ")
-      
-  def tokenize(self, doc, min_compound_weight=0,  compound=None, ngram2weight=None, synonyms=None, use_synonym_replacement=False):
-    if synonyms is None: synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
-    if ngram2weight is None: ngram2weight = {} if not hasattr(self, 'ngram2weight') else self.ngram2weight    
-    if compound is None: compound = {} if not hasattr(self, 'compound') else self.compound
-    if not use_synonym_replacement: synonyms = {} 
-    doc = [synonyms.get(d,d) for d in doc.split(" ") if d.strip()]
-    len_doc = len(doc)
-    for i in range(len_doc-1):
-        if doc[i] is None: continue
-                
-        wordArr = doc[i].strip("_").replace("__", "_").split("_")
-        if wordArr[0] in compound:
-          max_compound_len = compound[wordArr[0]]
-          for j in range(min(len_doc, i+max_compound_len), i+1, -1):
-            word = ("_".join(doc[i:j])).strip("_").replace("__", "_")
-            wordArr = word.split("_")
-            if len(wordArr) <= max_compound_len and word in ngram2weight and ngram2weight.get(word, 0) >= min_compound_weight:
-              old_word = word
-              doc[j-1] = synonyms.get(word, word).strip("_").replace("__", "_")
-              #if old_word != doc[j-1]: print (old_word, doc[j-1])
-              for k in range(i, j-1):
-                  doc[k] = None
-              break
-    return (" ".join([d for d in doc if d]))
-
-
   # creating tokenizer with a kenlm model as well as getting ngram weighted by the language modeling weights (not the counts) of the words
   # we can run this in incremental mode or batched mode (just concatenate all the files togehter)
   #TODO: To save memory, save away the __tmp__.arpa file at each iteration (sorted label), and re-read in the cumulative arpa file while processing the new arpa file. 
-  def create_tokenizer(self, project_name, files, unigram=None,  lmplz_loc="./riverbed/bin/lmplz", stopword_max_len=10, num_stopwords=75, max_ngram_size=25, \
+  def create_tokenizer_and_train(self, project_name, files, unigram=None,  lmplz_loc="./riverbed/bin/lmplz", stopword_max_len=10, num_stopwords=75, max_ngram_size=25, \
                 non_words = "،♪↓↑→←━\₨₡€¥£¢¤™®©¶§←«»⊥∀⇒⇔√­­♣️♥️♠️♦️‘’¿*’-ツ¯‿─★┌┴└┐▒∎µ•●°。¦¬≥≤±≠¡×÷¨´:।`~�_“”/|!~@#$%^&*•()【】[]{}-_+–=<>·;…?:.,\'\"", kmeans_batch_size=1024,\
                 min_compound_weight=1.0, stopword=None, min_num_words=5, do_collapse_values=True, do_tokenize=True, use_synonym_replacement=False, embedder="fasttext"):
       #TODO, strip non_words
@@ -353,9 +311,10 @@ class Riverbed:
             if times == 0:
               os.system(f"cp {file_name} __tmp__{file_name}")
             print (f"iter {file_name}", times)
-            # we only do synonym and embedding creation as the last step b/c this is very expensive. this means that if we use_synonym_replacement, then this will
-            # happen only in the last step of ngram creation.              
-            if doc_id == len(files)-1 and times == num_iter-1:
+            # we only do synonym and embedding creation as the last step of each file processed 
+            # b/c this is very expensive. this means that if we use_synonym_replacement, then new synonyms
+            # won't be created until the last step for each file.              
+            if times == num_iter-1:
                 print ("creating embeddings and synonyms")
                 synonyms = self.create_word_embeds_and_synonyms(f"__tmp__{file_name}", stopword=stopword, ngram2weight=ngram2weight, synonyms=synonyms, kmeans_batch_size=kmeans_batch_size, embedder=embedder)  
             if ngram2weight:
@@ -421,34 +380,11 @@ class Riverbed:
         stopword[word] = min(stopword.get(word, 100), weight)
       for word in stopwords_set:
         stopword[word] = stopword.get(word, 1.0)
-      self.synonyms = synonyms
-      ontology = self.get_ontology()
+      
       ngram_cnt = {}
       for key in arpa.keys():
         n = key.count(" ")
         ngram_cnt[n] = ngram_cnt.get(n,[]) + [key]
-        #build some data structures for generation
-        if n == 0:
-          if "_" in key:
-            key2 = key.split("_")
-            key3 = "_".join(key2[:-1])
-            compound2next[key3] = compound2next.get(key3, []) + [synonyms.get(key2[-1], key2[-1])]
-        elif n==1:
-          key1, key2 = key.split(" ")
-          if key2 not in stopwords: 
-            word2next[key1] = word2next.get(key1, []) + [synonyms.get(key2[-1], key2[-1])]
-          
-      #build some data structures for generation
-      for key in word2next.keys():
-        lst = list(set(word2next[key]))
-        lst = list(set([a for a in itertools.chain(*[ontology.get(a,[a]) for a in lst]) if a not in stopwords]))
-        lst.sort(lambda a: ngram2weight.get(a,100))  
-        word2next[key] = lst
-      for key in compound2next.keys():
-        lst = list(set(compound2next[key]))
-        lst = list(set(itertools.chain(*[ontology.get(a,[a]) for a in lst])))
-        lst.sort(lambda a: ngram2weight.get(a,100))  
-        compound2next[key] = lst
         
       #output the final kenlm .arpa file for calculating the perplexity
       with open(f"__tmp__.arpa", "w", encoding="utf8") as tmp_arpa:
@@ -469,7 +405,7 @@ class Riverbed:
         tmp_arpa.write("\n\\end\\\n\n")
       os.system(f"mv __tmp__.arpa {project_name}.arpa")
 
-      self.ngram2weight, self.compound, self.synonyms, self.stopword, self.ontology = ngram2weight, compound, synonyms, stopword, ontology 
+      self.ngram2weight, self.compound, self.synonyms, self.stopword = ngram2weight, compound, synonyms, stopword 
       self.word2next = word2next
       self.compound2next = compound2next
       self.kenlm_model = kenlm.LanguageModel(f"{project_name}.arpa") 
@@ -920,7 +856,7 @@ class Riverbed:
                                                 prefix_extractors = default_prefix_extractors, dedup=True, \
                                                 span_lfs = [], verbose_snrokel=True, use_synonym_replacement=False, \
                                                 batch_id_prefix = 0, seen = None, span2jsonl_file_idx = None, \
-                                                clusters = None, label2tf = None, df = None, span2cluster_label = None, label_models = None, auto_create_tokenizer=True, \
+                                                clusters = None, label2tf = None, df = None, span2cluster_label = None, label_models = None, auto_create_tokenizer_and_train=True, \
                                                 ):
     self.ngram2weight = {} if not hasattr(self, 'ngram2weight') else self.ngram2weight
     self.compound = {} if not hasattr(self, 'compound') else self.compound
@@ -930,8 +866,8 @@ class Riverbed:
     if os.path.exists(f"{project_name}.arpa") and (not hasattr(self, 'kenlm_model') or self.kenlm_model is None):
       kenlm_model = self.kenlm_model = kenlm.LanguageModel(f"{project_name}.arpa")
     kenlm_model = self.kenlm_model if hasattr(self, 'kenlm_model') else None
-    if kenlm_model is None and auto_create_tokenizer:
-      self.create_tokenizer(project_name, files, )
+    if kenlm_model is None and auto_create_tokenizer_and_train:
+      self.create_tokenizer_and_train(project_name, files, )
       kenlm_model = self.kenlm_model = kenlm.LanguageModel(f"{project_name}.arpa")      
     running_features_per_label = {}
     file_name = files.pop()
