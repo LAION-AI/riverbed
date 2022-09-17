@@ -303,7 +303,7 @@ class Riverbed:
       compound = self.compound = {} if not hasattr(self, 'compound') else self.compound
       synonyms = self.synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
       stopword = self.stopword = {} if not hasattr(self, 'stopword') else self.stopword
-      word2next_non_stopwords = self.word2next_non_stopwords = {} if not hasattr(self, 'word2next_non_stopwords') else self.word2next_non_stopwords
+      word2next = self.word2next_non_stopwords = {} if not hasattr(self, 'word2next_non_stopwords') else self.word2next_non_stopwords
       compound2next = self.compound2next = {} if not hasattr(self, 'compound2next') else self.compound2next
       
       if lmplz_loc != "./riverbed/bin/lmplz" and not os.path.exists("./lmplz"):
@@ -403,31 +403,36 @@ class Riverbed:
         stopword[word] = min(stopword.get(word, 100), weight)
       for word in stopwords_set:
         stopword[word] = stopword.get(word, 1.0)
-        
+      self.synonyms = synonyms
+      ontology = self.get_ontology()
       ngram_cnt = {}
       for key in arpa.keys():
         n = key.count(" ")
         ngram_cnt[n] = ngram_cnt.get(n,[]) + [key]
-        #get some data for generation
+        #build some data structures for generation
         if n == 0:
           if "_" in key:
             key2 = key.split("_")
             key3 = "_".join(key2[:-1])
             if key2[-1] not in stopwords and key2[-1] not in stopwords_set: 
-            compound2next[key3] = compound2next.get(key3, []) + [(key2[-1], min(1,1/ngram2weight[key]))]
+            compound2next[key3] = compound2next.get(key3, []) + [synonyms.get(key2[-1], key2[-1])]
         elif n==1:
           key1, key2 = key.split(" ")
-          if key2 not in stopwords and key2 not in stopwords_set: 
-          word2next_non_stopwords[key1] = word2next_non_stopwords.get(key1, []) + [key2]
+          if key2 not in stopwords: 
+          word2next[key1] = word2next_non_stopwords.get(key1, []) + [synonyms.get(key2[-1], key2[-1])]
           
-      #get some data for generation   
+      #build some data structures for generation
       for key in word2next.keys():
-        lst = word2next[key]
-        lst.sort(lambda a: ngram2word[a])
+        lst = list(set(word2next[key]))
+        lst = list(set([a for a in itertools.chain(*[ontology.get(a,[a]) for a in lst]) if a not in stopwords]))
+        lst.sort(lambda a: ngram2word.get(a,100))  
+        word2next[key] = lst
       for key in compound2next.keys():
-        lst = compound2next[key]
-        lst.sort(lambda a: ngram2word[a[0]])  
-      
+        lst = list(set(compound2next[key]))
+        lst = list(set(itertools.chain(*[ontology.get(a,[a]) for a in lst])))
+        lst.sort(lambda a: ngram2word.get(a,100))  
+        compound2next[key] = lst
+        
       #output the final kenlm .arpa file for calculating the perplexity
       with open(f"__tmp__.arpa", "w", encoding="utf8") as tmp_arpa:
         tmp_arpa.write("\\data\\\n")
@@ -448,10 +453,10 @@ class Riverbed:
       os.system(f"mv __tmp__.arpa {project_name}.arpa")
 
       self.ngram2weight, self.compound, self.synonyms, self.stopword, self.ontology = ngram2weight, compound, synonyms, stopword, ontology 
-      self.word2next_non_stopwords = word2next_non_stopwords
+      self.word2next = word2next
       self.compound2next = compound2next
       self.kenlm_model = kenlm.LanguageModel(f"{project_name}.arpa") 
-      return {'word2next_non_stopwords': word2next_non_stopwords, 'compound2next': compound2next, \
+      return {'word2next': word2next, 'compound2next': compound2next, \
               'ngram2weight':ngram2weight, 'compound': compound, 'synonyms': synonyms, 'stopword': stopword,  'kenlm_model': self.kenlm_model} 
 
   ################
