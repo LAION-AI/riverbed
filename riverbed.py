@@ -221,8 +221,8 @@ class Riverbed:
     return synonyms
  
   def generate(self, doc, max_length=1, top_next=10, perplexity_window= 10, return_tokenized=False, prefer_compounds=True):
-    # basic greedy generation using beam search.  candidates for next words can be bigrams of single and compound words and stopwords as
-    # generates the next word(s) giving the doc the lowest perplexity. this prefers compound words
+    # basic greedy generation using beam search.  candidates for next words can be bigrams of single and compound words and stopwords.
+    # generates the next word(s) giving the doc the lowest perplexity. this can prefer compound words
     orig_doc = doc
     doc = self.tokenize(doc)
     doc_str = doc
