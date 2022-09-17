@@ -272,7 +272,7 @@ class Riverbed:
   #TODO: To save memory, save away the __tmp__.arpa file at each iteration (sorted label), and re-read in the cumulative arpa file while processing the new arpa file. 
   def create_tokenizer_and_train(self, project_name, files, unigram=None,  lmplz_loc="./riverbed/bin/lmplz", stopword_max_len=10, num_stopwords=75, max_ngram_size=25, \
                 non_words = "،♪↓↑→←━\₨₡€¥£¢¤™®©¶§←«»⊥∀⇒⇔√­­♣️♥️♠️♦️‘’¿*’-ツ¯‿─★┌┴└┐▒∎µ•●°。¦¬≥≤±≠¡×÷¨´:।`~�_“”/|!~@#$%^&*•()【】[]{}-_+–=<>·;…?:.,\'\"", kmeans_batch_size=1024,\
-                embed_batch_size=100000, min_prev_ids=10000, min_compound_weight=1.0, stopword=None, min_num_words=5, do_collapse_values=True, do_tokenize=True, use_synonym_replacement=False, embedder="clip"):
+                embed_batch_size=100000, min_prev_ids=10000, min_compound_weight=1.0, stopword=None, min_num_words=5, do_collapse_values=True, do_tokenize=True, use_synonym_replacement=False, embedder="minilm"):
       #TODO, strip non_words
       
       ngram2weight =self.ngram2weight = OrderedDict() if not hasattr(self, 'ngram2weight') else self.ngram2weight
