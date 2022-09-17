@@ -100,6 +100,73 @@ class Riverbed:
       ontology[val] = ontology.get(val, []) + [key]
     return ontology
 
+  def cluster_one_batch(self, cluster_vecs, idxs, terms2, true_k, kmeans_batch_size=1024, synonyms=None, stopword=None, ngram2weight=None, ):
+    if synonyms is None: synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
+    if ngram2weight is None: ngram2weight = {} if not hasattr(self, 'ngram2weight') else self.ngram2weight    
+    if stopword is None: stopword = {} if not hasattr(self, 'stopword') else self.stopword
+    km = MiniBatchKMeans(n_clusters=true_k, init='k-means++', n_init=1,
+                                        init_size=max(true_k*3,1000), batch_size=kmeans_batch_size).fit(cluster_vecs[idxs])
+    ontology = {}
+    for term, label in zip(terms2, km.labels_):
+      ontology[label] = ontology.get(label, [])+[term]
+    for key, vals in ontology.items():
+      items = [v for v in vals if "_" in v]
+      if len(items) > 1:
+          old_syn_upper =  [synonyms[v] for v in vals if "_" in v and v in synonyms and synonyms[v][0].upper() == synonyms[v][0]]
+          old_syn_lower = [synonyms[v] for v in vals if "_" in v and v in synonyms and synonyms[v][0].upper() != synonyms[v][0]]
+          items_upper_case = []
+          if old_syn_upper:
+            old_syn_upper =  Counter(old_syn_upper)
+            syn_label = old_syn_upper.most_common(1)[0][0]
+            items_upper_case = [v for v in items if (synonyms.get(v) == syn_label) or (synonyms.get(v) is None and v[0].upper() == v[0])]
+            for v in copy.copy(items_upper_case):
+              for v2 in items:
+                if synonyms.get(v)  is None and (v in v2 or v2 in v):
+                  items_upper_case.append(v2)
+            items_upper_case = list(set(items_upper_case))
+            if len(items_upper_case) > 1:
+              for word in items_upper_case:
+                synonyms[word] = syn_label     
+          if old_syn_lower: 
+            old_syn_lower =  Counter(old_syn_lower)
+            syn_label = old_syn_lower.most_common(1)[0][0]
+            items = [v for v in items if synonyms.get(v) in (None, syn_label) and v not in items_upper_case]
+            if len(items) > 1:
+              for word in items:
+                synonyms[word] = syn_label    
+          if not old_syn_upper and not old_syn_lower:
+            items_upper_case = [v for v in items if v[0].upper() == v[0]]
+            for v in copy.copy(items_upper_case):
+              for v2 in items:
+                if v in v2 or v2 in v:
+                  items_upper_case.append(v2)
+            items_upper_case = list(set(items_upper_case))
+            if len(items_upper_case)  > 1:
+              items_upper_case.sort(key=lambda a: ngram2weight.get(a, len(a)))
+              syn_label = items_upper_case[0]
+              for word in items_upper_case:
+                synonyms[word] = syn_label
+              items = [v for v in items if v not in items_upper_case]
+            if len(items) > 1:
+              items.sort(key=lambda a: ngram2weight.get(a, len(a)))
+              syn_label = [a for a in items if a[0].lower() == a[0]][0]
+              for word in items:
+                synonyms[word] = syn_label
+      items = [v for v in vals if "_" not in v]
+      if len(items) > 1:
+        items.sort(key=lambda a: ngram2weight.get(a, len(a)))
+        stopwords_only = [a for a in items if a in stopword or a in stopwords_set]
+        if stopwords_only: 
+          label = stopwords_only[0]
+          for word in stopwords_only:
+              synonyms[word] = label
+        not_stopwords = [a for a in items if a not in stopword and a not in stopwords_set]
+        if not_stopwords: 
+          label = not_stopwords[0]
+          for word in not_stopwords:
+              synonyms[word] = label
+    return synonyms
+
   #TODO: option to do ngram2weight, ontology and synonyms in lowercase
   #TODO: hiearhical clustering
   def create_word_embeds_and_synonyms(self, file_name, synonyms=None, stopword=None, ngram2weight=None, words_per_ontology_cluster = 10, kmeans_batch_size=1024, epoch = 10, embed_batch_size=1000, embedder="fasttext"):
@@ -150,68 +217,7 @@ class Riverbed:
         print (rng, max_rng)
         idxs = prev_ids + list(range(rng, max_rng))
         terms2 = [terms[idx] for idx in idxs]
-        km = MiniBatchKMeans(n_clusters=true_k, init='k-means++', n_init=1,
-                                        init_size=max(true_k*3,1000), batch_size=kmeans_batch_size).fit(cluster_vecs[idxs])
-        ontology = {}
-        for term, label in zip(terms2, km.labels_):
-          ontology[label] = ontology.get(label, [])+[term]
-        for key, vals in ontology.items():
-          items = [v for v in vals if "_" in v]
-          if len(items) > 1:
-              old_syn_upper =  [synonyms[v] for v in vals if "_" in v and v in synonyms and synonyms[v][0].upper() == synonyms[v][0]]
-              old_syn_lower = [synonyms[v] for v in vals if "_" in v and v in synonyms and synonyms[v][0].upper() != synonyms[v][0]]
-              items_upper_case = []
-              if old_syn_upper:
-                old_syn_upper =  Counter(old_syn_upper)
-                syn_label = old_syn_upper.most_common(1)[0][0]
-                items_upper_case = [v for v in items if (synonyms.get(v) == syn_label) or (synonyms.get(v) is None and v[0].upper() == v[0])]
-                for v in copy.copy(items_upper_case):
-                  for v2 in items:
-                    if synonyms.get(v)  is None and (v in v2 or v2 in v):
-                      items_upper_case.append(v2)
-                items_upper_case = list(set(items_upper_case))
-                if len(items_upper_case) > 1:
-                  for word in items_upper_case:
-                    synonyms[word] = syn_label     
-              if old_syn_lower: 
-                old_syn_lower =  Counter(old_syn_lower)
-                syn_label = old_syn_lower.most_common(1)[0][0]
-                items = [v for v in items if synonyms.get(v) in (None, syn_label) and v not in items_upper_case]
-                if len(items) > 1:
-                  for word in items:
-                    synonyms[word] = syn_label     
-
-              if not old_syn_upper and not old_syn_lower:
-                items_upper_case = [v for v in items if v[0].upper() == v[0]]
-                for v in copy.copy(items_upper_case):
-                  for v2 in items:
-                    if v in v2 or v2 in v:
-                      items_upper_case.append(v2)
-                items_upper_case = list(set(items_upper_case))
-                if len(items_upper_case)  > 1:
-                  items_upper_case.sort(key=lambda a: ngram2weight.get(a, len(a)))
-                  syn_label = items_upper_case[0]
-                  for word in items_upper_case:
-                    synonyms[word] = syn_label
-                  items = [v for v in items if v not in items_upper_case]
-                if len(items) > 1:
-                  items.sort(key=lambda a: ngram2weight.get(a, len(a)))
-                  syn_label = [a for a in items if a[0].lower() == a[0]][0]
-                  for word in items:
-                    synonyms[word] = syn_label
-          items = [v for v in vals if "_" not in v]
-          if len(items) > 1:
-            items.sort(key=lambda a: ngram2weight.get(a, len(a)))
-            stopwords_only = [a for a in items if a in stopword or a in stopwords_set]
-            if stopwords_only: 
-              label = stopwords_only[0]
-              for word in stopwords_only:
-                  synonyms[word] = label
-            not_stopwords = [a for a in items if a not in stopword and a not in stopwords_set]
-            if not_stopwords: 
-              label = not_stopwords[0]
-              for word in not_stopwords:
-                  synonyms[word] = label
+        synonyms = self.cluster_one_batch(cluster_vecs, idxs, terms2, true_k, kmeans_batch_size=kmeans_batch_size, synonyms=synonyms, stopword=stopword, ngram2weight=ngram2weight, )
     return synonyms
  
 
