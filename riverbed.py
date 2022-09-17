@@ -149,15 +149,15 @@ class Riverbed:
         else:
           cluster_vecs = np.vstack([cluster_vecs, dat])
 
-    for rng in range(0, len_terms, 100000):
-        max_rng = min(len_terms, rng+100000)
+    for rng in range(0, len_terms, 75000):
+        max_rng = min(len_terms, rng+75000)
         if rng > 0:
           prev_ids = [term for term in terms[:rng] if term not in synonyms]
-          if len(prev_ids) < 50000: prev_ids.extend(random.sample(range(0, rng), 50000-len(prev_ids)))
-          true_k=int((max_rng+50000)/10)
+          if len(prev_ids) < 25000: prev_ids.extend(random.sample(range(0, rng), 25000-len(prev_ids)))
+          true_k=int((max_rng+100000)/words_per_ontology_cluster)
         else:
           prev_ids = []
-          true_k=int((max_rng)/10)
+          true_k=int((max_rng)/words_per_ontology_cluster)
         print (rng, max_rng)
         idxs = prev_ids + list(range(rng, max_rng))
         terms2 = [terms[idx] for idx in idxs]
@@ -657,15 +657,15 @@ class Riverbed:
 
   def create_cluster_for_spans(self, batch_id_prefix, cluster_batch, cluster_vecs, clusters, span2cluster_label,  span_per_cluster=20, kmeans_batch_size=1024, ):
     len_cluster_batch = len(cluster_batch)
-    for rng in range(0, len_cluster_batch, 100000):
-        max_rng = min(len_cluster_batch, rng+100000)
+    for rng in range(0, len_cluster_batch, 75000):
+        max_rng = min(len_cluster_batch, rng+75000)
         if rng > 0:
           prev_ids = [term for term in cluster_batch[:rng] if term not in span2cluster_label]
-          if len(prev_ids) < 50000: prev_ids.extend(random.sample(range(0, rng), 50000-len(prev_ids)))
-          true_k=int((max_rng+50000)/10)
+          if len(prev_ids) < 25000: prev_ids.extend(random.sample(range(0, rng), 25000-len(prev_ids)))
+          true_k=int((max_rng+75000)/span_per_cluster)
         else:
           prev_ids = []
-          true_k=int((max_rng)/10)
+          true_k=int((max_rng)/span_per_cluster)
         print (rng, max_rng)
         idxs = prev_ids + list(range(rng, max_rng))
         terms2 = [cluster_batch[idx] for idx in idxs]
