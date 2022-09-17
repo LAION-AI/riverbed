@@ -49,7 +49,7 @@ from snorkel.labeling import labeling_function
 import itertools
 from nltk.corpus import stopwords
 import pickle
-
+from collections import OrderedDict
 
 if torch.cuda.is_available():
   device = 'cuda'
@@ -419,18 +419,18 @@ class Riverbed:
         elif n==1:
           key1, key2 = key.split(" ")
           if key2 not in stopwords: 
-            word2next[key1] = word2next_non_stopwords.get(key1, []) + [synonyms.get(key2[-1], key2[-1])]
+            word2next[key1] = word2next.get(key1, []) + [synonyms.get(key2[-1], key2[-1])]
           
       #build some data structures for generation
       for key in word2next.keys():
         lst = list(set(word2next[key]))
         lst = list(set([a for a in itertools.chain(*[ontology.get(a,[a]) for a in lst]) if a not in stopwords]))
-        lst.sort(lambda a: ngram2word.get(a,100))  
+        lst.sort(lambda a: ngram2weight.get(a,100))  
         word2next[key] = lst
       for key in compound2next.keys():
         lst = list(set(compound2next[key]))
         lst = list(set([a for a in itertools.chain(*[ontology.get(a,[a]) for a in lst]) if a not in stopwords]))
-        lst.sort(lambda a: ngram2word.get(a,100))  
+        lst.sort(lambda a: ngram2weight.get(a,100))  
         compound2next[key] = lst
         
       #output the final kenlm .arpa file for calculating the perplexity
