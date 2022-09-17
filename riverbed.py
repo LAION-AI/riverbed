@@ -220,15 +220,15 @@ class Riverbed:
         synonyms = self.cluster_one_batch(cluster_vecs, idxs, terms2, true_k, kmeans_batch_size=kmeans_batch_size, synonyms=synonyms, stopword=stopword, ngram2weight=ngram2weight, )
     return synonyms
  
-  def generate(self, doc, max_length=1, top_next=10, perplexity_window= 10, return_tokenized=False, prefer_compounds=True):
-    # basic greedy generation using beam search.  candidates for next words can be bigrams of single and compound words and stopwords.
-    # generates the next word(s) giving the doc the lowest perplexity. this can prefer compound words
+  def generate(self, doc, max_length=1, top_next=10, perplexity_window= 30, return_tokenized=False, prefer_compounds=True, compound_look_back=4, do_eos=True):
+    # basic greedy generation using beam search. candidates for next words are from stopwords, bigrams, and compound words.
+    # generates the next word(s) giving the output the lowest perplexity at each next word. this can prefer compound words
     orig_doc = doc
     doc = self.tokenize(doc)
     doc_str = doc
     doc = doc.split()
     next_seq = []
-    stopwords = [(" "+n, 1.0) for n in self.stopwords.keys()] + ["_"+n for n in self.stopwords.keys()]
+    stopwords = ([(" </s>", 1.0)] if do_eos else [])+ [(" "+n, 1.0) for n in self.stopwords.keys()] + ["_"+n for n in self.stopwords.keys()]
     for _ in range(max_length):
       next_n = copy.copy(stopwords)
       if len(doc) > perplexity_window:
@@ -239,33 +239,31 @@ class Riverbed:
         next_words = word2next_non_stopwords[doc[-1]]
         if len(next_words) > top_next:
           next_word = next_words[:top_next]                  
-        next_n.extend([(" "+n, 1.0) for n in next_words])
+        next_n.extend([(doc_str, " "+n, 1.0) for n in next_words])
       next_compound = []
       compound2next = self.compound2next
-      if "_" in doc[-1] and doc[-1] in compound2next:
-        next_words = compound2next[doc[-1]]
-        if prefer_compounds:
-          if len(next_words) > 2*top_next:
-            next_word = next_words[:2*top_next]  
-        else:
+      doc2 = copy.copy(doc)
+      for look_back in range(min(compound_look_back,len(doc))):
+        if "_" in doc2[-1] and doc2[-1] in compound2next:
+          next_words = compound2next[doc2[-1]]
           if len(next_words) > top_next:
-            next_word = next_words[:top_next]  
-        next_n.extend([("_"+ n, weight) for n, weight in next_words])
+              next_word = next_words[:top_next]  
+          next_n.extend([(" ".join(doc2), ("_" if look_back == 0 else " ")+ n, weight) for n, weight in next_words])
+          doc2[-2] = doc2[-2]+"_"+doc[-1]
+          doc2 = doc2[:-1]      
       if prefer_compounds:
-        all_perplexities =  [(self.get_perplexity(doc_str+nw[0])*nw[1], n[0]) for n in next_n]
+        all_perplexities =  [(self.get_perplexity(nw[0]+nw[1])*nw[2], n[1]) for n in next_n]
       else:
-        all_perplexities =  [(self.get_perplexity(doc_str+nw[0]), n[0]) for n in next_n]
-      all_perplexities.sort(lambda a: a[0])
+        all_perplexities =  [(self.get_perplexity(nw[0]+nw[1]), n[1]) for n in next_n]
+      all_perplexities.sort(lambda a: a[0]) # we can do top_n here.
       next_seq.append(all_perplexities[0][1])
+      if do_eos and next_seq[-1] == " </s>": break
       doc_str = self.tokenize(doc_str+all_perplexities[0][1])
       doc = doc_str.split()
     if return_tokenized:
-      return self.tokenize(doc + "".join(next_seq))
+      return self.tokenize(orig_doc + "".join(next_seq))
     else:
-      return (doc + "".join(next_seq)).replace("_", " ")
-      
-                
-    
+      return (orig_doc + "".join(next_seq)).replace("_", " ")
       
   def tokenize(self, doc, min_compound_weight=0,  compound=None, ngram2weight=None, synonyms=None, use_synonym_replacement=False):
     if synonyms is None: synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
@@ -305,7 +303,9 @@ class Riverbed:
       compound = self.compound = {} if not hasattr(self, 'compound') else self.compound
       synonyms = self.synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
       stopword = self.stopword = {} if not hasattr(self, 'stopword') else self.stopword
-    
+      word2next_non_stopwords = self.word2next_non_stopwords = {} if not hasattr(self, 'word2next_non_stopwords') else self.word2next_non_stopwords
+      compound2next = self.compound2next = {} if not hasattr(self, 'compound2next') else self.compound2next
+      
       if lmplz_loc != "./riverbed/bin/lmplz" and not os.path.exists("./lmplz"):
         os.system(f"cp {lmplz_loc} ./lmplz")
         lmplz = "./lmplz"
@@ -390,12 +390,45 @@ class Riverbed:
                       compound[wordArr[0]] = max(len(wordArr), compound.get(wordArr[0],0))
                     weight = weight * len(wordArr)            
                     ngram2weight[word] = min(ngram2weight.get(word, 100), weight) 
+      
+      top_stopword={} 
+      #TODO, cleamnup tmp files
+      if unigram:
+          stopword_list = [l for l in unigram.items() if len(l[0]) > 0]
+          stopword_list.sort(key=lambda a: a[1])
+          len_stopword_list = len(stopword_list)
+          top_stopword = stopword_list[:min(len_stopword_list, num_stopwords)]
+
+      for word, weight in top_stopword:
+        stopword[word] = min(stopword.get(word, 100), weight)
+      for word in stopwords_set:
+        stopword[word] = stopword.get(word, 1.0)
         
-      #ouotput the final kenlm .arpa file for calculating the perplexity
       ngram_cnt = {}
       for key in arpa.keys():
         n = key.count(" ")
         ngram_cnt[n] = ngram_cnt.get(n,[]) + [key]
+        #get some data for generation
+        if n == 0:
+          if "_" in key:
+            key2 = key.split("_")
+            key3 = "_".join(key2[:-1])
+            if key2[-1] not in stopwords and key2[-1] not in stopwords_set: 
+            compound2next[key3] = compound2next.get(key3, []) + [(key2[-1], min(1,1/ngram2weight[key]))]
+        elif n==1:
+          key1, key2 = key.split(" ")
+          if key2 not in stopwords and key2 not in stopwords_set: 
+          word2next_non_stopwords[key1] = word2next_non_stopwords.get(key1, []) + [key2]
+          
+      #get some data for generation   
+      for key in word2next.keys():
+        lst = word2next[key]
+        lst.sort(lambda a: ngram2word[a])
+      for key in compound2next.keys():
+        lst = compound2next[key]
+        lst.sort(lambda a: ngram2word[a[0]])  
+      
+      #output the final kenlm .arpa file for calculating the perplexity
       with open(f"__tmp__.arpa", "w", encoding="utf8") as tmp_arpa:
         tmp_arpa.write("\\data\\\n")
         tmp_arpa.write(f"ngram 1={len(ngram_cnt[0])}\n")
@@ -413,19 +446,13 @@ class Riverbed:
             tmp_arpa.write(f"{arpa[dat]}\t{dat}\t0\n")
         tmp_arpa.write("\n\\end\\\n\n")
       os.system(f"mv __tmp__.arpa {project_name}.arpa")
-      top_stopword={} 
-      #TODO, cleamnup tmp files
-      if unigram:
-          stopword_list = [l for l in unigram.items() if len(l[0]) > 0]
-          stopword_list.sort(key=lambda a: a[1])
-          len_stopword_list = len(stopword_list)
-          top_stopword = stopword_list[:min(len_stopword_list, num_stopwords)] #+ \
 
-      for word, weight in top_stopword:
-        stopword[word] = min(stopword.get(word, 100), weight)
       self.ngram2weight, self.compound, self.synonyms, self.stopword, self.ontology = ngram2weight, compound, synonyms, stopword, ontology 
+      self.word2next_non_stopwords = word2next_non_stopwords
+      self.compound2next = compound2next
       self.kenlm_model = kenlm.LanguageModel(f"{project_name}.arpa") 
-      return {'ngram2weight':ngram2weight, 'compound': compound, 'synonyms': synonyms, 'stopword': stopword,  'kenlm_model': self.kenlm_model} 
+      return {'word2next_non_stopwords': word2next_non_stopwords, 'compound2next': compound2next, \
+              'ngram2weight':ngram2weight, 'compound': compound, 'synonyms': synonyms, 'stopword': stopword,  'kenlm_model': self.kenlm_model} 
 
   ################
   # code for doing labeling of spans of text with different features, including clustering
