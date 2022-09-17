@@ -49,6 +49,8 @@ from snorkel.labeling import labeling_function
 import itertools
 from nltk.corpus import stopwords
 import pickle
+
+
 if torch.cuda.is_available():
   device = 'cuda'
 else:
@@ -100,64 +102,51 @@ class Riverbed:
 
   #TODO: option to do ngram2weight, ontology and synonyms in lowercase
   #TODO: hiearhical clustering
-  def create_ontology_and_synonyms(self, file_name, synonyms=None, stopword=None, ngram2weight=None, words_per_ontology_cluster = 10, kmeans_batch_size=1024, epoch = 10, embed_batch_size=1000, embedder="fasttext"):
+  def create_word_embeds_and_synonyms(self, file_name, synonyms=None, stopword=None, ngram2weight=None, words_per_ontology_cluster = 10, kmeans_batch_size=1024, epoch = 10, embed_batch_size=1000, embedder="fasttext"):
     if synonyms is None: synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
     if ngram2weight is None: ngram2weight = {} if not hasattr(self, 'ngram2weight') else self.ngram2weight    
     if stopword is None: stopword = {} if not hasattr(self, 'stopword') else self.stopword
-    cluster_vecs = None
     if embedder == "fasttext":
       fast_text_model = fasttext.train_unsupervised(file_name, epoch=epoch)
       terms = fast_text_model.get_words()
-      in_synonyms = [term for term in terms if term in synonyms]
-      not_in_synonyms = [term for term in terms if term not in synonyms]
-      if len(in_synonyms) >  len(not_in_synonyms)/2:
-        in_synonyms = random.sample(in_synonyms, int(len(not_in_synonyms)/2))
-      terms = not_in_synonyms + in_synonyms
       cluster_vecs=np.vstack([fast_text_model.get_word_vector(term) for term in terms])
-      len_terms = len(terms)
-    elif embedder == "clip":
-      not_in_synonyms = [term for term in ngram2weight.keys() if term not in synonyms]
-      in_synonyms = [term for term in ngram2weight.keys() if term not in synonyms]
+      fast_text_model = None
+      cluster_vecs = np_memmap(file_name+".fasttext_words", dat=cluster_vecs)
+      in_synonyms = [idx for idx, term in enumerate(terms) if term in synonyms]
+      not_in_synonyms = [idx for idx, term in enumerate(terms) if term not in synonyms]
       if len(in_synonyms) >  len(not_in_synonyms)/2:
         in_synonyms = random.sample(in_synonyms, int(len(not_in_synonyms)/2))
-      terms = not_in_synonyms + in_synonyms
-      for rng in range(0, len(terms), embed_batch_size):
-        max_rng = min(len(terms), rng+embed_batch_size)
-        #TODO: save away the vectors (in a mmap file) to enable ANN search of batches 
-        toks = clip_processor([a.replace("_", " ") for a in terms[rng:max_rng]], padding=True, truncation=True, return_tensors="pt").to(device)
-        with torch.no_grad():
-          dat = clip_model.get_text_features(**toks).cpu().numpy()
-        if cluster_vecs is None:
-          cluster_vecs = dat
-        else:
-          cluster_vecs = np.vstack([cluster_vecs, dat])
-    elif embedder == "minilm":
-      not_in_synonyms = [term for term in ngram2weight.keys() if term not in synonyms]
-      in_synonyms = [term for term in ngram2weight.keys() if term not in synonyms]
+      terms_idx = in_synonyms + not_in_synonyms 
+      len_terms_idx = len(terms_idx)
+    elif embedder in ("minilm", "clip"):
+      # assumes ngram2weight is an ordered dict
+      terms = list(ngram2weight.keys())
+      not_in_synonyms = [idx for idx, term in enumerate(terms) if term not in synonyms]
+      in_synonyms = [idx for idx, term in enumerate(terms)  if term not in synonyms]
       if len(in_synonyms) >  len(not_in_synonyms)/2:
         in_synonyms = random.sample(in_synonyms, int(len(not_in_synonyms)/2))
-      terms = not_in_synonyms + in_synonyms
-      for rng in range(0, len(terms), embed_batch_size):
-        max_rng = min(len(terms), rng+embed_batch_size)
-        #TODO: save away the vectors (in a mmap file) to enable ANN search of batches 
-        toks = minilm_tokenizer([a.replace("_", " ") for a in terms[rng:max_rng]], padding=True, truncation=True, return_tensors="pt").to(device)
-        with torch.no_grad():
-          dat = minilm_model(**toks)
-        dat = self.mean_pooling(dat, toks.attention_mask).cpu().numpy()
-        if cluster_vecs is None:
-          cluster_vecs = dat
-        else:
-          cluster_vecs = np.vstack([cluster_vecs, dat])
-
-    for rng in range(0, len_terms, 75000):
-        max_rng = min(len_terms, rng+75000)
+      terms_idx = in_synonyms + not_in_synonyms 
+      len_terms_idx = len(terms_idx)
+      for rng in range(0, len(terms_idx), embed_batch_size):
+        max_rng = min(len(terms_idx), rng+embed_batch_size)
+        if embedder == "clip":
+          toks = clip_processor([terms[idx].replace("_", " ") for idx in terms_idx[rng:max_rng]], padding=True, truncation=True, return_tensors="pt").to(device)
+          with torch.no_grad():
+            dat = clip_model.get_text_features(**toks).cpu().numpy()
+        elif embedder == "minilm":
+          toks = minilm_tokenizer([a.replace("_", " ") for a in terms[rng:max_rng]], padding=True, truncation=True, return_tensors="pt").to(device)
+          with torch.no_grad():
+            dat = minilm_model(**toks)
+          dat = self.mean_pooling(dat, toks.attention_mask).cpu().numpy()
+        cluster_vecs = np_memmap(f"{file_name}.{embedder}_words", shape=[cluster_vecs.shape[0], len(ngram2weight)], dat=cluster_vecs, idxs=terms_idx[rng:max_rng])
+    for rng in range(0, len_terms_idx, 75000):
+        max_rng = min(len_terms_idx, rng+75000)
         if rng > 0:
-          prev_ids = [term for term in terms[:rng] if term not in synonyms]
+          prev_ids = [idx for idx in terms_idx[:rng] if terms[idx] not in synonyms]
           if len(prev_ids) < 25000: prev_ids.extend(random.sample(range(0, rng), 25000-len(prev_ids)))
-          true_k=int((max_rng+100000)/words_per_ontology_cluster)
         else:
           prev_ids = []
-          true_k=int((max_rng)/words_per_ontology_cluster)
+        true_k=int(((max_rng-rng) + len(prev_ids))/words_per_ontology_cluster)
         print (rng, max_rng)
         idxs = prev_ids + list(range(rng, max_rng))
         terms2 = [terms[idx] for idx in idxs]
@@ -165,7 +154,7 @@ class Riverbed:
                                         init_size=max(true_k*3,1000), batch_size=kmeans_batch_size).fit(cluster_vecs[idxs])
         ontology = {}
         for term, label in zip(terms2, km.labels_):
-              ontology[label] = ontology.get(label, [])+[term]
+          ontology[label] = ontology.get(label, [])+[term]
         for key, vals in ontology.items():
           items = [v for v in vals if "_" in v]
           if len(items) > 1:
@@ -189,9 +178,8 @@ class Riverbed:
                 syn_label = old_syn_lower.most_common(1)[0][0]
                 items = [v for v in items if synonyms.get(v) in (None, syn_label) and v not in items_upper_case]
                 if len(items) > 1:
-                  if len(items) > 1:            
-                    for word in items:
-                      synonyms[word] = syn_label     
+                  for word in items:
+                    synonyms[word] = syn_label     
 
               if not old_syn_upper and not old_syn_lower:
                 items_upper_case = [v for v in items if v[0].upper() == v[0]]
@@ -227,11 +215,11 @@ class Riverbed:
     return synonyms
  
 
-  def tokenize(self, doc, min_compound_weight=0,  compound=None, ngram2weight=None, synonyms=None, use_synonyms=False):
+  def tokenize(self, doc, min_compound_weight=0,  compound=None, ngram2weight=None, synonyms=None, use_synonym_replacement=False):
     if synonyms is None: synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
     if ngram2weight is None: ngram2weight = {} if not hasattr(self, 'ngram2weight') else self.ngram2weight    
     if compound is None: compound = {} if not hasattr(self, 'compound') else self.compound
-    if not use_synonyms: synonyms = {} 
+    if not use_synonym_replacement: synonyms = {} 
     doc = [synonyms.get(d,d) for d in doc.split(" ") if d.strip()]
     len_doc = len(doc)
     for i in range(len_doc-1):
@@ -258,13 +246,12 @@ class Riverbed:
   #TODO: To save memory, save away the __tmp__.arpa file at each iteration (sorted label), and re-read in the cumulative arpa file while processing the new arpa file. 
   def create_tokenizer(self, project_name, files, unigram=None,  lmplz_loc="./riverbed/bin/lmplz", stopword_max_len=10, num_stopwords=75, max_ngram_size=25, \
                 non_words = "،♪↓↑→←━\₨₡€¥£¢¤™®©¶§←«»⊥∀⇒⇔√­­♣️♥️♠️♦️‘’¿*’-ツ¯‿─★┌┴└┐▒∎µ•●°。¦¬≥≤±≠¡×÷¨´:।`~�_“”/|!~@#$%^&*•()【】[]{}-_+–=<>·;…?:.,\'\"", kmeans_batch_size=1024,\
-                min_compound_weight=1.0, stopword=None, min_num_words=5, do_collapse_values=True, do_tokenize=True, use_synonyms=False, embedder="fasttext"):
+                min_compound_weight=1.0, stopword=None, min_num_words=5, do_collapse_values=True, do_tokenize=True, use_synonym_replacement=False, embedder="fasttext"):
       #TODO, strip non_words
       
-      ngram2weight =self.ngram2weight = {} if not hasattr(self, 'ngram2weight') else self.ngram2weight
+      ngram2weight =self.ngram2weight = OrderedDict() if not hasattr(self, 'ngram2weight') else self.ngram2weight
       compound = self.compound = {} if not hasattr(self, 'compound') else self.compound
       synonyms = self.synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
-      ontology= self.ontology = {} if not hasattr(self, 'ontology') else self.ontology
       stopword = self.stopword = {} if not hasattr(self, 'stopword') else self.stopword
     
       if lmplz_loc != "./riverbed/bin/lmplz" and not os.path.exists("./lmplz"):
@@ -296,17 +283,20 @@ class Riverbed:
             if times == 0:
               os.system(f"cp {file_name} __tmp__{file_name}")
             print (f"iter {file_name}", times)
+            # we only do synonym and embedding creation as the last step b/c this is very expensive. this means that if we use_synonym_replacement, then this will
+            # happen only in the last step of ngram creation.              
+            if doc_id == len(files)-1 and times == num_iter-1:
+                print ("creating embeddings and synonyms")
+                synonyms = self.create_word_embeds_and_synonyms(f"__tmp__{file_name}", stopword=stopword, ngram2weight=ngram2weight, synonyms=synonyms, kmeans_batch_size=kmeans_batch_size, embedder=embedder)  
             if ngram2weight:
               with open(f"__tmp__2_{file_name}", "w", encoding="utf8") as tmp2:
                 with open(f"__tmp__{file_name}", "r") as f:
                   for l in f:
-                    l = self.tokenize(l.strip(),  min_compound_weight=min_compound_weight, compound=compound, ngram2weight=ngram2weight, synonyms=synonyms, use_synonyms=use_synonyms)
+                    l = self.tokenize(l.strip(),  min_compound_weight=min_compound_weight, compound=compound, ngram2weight=ngram2weight, synonyms=synonyms, use_synonym_replacement=use_synonym_replacement)
                     if times == num_iter-1:
-                      l = self.tokenize(l.strip(), min_compound_weight=0, compound=compound, ngram2weight=ngram2weight,  synonyms=synonyms, use_synonyms=use_synonyms)
+                      l = self.tokenize(l.strip(), min_compound_weight=0, compound=compound, ngram2weight=ngram2weight,  synonyms=synonyms, use_synonym_replacement=use_synonym_replacement)
                     tmp2.write(l+"\n")  
               os.system(f"mv __tmp__2_{file_name} __tmp__{file_name}")  
-              if use_synonyms and doc_id == len(files)-1 and times == num_iter-1:
-                synonyms = self.create_ontology_and_synonyms(f"__tmp__{file_name}", stopword=stopword, ngram2weight=ngram2weight, synonyms=synonyms, kmeans_batch_size=kmeans_batch_size, embedder=embedder)    
             if do_collapse_values:
               os.system(f"./{lmplz} --collapse_values  --discount_fallback  --skip_symbols -o 5 --prune {min_num_words}  --arpa {file_name}.arpa <  __tmp__{file_name}") ##
             else:
@@ -528,7 +518,7 @@ class Riverbed:
       
     return text, ents2
 
-  def create_spans(self, curr_file_size, batch, text_span_size=1000, ner_to_simplify=()):
+  def create_spans(self, curr_file_size, batch, text_span_size=1000, ner_to_simplify=(), use_synonym_replacement=False):
       ngram2weight, compound, synonyms  = self.ngram2weight, self.compound, self.synonyms
       batch2 = []
       for idx, span in enumerate(batch):
@@ -536,7 +526,7 @@ class Riverbed:
         for idx, ent in enumerate(ents):
           text = text.replace(ent[0], f' @#@{idx}@#@ ')
         # we tokenize to make ngram words underlined, so that we don't split a span in the middle of a ngram.
-        text  = self.tokenize(text, use_synonyms=False) 
+        text  = self.tokenize(text, use_synonym_replacement=use_synonym_replacement) 
         len_text = len(text)
         prefix = ""
         if "||" in text:
@@ -567,9 +557,9 @@ class Riverbed:
       return batch2
 
   #compute features and embeddings in one batch.
-  def create_embeds_and_features_one_batch(self, curr_file_size, jsonl_file_idx, span2jsonl_file_idx, batch, cluster_batch, cluster_vecs, embed_batch_size=100, text_span_size=1000, running_features_per_label={}, ner_to_simplify=(), span_level_feature_extractors=default_span_level_feature_extractors, running_features_size=100):
+  def create_embeds_and_features_one_batch(self, curr_file_size, jsonl_file_idx, span2jsonl_file_idx, batch, cluster_batch, cluster_vecs, embed_batch_size=100, text_span_size=1000, running_features_per_label={}, ner_to_simplify=(), span_level_feature_extractors=default_span_level_feature_extractors, running_features_size=100, use_synonym_replacement=False):
     ngram2weight, compound, synonyms, kenlm_model  = self.ngram2weight, self.compound, self.synonyms, self.kenlm_model
-    batch = self.create_spans(curr_file_size, batch, text_span_size=text_span_size, ner_to_simplify=ner_to_simplify)
+    batch = self.create_spans(curr_file_size, batch, text_span_size=text_span_size, ner_to_simplify=ner_to_simplify, use_synonym_replacement=use_synonym_replacement)
     feature_labels = []
     features = []
     relative_levels = []
@@ -823,11 +813,11 @@ class Riverbed:
 
 
   def apply_span_feature_detect_and_labeling(self, project_name, files, text_span_size=1000, max_lines_per_section=10, max_len_for_prefix=100, min_len_for_prefix=20, embed_batch_size=100, 
-                                                features_batch_size = 10000000, labeling_batch_size=10000000, kmeans_batch_size=1024, \
+                                                features_batch_size = 10000000, kmeans_batch_size=1024, \
                                                 span_per_cluster= 20, retained_spans_per_cluster=5, \
                                                 ner_to_simplify=(), span_level_feature_extractors=default_span_level_feature_extractors, running_features_size=100, \
                                                 prefix_extractors = default_prefix_extractors, dedup=True, \
-                                                span_lfs = [], verbose_snrokel=True, \
+                                                span_lfs = [], verbose_snrokel=True, use_synonym_replacement=False, \
                                                 batch_id_prefix = 0, seen = None, span2jsonl_file_idx = None, \
                                                 clusters = None, label2tf = None, df = None, span2cluster_label = None, label_models = None, auto_create_tokenizer=True, \
                                                 ):
@@ -942,16 +932,13 @@ class Riverbed:
 
         # process the batches
         if len(batch) >= features_batch_size:
-          cluster_batch, cluster_vecs, span2jsonl_file_idx, jsonl_file_idx = \
+          batch, cluster_vecs, span2jsonl_file_idx, jsonl_file_idx = \
             self.create_embeds_and_features_one_batch(curr_file_size, jsonl_file_idx, span2jsonl_file_idx, batch, cluster_batch, cluster_vecs, embed_batch_size, text_span_size,  running_features_per_label, ner_to_simplify, span_level_feature_extractors, running_features_size)
-          batch = []
-        # clustering, labeling and creating snorkel model in chunks
-        if cluster_batch and cluster_vecs is not None and cluster_vecs.shape[0] >= labeling_batch_size:
           batch_id_prefix += 1
-          clusters, jsonl_file_idx_for_curr_batch, cluster_batch, cluster_vecs, span2cluster_label, label2tf, df  = \
-            self.create_cluster_and_label_one_batch(jsonl_file, f"{batch_id_prefix}_", jsonl_file_idx, jsonl_file_idx_for_curr_batch, retained_spans_per_cluster, span_lfs, cluster_batch, cluster_vecs, clusters, span2cluster_label, \
+          clusters, jsonl_file_idx_for_curr_batch, batch, cluster_vecs, span2cluster_label, label2tf, df  = \
+            self.create_cluster_and_label_one_batch(jsonl_file, f"{batch_id_prefix}_", jsonl_file_idx, jsonl_file_idx_for_curr_batch, retained_spans_per_cluster, span_lfs, batch, cluster_vecs, clusters, span2cluster_label, \
                                         span_per_cluster, kmeans_batch_size, label2tf, df,  domain_stopword_set, verbose_snrokel)
-          cluster_batch, cluster_vecs = [], None
+          batch = []
       
       # do one last batch and finish processing if there's anything left
       if curr: 
@@ -967,15 +954,13 @@ class Riverbed:
           curr_lineno = 0
           curr_position = position
       if batch: 
-        cluster_batch, cluster_vecs, span2jsonl_file_idx, jsonl_file_idx = \
-          self.create_embeds_and_features_one_batch(curr_file_size, jsonl_file_idx, span2jsonl_file_idx, batch, cluster_batch, cluster_vecs, embed_batch_size, text_span_size, running_features_per_label, ner_to_simplify, span_level_feature_extractors, running_features_size)
-        batch = []
-      if cluster_batch and cluster_vecs is not None:
+        batch, cluster_vecs, span2jsonl_file_idx, jsonl_file_idx = \
+            self.create_embeds_and_features_one_batch(curr_file_size, jsonl_file_idx, span2jsonl_file_idx, batch, cluster_batch, cluster_vecs, embed_batch_size, text_span_size,  running_features_per_label, ner_to_simplify, span_level_feature_extractors, running_features_size)
         batch_id_prefix += 1
-        self.clusters, jsonl_file_idx_for_curr_batch, cluster_batch, cluster_vecs, span2cluster_label, label2tf, df = \
-            self.create_cluster_and_label_one_batch(jsonl_file, f"{batch_id_prefix}_",  jsonl_file_idx, jsonl_file_idx_for_curr_batch, retained_spans_per_cluster, span_lfs, cluster_batch, cluster_vecs, clusters, span2cluster_label, \
-                                        span_per_cluster, kmeans_batch_size, label2tf, df, domain_stopword_set, verbose_snrokel )
-        cluster_batch, cluster_vecs = [], None
+        clusters, jsonl_file_idx_for_curr_batch, batch, cluster_vecs, span2cluster_label, label2tf, df  = \
+            self.create_cluster_and_label_one_batch(jsonl_file, f"{batch_id_prefix}_", jsonl_file_idx, jsonl_file_idx_for_curr_batch, retained_spans_per_cluster, span_lfs, batch, cluster_vecs, clusters, span2cluster_label, \
+                                        span_per_cluster, kmeans_batch_size, label2tf, df,  domain_stopword_set, verbose_snrokel)
+        batch = []
 
     #now create global labeling functions based on all the labeled data
     #have an option to use a different labeling function, such as regression trees. 
