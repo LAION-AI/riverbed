@@ -220,7 +220,53 @@ class Riverbed:
         synonyms = self.cluster_one_batch(cluster_vecs, idxs, terms2, true_k, kmeans_batch_size=kmeans_batch_size, synonyms=synonyms, stopword=stopword, ngram2weight=ngram2weight, )
     return synonyms
  
-
+  def generate(self, doc, max_length=1, top_next=10, perplexity_window= 10, return_tokenized=False, prefer_compounds=True):
+    # basic greedy generation using beam search.  candidates for next words can be bigrams of single and compound words and stopwords as
+    # generates the next word(s) giving the doc the lowest perplexity. this prefers compound words
+    orig_doc = doc
+    doc = self.tokenize(doc)
+    doc_str = doc
+    doc = doc.split()
+    next_seq = []
+    stopwords = [(" "+n, 1.0) for n in self.stopwords.keys()] + ["_"+n for n in self.stopwords.keys()]
+    for _ in range(max_length):
+      next_n = copy.copy(stopwords)
+      if len(doc) > perplexity_window:
+        doc = doc[-perplexity_window:]
+        doc_str = " ".join(doc)
+      word2next_non_stopwords = self.word2next_non_stopwords
+      if doc[-1] in word2next_non_stopwords:
+        next_words = word2next_non_stopwords[doc[-1]]
+        if len(next_words) > top_next:
+          next_word = next_words[:top_next]                  
+        next_n.extend([(" "+n, 1.0) for n in next_words])
+      next_compound = []
+      compound2next = self.compound2next
+      if "_" in doc[-1] and doc[-1] in compound2next:
+        next_words = compound2next[doc[-1]]
+        if prefer_compounds:
+          if len(next_words) > 2*top_next:
+            next_word = next_words[:2*top_next]  
+        else:
+          if len(next_words) > top_next:
+            next_word = next_words[:top_next]  
+        next_n.extend([("_"+ n, weight) for n, weight in next_words])
+      if prefer_compounds:
+        all_perplexities =  [(self.get_perplexity(doc_str+nw[0])*nw[1], n[0]) for n in next_n]
+      else:
+        all_perplexities =  [(self.get_perplexity(doc_str+nw[0]), n[0]) for n in next_n]
+      all_perplexities.sort(lambda a: a[0])
+      next_seq.append(all_perplexities[0][1])
+      doc_str = self.tokenize(doc_str+all_perplexities[0][1])
+      doc = doc_str.split()
+    if return_tokenized:
+      return self.tokenize(doc + "".join(next_seq))
+    else:
+      return (doc + "".join(next_seq)).replace("_", " ")
+      
+                
+    
+      
   def tokenize(self, doc, min_compound_weight=0,  compound=None, ngram2weight=None, synonyms=None, use_synonym_replacement=False):
     if synonyms is None: synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
     if ngram2weight is None: ngram2weight = {} if not hasattr(self, 'ngram2weight') else self.ngram2weight    
