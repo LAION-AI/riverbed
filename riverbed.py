@@ -38,6 +38,7 @@ import kenlm
 import statistics
 import torch
 from transformers import AutoTokenizer, AutoModel
+from transformers import CLIPProcessor, CLIPModel
 import torch.nn.functional as F
 import random
 import spacy
@@ -54,18 +55,20 @@ else:
   device = 'cpu'
 
 try:
-  if sim_model is not None: 
+  if minilm_model is not None: 
     pass
 except:
-  sim_model = None
-  sim_tokenizer = None
-if sim_model is None:
-  
-  sim_tokenizer = AutoTokenizer.from_pretrained('sentence-transformers/all-MiniLM-L6-v2')
+  minilm_model = None
+  minilm_tokenizer = None
+if minilm_model is None:
+  clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")   
+  minilm_tokenizer = AutoTokenizer.from_pretrained('sentence-transformers/all-MiniLM-L6-v2')
   if device == 'cuda':
-    sim_model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2').half().eval().to(device)
+    clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").half().eval().to(device)
+    minilm_model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2').half().eval().to(device)
   else:
-    sim_model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2').eval().to(device)
+    clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").eval().to(device)
+    minilm_model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2').eval().to(device)
   spacy_nlp = spacy.load('en_core_web_md')
   stopwords_set = set(stopwords.words('english') + ['could', 'should', 'shall', 'can', 'might', 'may', 'include', 'including'])
 
@@ -97,15 +100,47 @@ class Riverbed:
 
   #TODO: option to do ngram2weight, ontology and synonyms in lowercase
   #TODO: hiearhical clustering
-  def create_ontology_and_synonyms(self, file_name, synonyms=None, stopword=None, ngram2weight=None, words_per_ontology_cluster = 10, kmeans_batch_size=1024, epoch = 10):
+  def create_ontology_and_synonyms(self, file_name, synonyms=None, stopword=None, ngram2weight=None, words_per_ontology_cluster = 10, kmeans_batch_size=1024, epoch = 10, embed_batch_size=1000, embedder="fasttext"):
     if synonyms is None: synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
     if ngram2weight is None: ngram2weight = {} if not hasattr(self, 'ngram2weight') else self.ngram2weight    
     if stopword is None: stopword = {} if not hasattr(self, 'stopword') else self.stopword
     old_synonyms = synonyms
-    fast_text_model = fasttext.train_unsupervised(file_name, epoch=epoch)
-    terms = fast_text_model.get_words()
-    x=np.vstack([fast_text_model.get_word_vector(term) for term in terms])
-    len_terms = len(terms)
+    if embedder == "fasttext":
+      fast_text_model = fasttext.train_unsupervised(file_name, epoch=epoch)
+      terms = fast_text_model.get_words()
+      in_synonyms = [term for term in terms if term in synonyms]
+      not_in_synonyms = [term for term in terms if term not in synonyms]
+      if len(in_synonyms) >  len(not_in_synonyms)*2:
+        not_in_synonyms = random.sample(not_in_synonyms+int(len(not_in_synonyms)/2))
+      terms = not_in_synonyms + in_synonyms
+      cluster_vecs=np.vstack([fast_text_model.get_word_vector(term) for term in terms])
+      len_terms = len(terms)
+     elif embedder == "clip":
+      terms = [word in ngram2weight.keys() if word not in synonyms]
+      for rng in range(0, len(terms), embed_batch_size):
+        max_rng = min(len(terms), rng+embed_batch_size)
+        #TODO: save away the vectors (in a mmap file) to enable ANN search of batches 
+        toks = clip_proessor([a['tokenized_text'].replace("_", " ") for a in terms[rng:max_rng]], padding=True, truncation=True, return_tensors="pt").to(device)
+        with torch.no_grad():
+          dat = sim_model.get_text_features(**toks).cpu().numpy()
+        if cluster_vecs is None:
+          cluster_vecs = dat
+        else:
+          cluster_vecs = np.vstack([cluster_vecs, dat])
+     elif embedder == "minilm":
+      terms = [word in ngram2weight.keys() if word not in synonyms]
+      for rng in range(0, len(terms), embed_batch_size):
+        max_rng = min(len(terms), rng+embed_batch_size)
+        #TODO: save away the vectors (in a mmap file) to enable ANN search of batches 
+        toks = minilm_tokenizer([a['tokenized_text'].replace("_", " ") for a in terms[rng:max_rng]], padding=True, truncation=True, return_tensors="pt").to(device)
+        with torch.no_grad():
+          dat = minilm_model(**toks)
+        dat = self.mean_pooling(dat, toks.attention_mask).cpu().numpy()
+        if cluster_vecs is None:
+          cluster_vecs = dat
+        else:
+          cluster_vecs = np.vstack([cluster_vecs, dat])
+
     for rng in range(0, len_terms, 100000):
         max_rng = min(len_terms, rng+100000)
         if rng > 0:
@@ -119,7 +154,7 @@ class Riverbed:
         idxs = prev_idxs + list(range(rng, max_rng))
         terms2 = [terms[idx] for idx in idxs]
         km = MiniBatchKMeans(n_clusters=true_k, init='k-means++', n_init=1,
-                                        init_size=max(true_k*3,1000), batch_size=kmeans_batch_size).fit(x[idxs])
+                                        init_size=max(true_k*3,1000), batch_size=kmeans_batch_size).fit(cluster_vecs[idxs])
         ontology = {}
         synonyms = {}
         for term, label in zip(terms2, km.labels_):
@@ -448,7 +483,7 @@ class Riverbed:
   @staticmethod
   def mean_pooling(model_output, attention_mask):
     with torch.no_grad():
-      token_embeddings = model_output.last_hidden_state #First element of model_output contains all token embeddings
+      token_embeddings = model_output.last_hidden_state
       input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
       return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
 
