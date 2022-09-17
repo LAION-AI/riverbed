@@ -414,8 +414,7 @@ class Riverbed:
           if "_" in key:
             key2 = key.split("_")
             key3 = "_".join(key2[:-1])
-            if key2[-1] not in stopwords: 
-              compound2next[key3] = compound2next.get(key3, []) + [synonyms.get(key2[-1], key2[-1])]
+            compound2next[key3] = compound2next.get(key3, []) + [synonyms.get(key2[-1], key2[-1])]
         elif n==1:
           key1, key2 = key.split(" ")
           if key2 not in stopwords: 
@@ -429,7 +428,7 @@ class Riverbed:
         word2next[key] = lst
       for key in compound2next.keys():
         lst = list(set(compound2next[key]))
-        lst = list(set([a for a in itertools.chain(*[ontology.get(a,[a]) for a in lst]) if a not in stopwords]))
+        lst = list(set(itertools.chain(*[ontology.get(a,[a]) for a in lst])))
         lst.sort(lambda a: ngram2weight.get(a,100))  
         compound2next[key] = lst
         
