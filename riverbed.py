@@ -60,23 +60,41 @@ try:
   if minilm_model is not None: 
     pass
 except:
-  minilm_model = None
-  minilm_tokenizer = None
-if minilm_model is None:
-  clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")   
-  minilm_tokenizer = AutoTokenizer.from_pretrained('sentence-transformers/all-MiniLM-L6-v2')
-  if device == 'cuda':
-    clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").half().eval().to(device)
-    minilm_model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2').half().eval().to(device)
+  clip_processor = minilm_tokenizer= clip_model= minilm_model= spacy_nlp= stopwords_set = None
+  
+def np_memmap(f, dat=None, idxs=None, shape=None, dtype=np.float32, ):
+  if not f.endswith(".mmap"):
+    f = f+".mmap"
+  if os.path.exists(f):
+    mode = "r+"
   else:
-    clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").eval().to(device)
-    minilm_model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2').eval().to(device)
-  spacy_nlp = spacy.load('en_core_web_md')
-  stopwords_set = set(stopwords.words('english') + ['could', 'should', 'shall', 'can', 'might', 'may', 'include', 'including'])
+    mode = "w+"
+  if shape is None: shape = dat.shape
+  memmap = np.memmap(f, mode=mode, dtype=dtype, shape=tuple(shape))
+  if dat is None:
+    return memmap
+  if tuple(shape) == tuple(dat.shape):
+    memmap[:] = dat
+  else:
+    memmap[idxs] = dat
+  return memmap
+
 
 class Riverbed:
   def __init__(self):
-    pass
+    global minilm_model, clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set, device
+    if minilm_model is None:
+      clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")   
+      minilm_tokenizer = AutoTokenizer.from_pretrained('sentence-transformers/all-MiniLM-L6-v2')
+      if device == 'cuda':
+        clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").half().eval().to(device)
+        minilm_model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2').half().eval().to(device)
+      else:
+        clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").eval().to(device)
+        minilm_model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2').eval().to(device)
+      spacy_nlp = spacy.load('en_core_web_md')
+      stopwords_set = set(stopwords.words('english') + ['could', 'should', 'shall', 'can', 'might', 'may', 'include', 'including'])
+
 
   @staticmethod
   def pp(log_score, length):
@@ -244,7 +262,7 @@ class Riverbed:
       compound2next = self.compound2next
       doc2 = copy.copy(doc)
       for look_back in range(min(compound_look_back,len(doc))):
-        if "_" in doc2[-1] and doc2[-1] in compound2next:
+        if doc2[-1] in compound2next:
           next_words = compound2next[doc2[-1]]
           if len(next_words) > top_next:
               next_word = next_words[:top_next]  
@@ -252,9 +270,9 @@ class Riverbed:
           doc2[-2] = doc2[-2]+"_"+doc[-1]
           doc2 = doc2[:-1]      
       if prefer_compounds:
-        all_perplexities =  [(self.get_perplexity(nw[0]+nw[1])*nw[2], n[1]) for n in next_n]
+        all_perplexities =  [(self.get_perplexity(nw[0]+nw[1])*nw[2], n[1]) for nw in next_n]
       else:
-        all_perplexities =  [(self.get_perplexity(nw[0]+nw[1]), n[1]) for n in next_n]
+        all_perplexities =  [(self.get_perplexity(nw[0]+nw[1]), nw[1]) for nw in next_n]
       all_perplexities.sort(lambda a: a[0]) # we can do top_n here.
       next_seq.append(all_perplexities[0][1])
       if do_eos and next_seq[-1] == " </s>": break
