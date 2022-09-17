@@ -214,7 +214,6 @@ class Riverbed:
               synonyms[word] = label
     return synonyms
 
-  #TODO: option to do ngram2weight, ontology and synonyms in lowercase
   #TODO: hiearhical clustering
   def create_word_embeds_and_synonyms(self, project_name, file_name, synonyms=None, stopword=None, ngram2weight=None, words_per_ontology_cluster = 10, kmeans_batch_size=1024, epoch = 10, embed_batch_size=100000, min_prev_ids=10000, embedder="minilm"):
     if synonyms is None: synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
@@ -253,7 +252,6 @@ class Riverbed:
           true_k=int(max(2, (len(idxs))/words_per_ontology_cluster))
 
           terms2 = [terms[idx] for idx in idxs]
-          #TODO - re-cluster to break any large clusters into many smaller clusters if needed
           synonyms = self.cluster_one_batch(cluster_vecs, idxs, terms2, true_k, kmeans_batch_size=kmeans_batch_size, synonyms=synonyms, stopword=stopword, ngram2weight=ngram2weight, )
       ontology = self.get_ontology()
       decluster = []
@@ -267,6 +265,7 @@ class Riverbed:
     #TODO - after leaf level clustering, do hiearchical clustering
     return synonyms
  
+  #TODO: option to do ngram2weight, ontology and synonyms in lowercase
   # creating tokenizer with a kenlm model as well as getting ngram weighted by the language modeling weights (not the counts) of the words
   # we can run this in incremental mode or batched mode (just concatenate all the files togehter)
   #TODO: To save memory, save away the __tmp__.arpa file at each iteration (sorted label), and re-read in the cumulative arpa file while processing the new arpa file. 
