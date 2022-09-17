@@ -104,35 +104,43 @@ class Riverbed:
     if synonyms is None: synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
     if ngram2weight is None: ngram2weight = {} if not hasattr(self, 'ngram2weight') else self.ngram2weight    
     if stopword is None: stopword = {} if not hasattr(self, 'stopword') else self.stopword
-    old_synonyms = synonyms
+    cluster_vecs = None
     if embedder == "fasttext":
       fast_text_model = fasttext.train_unsupervised(file_name, epoch=epoch)
       terms = fast_text_model.get_words()
       in_synonyms = [term for term in terms if term in synonyms]
       not_in_synonyms = [term for term in terms if term not in synonyms]
-      if len(in_synonyms) >  len(not_in_synonyms)*2:
-        not_in_synonyms = random.sample(not_in_synonyms+int(len(not_in_synonyms)/2))
+      if len(in_synonyms) >  len(not_in_synonyms)/2:
+        in_synonyms = random.sample(in_synonyms, int(len(not_in_synonyms)/2))
       terms = not_in_synonyms + in_synonyms
       cluster_vecs=np.vstack([fast_text_model.get_word_vector(term) for term in terms])
       len_terms = len(terms)
-     elif embedder == "clip":
-      terms = [word in ngram2weight.keys() if word not in synonyms]
+    elif embedder == "clip":
+      not_in_synonyms = [term for term in ngram2weight.keys() if term not in synonyms]
+      in_synonyms = [term for term in ngram2weight.keys() if term not in synonyms]
+      if len(in_synonyms) >  len(not_in_synonyms)/2:
+        in_synonyms = random.sample(in_synonyms, int(len(not_in_synonyms)/2))
+      terms = not_in_synonyms + in_synonyms
       for rng in range(0, len(terms), embed_batch_size):
         max_rng = min(len(terms), rng+embed_batch_size)
         #TODO: save away the vectors (in a mmap file) to enable ANN search of batches 
-        toks = clip_proessor([a['tokenized_text'].replace("_", " ") for a in terms[rng:max_rng]], padding=True, truncation=True, return_tensors="pt").to(device)
+        toks = clip_processor([a.replace("_", " ") for a in terms[rng:max_rng]], padding=True, truncation=True, return_tensors="pt").to(device)
         with torch.no_grad():
-          dat = sim_model.get_text_features(**toks).cpu().numpy()
+          dat = clip_model.get_text_features(**toks).cpu().numpy()
         if cluster_vecs is None:
           cluster_vecs = dat
         else:
           cluster_vecs = np.vstack([cluster_vecs, dat])
-     elif embedder == "minilm":
-      terms = [word in ngram2weight.keys() if word not in synonyms]
+    elif embedder == "minilm":
+      not_in_synonyms = [term for term in ngram2weight.keys() if term not in synonyms]
+      in_synonyms = [term for term in ngram2weight.keys() if term not in synonyms]
+      if len(in_synonyms) >  len(not_in_synonyms)/2:
+        in_synonyms = random.sample(in_synonyms, int(len(not_in_synonyms)/2))
+      terms = not_in_synonyms + in_synonyms
       for rng in range(0, len(terms), embed_batch_size):
         max_rng = min(len(terms), rng+embed_batch_size)
         #TODO: save away the vectors (in a mmap file) to enable ANN search of batches 
-        toks = minilm_tokenizer([a['tokenized_text'].replace("_", " ") for a in terms[rng:max_rng]], padding=True, truncation=True, return_tensors="pt").to(device)
+        toks = minilm_tokenizer([a.replace("_", " ") for a in terms[rng:max_rng]], padding=True, truncation=True, return_tensors="pt").to(device)
         with torch.no_grad():
           dat = minilm_model(**toks)
         dat = self.mean_pooling(dat, toks.attention_mask).cpu().numpy()
@@ -144,34 +152,33 @@ class Riverbed:
     for rng in range(0, len_terms, 100000):
         max_rng = min(len_terms, rng+100000)
         if rng > 0:
-          prev_ids = [term for term in terms[:rng] if term not in old_synonyms]
-          if len(prev_ids) < 50000: prev_idxs.extend(random.sample(range(0, rng), 50000-len(prev_ids)))
+          prev_ids = [term for term in terms[:rng] if term not in synonyms]
+          if len(prev_ids) < 50000: prev_ids.extend(random.sample(range(0, rng), 50000-len(prev_ids)))
           true_k=int((max_rng+50000)/10)
         else:
           prev_ids = []
           true_k=int((max_rng)/10)
         print (rng, max_rng)
-        idxs = prev_idxs + list(range(rng, max_rng))
+        idxs = prev_ids + list(range(rng, max_rng))
         terms2 = [terms[idx] for idx in idxs]
         km = MiniBatchKMeans(n_clusters=true_k, init='k-means++', n_init=1,
                                         init_size=max(true_k*3,1000), batch_size=kmeans_batch_size).fit(cluster_vecs[idxs])
         ontology = {}
-        synonyms = {}
         for term, label in zip(terms2, km.labels_):
               ontology[label] = ontology.get(label, [])+[term]
         for key, vals in ontology.items():
           items = [v for v in vals if "_" in v]
           if len(items) > 1:
-              old_syn_upper =  [old_synonyms[v] for v in vals if "_" in v and v in old_synonyms and old_synonyms[v][0].upper() == old_synonyms[v][0]]
-              old_syn_lower = [old_synonyms[v] for v in vals if "_" in v and v in old_synonyms and old_synonyms[v][0].upper() != old_synonyms[v][0]]
+              old_syn_upper =  [synonyms[v] for v in vals if "_" in v and v in synonyms and synonyms[v][0].upper() == synonyms[v][0]]
+              old_syn_lower = [synonyms[v] for v in vals if "_" in v and v in synonyms and synonyms[v][0].upper() != synonyms[v][0]]
               items_upper_case = []
               if old_syn_upper:
                 old_syn_upper =  Counter(old_syn_upper)
                 syn_label = old_syn_upper.most_common(1)[0][0]
-                items_upper_case = [v for v in items if (old_synonyms.get(v) == syn_label) or (old_synonyms.get(v) is None and v[0].upper() == v[0])]
+                items_upper_case = [v for v in items if (synonyms.get(v) == syn_label) or (synonyms.get(v) is None and v[0].upper() == v[0])]
                 for v in copy.copy(items_upper_case):
                   for v2 in items:
-                    if old_synonyms.get(v)  is None and (v in v2 or v2 in v):
+                    if synonyms.get(v)  is None and (v in v2 or v2 in v):
                       items_upper_case.append(v2)
                 items_upper_case = list(set(items_upper_case))
                 if len(items_upper_case) > 1:
@@ -180,7 +187,7 @@ class Riverbed:
               if old_syn_lower: 
                 old_syn_lower =  Counter(old_syn_lower)
                 syn_label = old_syn_lower.most_common(1)[0][0]
-                items = [v for v in items if old_synonyms.get(v) in (None, syn_label) and v not in items_upper_case]
+                items = [v for v in items if synonyms.get(v) in (None, syn_label) and v not in items_upper_case]
                 if len(items) > 1:
                   if len(items) > 1:            
                     for word in items:
@@ -217,10 +224,6 @@ class Riverbed:
               label = not_stopwords[0]
               for word in not_stopwords:
                   synonyms[word] = label
-        for word, key in old_synonyms.items():
-          synonyms[word] = key
-          synonyms[key] = key                                        
-        old_synonyms = synonyms
     return synonyms
  
 
@@ -255,7 +258,7 @@ class Riverbed:
   #TODO: To save memory, save away the __tmp__.arpa file at each iteration (sorted label), and re-read in the cumulative arpa file while processing the new arpa file. 
   def create_tokenizer(self, project_name, files, unigram=None,  lmplz_loc="./riverbed/bin/lmplz", stopword_max_len=10, num_stopwords=75, max_ngram_size=25, \
                 non_words = "،♪↓↑→←━\₨₡€¥£¢¤™®©¶§←«»⊥∀⇒⇔√­­♣️♥️♠️♦️‘’¿*’-ツ¯‿─★┌┴└┐▒∎µ•●°。¦¬≥≤±≠¡×÷¨´:।`~�_“”/|!~@#$%^&*•()【】[]{}-_+–=<>·;…?:.,\'\"", kmeans_batch_size=1024,\
-                min_compound_weight=1.0, do_final_tokenize=True, stopword=None, min_num_words=5, do_collapse_values=True, do_tokenize=True, use_synonyms=False):
+                min_compound_weight=1.0, stopword=None, min_num_words=5, do_collapse_values=True, do_tokenize=True, use_synonyms=False, embedder="fasttext"):
       #TODO, strip non_words
       
       ngram2weight =self.ngram2weight = {} if not hasattr(self, 'ngram2weight') else self.ngram2weight
@@ -298,11 +301,12 @@ class Riverbed:
                 with open(f"__tmp__{file_name}", "r") as f:
                   for l in f:
                     l = self.tokenize(l.strip(),  min_compound_weight=min_compound_weight, compound=compound, ngram2weight=ngram2weight, synonyms=synonyms, use_synonyms=use_synonyms)
-                    if do_final_tokenize and times == num_iter-1:
+                    if times == num_iter-1:
                       l = self.tokenize(l.strip(), min_compound_weight=0, compound=compound, ngram2weight=ngram2weight,  synonyms=synonyms, use_synonyms=use_synonyms)
                     tmp2.write(l+"\n")  
-              os.system(f"mv __tmp__2_{file_name} __tmp__{file_name}")
-              if use_synonyms: synonyms = self.create_ontology_and_synonyms(f"__tmp__{file_name}", stopword=stopword, ngram2weight=ngram2weight, synonyms=synonyms, kmeans_batch_size=kmeans_batch_size)     
+              os.system(f"mv __tmp__2_{file_name} __tmp__{file_name}")  
+              if use_synonyms and doc_id == len(files)-1 and times == num_iter-1:
+                synonyms = self.create_ontology_and_synonyms(f"__tmp__{file_name}", stopword=stopword, ngram2weight=ngram2weight, synonyms=synonyms, kmeans_batch_size=kmeans_batch_size, embedder=embedder)    
             if do_collapse_values:
               os.system(f"./{lmplz} --collapse_values  --discount_fallback  --skip_symbols -o 5 --prune {min_num_words}  --arpa {file_name}.arpa <  __tmp__{file_name}") ##
             else:
@@ -344,18 +348,7 @@ class Riverbed:
                       compound[wordArr[0]] = max(len(wordArr), compound.get(wordArr[0],0))
                     weight = weight * len(wordArr)            
                     ngram2weight[word] = min(ngram2weight.get(word, 100), weight) 
-        if do_final_tokenize:
-            print (f"final tokenize {file_name}", times)
-            with open(f"__tmp__2_{file_name}", "w", encoding="utf8") as tmp2:
-                with open(f"__tmp__{file_name}", "r") as f:
-                  for l in f:
-                    l = self.tokenize(l.strip(), min_compound_weight=min_compound_weight, compound=compound, ngram2weight=ngram2weight, synonyms=synonyms, use_synonyms=use_synonyms)
-                    l = self.tokenize(l.strip(), min_compound_weight=0, compound=compound, ngram2weight=ngram2weight, synonyms=synonyms, use_synonyms=use_synonyms)
-                    tmp2.write(l+"\n")  
-            os.system(f"mv __tmp__2_{file_name} __tmp__{file_name}")
-        if not use_synonyms or do_final_tokenize:
-            synonyms = self.create_ontology_and_synonyms(f"__tmp__{file_name}", stopword=stopword, ngram2weight=ngram2weight, synonyms=synonyms, kmeans_batch_size=kmeans_batch_size)    
-      
+        
       #ouotput the final kenlm .arpa file for calculating the perplexity
       ngram_cnt = {}
       for key in arpa.keys():
@@ -662,44 +655,56 @@ class Riverbed:
 
     return cluster_batch, cluster_vecs, span2jsonl_file_idx, jsonl_file_idx
 
-  def create_cluster_for_spans(self, batch_id_prefix, cluster_batch, cluster_vecs, clusters, span2cluster_label,  span_per_cluster=20, kmeans_batch_size=1000000, ):
-      true_k=int(len(cluster_batch)/span_per_cluster)
-      km = MiniBatchKMeans(n_clusters=true_k, init='k-means++', n_init=1,
-                                  init_size=max(true_k*3,1000), batch_size=kmeans_batch_size).fit(cluster_vecs)
-      new_cluster = {}
-      for item, label in zip(cluster_batch, km.labels_):
-        span = (item['file_name'], item['lineno'], item['offset'],)
-        label = batch_id_prefix+str(label)
-        new_cluster[label] = new_cluster.get(label, [])+[span]
-      if not clusters: 
-        clusters = new_cluster
-        for label, items in clusters.items():
-          for span in items:
-            span2cluster_label[span] = label
-      else:
-        for label, items in new_cluster.items():
-          cluster_labels = [span2cluster_label[span] for span in items if span in span2cluster_label]
-          items2 = [span for span in items if span not in span2cluster_label]
-          if cluster_labels:
-            most_common = Counter(cluster_labels).most_common(1)[0]
-            if most_common[1] >= 2: #if two or more of the span in a cluster has already been labeled, use that label for the rest of the spans
-              label = most_common[0]
-              items = [span for span in items if span2cluster_label.get(span) in (label, None)]
+  def create_cluster_for_spans(self, batch_id_prefix, cluster_batch, cluster_vecs, clusters, span2cluster_label,  span_per_cluster=20, kmeans_batch_size=1024, ):
+    len_cluster_batch = len(cluster_batch)
+    for rng in range(0, len_cluster_batch, 100000):
+        max_rng = min(len_cluster_batch, rng+100000)
+        if rng > 0:
+          prev_ids = [term for term in cluster_batch[:rng] if term not in span2cluster_label]
+          if len(prev_ids) < 50000: prev_ids.extend(random.sample(range(0, rng), 50000-len(prev_ids)))
+          true_k=int((max_rng+50000)/10)
+        else:
+          prev_ids = []
+          true_k=int((max_rng)/10)
+        print (rng, max_rng)
+        idxs = prev_ids + list(range(rng, max_rng))
+        terms2 = [cluster_batch[idx] for idx in idxs]
+        km = MiniBatchKMeans(n_clusters=true_k, init='k-means++', n_init=1,
+                                        init_size=max(true_k*3,1000), batch_size=kmeans_batch_size).fit(cluster_vecs[idxs])
+        new_cluster = {}
+        for item, label in zip(cluster_batch, km.labels_):
+          span = (item['file_name'], item['lineno'], item['offset'],)
+          label = batch_id_prefix+str(label)
+          new_cluster[label] = new_cluster.get(label, [])+[span]
+        if not clusters: 
+          clusters = new_cluster
+          for label, items in clusters.items():
+            for span in items:
+              span2cluster_label[span] = label
+        else:
+          for label, items in new_cluster.items():
+            cluster_labels = [span2cluster_label[span] for span in items if span in span2cluster_label]
+            items2 = [span for span in items if span not in span2cluster_label]
+            if cluster_labels:
+              most_common = Counter(cluster_labels).most_common(1)[0]
+              if most_common[1] >= 2: #if two or more of the span in a cluster has already been labeled, use that label for the rest of the spans
+                label = most_common[0]
+                items = [span for span in items if span2cluster_label.get(span) in (label, None)]
+              else:
+                items = items2
             else:
               items = items2
-          else:
-            items = items2
-          for span in items:
-            if span not in clusters.get(label, []):
-                clusters[label] = clusters.get(label, []) + [span]
-            span2cluster_label[span] = label
+            for span in items:
+              if span not in clusters.get(label, []):
+                  clusters[label] = clusters.get(label, []) + [span]
+              span2cluster_label[span] = label
 
-      return clusters, span2cluster_label 
+    return clusters, span2cluster_label 
 
   #we create clusters in an incremental fashion from cluster_batch
   #cluster_batch should be larger batches than embeds_and_features's batch
   def create_cluster_and_label_one_batch(self, jsonl_file, batch_id_prefix, jsonl_file_idx, jsonl_file_idx_for_curr_batch, retained_spans_per_cluster, span_lfs, cluster_batch, cluster_vecs, clusters, span2cluster_label, \
-                                        span_per_cluster, kmeans_batch_size, label2tf=None, df=None, domain_stopword_set=stopwords_set, verbose_snrokel=False):
+                                        span_per_cluster, kmeans_batch_size=1024, label2tf=None, df=None, domain_stopword_set=stopwords_set, verbose_snrokel=False):
     ngram2weight  = self.ngram2weight
     clusters, span2cluster_label = self.create_cluster_for_spans(batch_id_prefix, cluster_batch, cluster_vecs, clusters, span2cluster_label, span_per_cluster=span_per_cluster, kmeans_batch_size=kmeans_batch_size)
     #all leaf nodes of the cluster are stored as a triple of (file_name, lineno, offset)
