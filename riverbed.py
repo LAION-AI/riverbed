@@ -153,6 +153,9 @@ class Riverbed:
 
   def get_top_parents(self, synonyms=None):
     top_parents = []
+    if synonyms is None:
+      synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
+    
     ontology = self.get_ontology(synonyms)
     for parent in ontology:
       if parent not in synonyms:
@@ -226,7 +229,37 @@ class Riverbed:
               synonyms[word] = label
     return synonyms
 
-  def create_word_embeds_and_synonyms(self, project_name, file_name, synonyms=None, stopword=None, ngram2weight=None, words_per_ontology_cluster = 10, kmeans_batch_size=50000, epoch = 10, embed_batch_size=7000, min_prev_ids=10000, embedder="minilm", max_ontology_depth=4, max_top_parents=10000):
+
+  def create_ontology(self, project_name, synonyms=None, stopword=None, ngram2weight=None, words_per_ontology_cluster = 10, kmeans_batch_size=50000, epoch = 10, embed_batch_size=7000, min_prev_ids=10000, embedder="minilm", max_ontology_depth=4, max_top_parents=10000):
+    if synonyms is None: synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
+    if ngram2weight is None: ngram2weight = {} if not hasattr(self, 'ngram2weight') else self.ngram2weight    
+    if stopword is None: stopword = {} if not hasattr(self, 'stopword') else self.stopword
+    # assumes ngram2weight is an ordered dict, ordered roughly by frequency
+    terms = list(ngram2weight.keys())
+    if not terms: return synonyms
+    terms2idx = dict([(term, idx) for idx, term in enumerate(terms)])
+    for level in range(max_ontology_depth): 
+      ontology = self.get_ontology(synonyms)
+      parents = [parent for parent in ontology.keys() if parent.count('¶') == level + 1]
+      if len(parents) < max_top_parents: break
+      true_k = int(math.sqrt(len(parents)))
+      cluster_vecs2 = []
+      cluster_vecs2_idx = []
+      for parent in parents:
+        if parent not in ngram2weight:
+          cluster = ontology[parent]
+          cluster_vecs2.append(np.mean(cluster_vecs[[terms2idx[child] for child in cluster]]))
+          cluster_vecs2_idx.append(len(ngram2weight))
+          ngram2weight[parent] = statistics.mean([ngram2weight[child] for child in cluster])
+      if cluster_vecs2_idx:
+        cluster_vecs2 = np.vstack(cluster_vecs2)
+        cluster_vecs = np_memmap(f"{project_name}.{embedder}_words", shape=[len(ngram2weight), cluster_vecs2.shape[1]], dat=cluster_vecs2, idxs=cluster_vecs2_idx)  
+        cluster_vecs2 = None
+        idxs = [terms2idx[parent] for parent in parents]
+        synonyms = self.cluster_one_batch(cluster_vecs, idxs, parents, true_k, synonyms=synonyms, stopword=stopword, ngram2weight=ngram2weight, )
+    return synonyms
+ 
+  def create_word_embeds_and_synonyms(self, project_name, synonyms=None, stopword=None, ngram2weight=None, words_per_ontology_cluster = 10, kmeans_batch_size=50000, epoch = 10, embed_batch_size=7000, min_prev_ids=10000, embedder="minilm", max_ontology_depth=4, max_top_parents=10000):
     if synonyms is None: synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
     if ngram2weight is None: ngram2weight = {} if not hasattr(self, 'ngram2weight') else self.ngram2weight    
     if stopword is None: stopword = {} if not hasattr(self, 'stopword') else self.stopword
@@ -281,51 +314,39 @@ class Riverbed:
               syn_label = '¶'+cluster[rng2]
             for word in cluster[rng2:max_rng2]:
               synonyms[word] = syn_label
-    terms2idx = dict([(term, idx) for idx, term in enumerate(terms)])
-    for level in range(max_ontology_depth): 
-      ontology = self.get_ontology(synonyms)
-      parents = [parent for parent in ontology.keys() if parent.count('¶') == level + 1]
-      if len(parents) < max_top_parents: break
-      true_k = int(math.sqrt(len(parents)))
-      cluster_vecs2 = []
-      cluster_vecs2_idx = []
-      for parent in parents:
-        if parent not in ngram2weight:
-          cluster = ontology[parent]
-          cluster_vecs2.append(np.mean(cluster_vecs[[terms2idx[child] for child in cluster]]))
-          cluster_vecs2_idx.append(len(ngram2weight))
-          ngram2weight[parent] = statistics.mean([ngram2weight[child] for child in cluster])
-      if cluster_vecs2_idx:
-        cluster_vecs[cluster_vecs2_idx] = np.vstack(cluster_vecs2)
-      cluster_vecs2 = None
-      idxs = [terms2idx[child] for child in parents]
-      synonyms = self.cluster_one_batch(cluster_vecs, idxs, parents, true_k, synonyms=synonyms, stopword=stopword, ngram2weight=ngram2weight, )
+    synonyms = self.create_ontology(project_name, synonyms=synonyms, stopword=stopword, ngram2weight=ngram2weight, words_per_ontology_cluster = words_per_ontology_cluster, kmeans_batch_size=50000, epoch = 10, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, embedder=embedder, max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents)
     return synonyms
- 
+
   # creating tokenizer with a kenlm model as well as getting ngram weighted by the language modeling weights (not the counts) of the words
   # we can run this in incremental mode or batched mode (just concatenate all the files togehter)
   #TODO: To save memory, save away the __tmp__.arpa file at each iteration (sorted label), and re-read in the cumulative arpa file while processing the new arpa file. 
-  def create_tokenizer_and_train(self, project_name, files, unigram=None,  lmplz_loc="./riverbed/bin/lmplz", stopword_max_len=10, num_stopwords=75, max_ngram_size=25, max_ontology_depth=4, max_top_parents=10000, \
-                non_words = "،♪↓↑→←━\₨₡€¥£¢¤™®©¶§←«»⊥∀⇒⇔√­­♣️♥️♠️♦️‘’¿*’-ツ¯‿─★┌┴└┐▒∎µ•●°。¦¬≥≤±≠¡×÷¨´:।`~�_“”/|!~@#$%^&*•()【】[]{}-_+–=<>·;…?:.,\'\"", kmeans_batch_size=50000,\
-                embed_batch_size=7000, min_prev_ids=10000, min_compound_weight=1.0, stopword=None, min_num_words=5, do_collapse_values=True, do_tokenize=True, use_synonym_replacement=False, embedder="minilm"):
+  def create_tokenizer_and_train(self, project_name, files, lmplz_loc="./riverbed/bin/lmplz", stopword_max_len=10, num_stopwords=75, max_ngram_size=25, max_ontology_depth=4, max_top_parents=10000, \
+                non_words = "،♪↓↑→←━\₨₡€¥£¢¤™®©¶§←«»⊥∀⇒⇔√­­♣️♥️♠️♦️‘’¿*’-ツ¯‿─★┌┴└┐▒∎µ•●°。¦¬≥≤±≠¡×÷¨´:।`~�_“”/|!~@#$%^&*•()【】[]{}-_+–=<>·;…?:.,\'\"", kmeans_batch_size=50000, dedup_ngrams_larger_than=None, \
+                embed_batch_size=7000, min_prev_ids=10000, min_compound_weight=1.0, stopword=None, min_num_words=5, do_collapse_values=True, use_synonym_replacement=False, embedder="minilm"):
       #TODO, strip non_words
       
-      ngram2weight =self.ngram2weight = OrderedDict() if not hasattr(self, 'ngram2weight') else self.ngram2weight
+      ngram2weight = self.ngram2weight = OrderedDict() if not hasattr(self, 'ngram2weight') else self.ngram2weight
       compound = self.compound = {} if not hasattr(self, 'compound') else self.compound
       synonyms = self.synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
       stopword = self.stopword = {} if not hasattr(self, 'stopword') else self.stopword
-      
+      if dedup_ngrams_larger_than is not None:
+        assert dedup_ngrams_larger_than < 50, "deduping larger than 50 gram not supported"
+        max_ngram_size = max(dedup_ngrams_larger_than+1,max_ngram_size+1)
+        ngram2weight = {}
+        compound = {}
+        synonyms = {}
+        stopword = {}
       if lmplz_loc != "./riverbed/bin/lmplz" and not os.path.exists("./lmplz"):
         os.system(f"cp {lmplz_loc} ./lmplz")
         lmplz = "./lmplz"
       else:
         lmplz = lmplz_loc
       os.system(f"chmod u+x {lmplz}")
-      if unigram is None: unigram = {}
+      unigram = {}
+      arpa = {}
       if ngram2weight:
         for word in ngram2weight.keys():
           if "_" not in word: unigram[word] = min(unigram.get(word,0), ngram2weight[word])
-      arpa = {}
       if os.path.exists(f"{project_name}.arpa"):
         with open(f"{project_name}.arpa", "rb") as af:
           for line in af:
@@ -334,16 +355,35 @@ class Riverbed:
               arpa[line[1]] = min(float(line[0]), arpa.get(line[1], 0))
       #TODO, we should try to create consolidated files of around 1GB to get enough information in the arpa files
       for doc_id, file_name in enumerate(files):
-        if not do_tokenize: 
-          num_iter = 1
+        if dedup_ngrams_larger_than:
+          dedup_ngram_num_iter = max(1, int(dedup_ngrams_larger_than)/(5 *(doc_id+1)))
         else:
-          num_iter = max(1,int(max_ngram_size/(5 *(doc_id+1))))
+          dedup_ngram_num_iter = -1
+        num_iter = max(1,int(max_ngram_size/(5 *(doc_id+1))))
         #we can repeatdly run the below to get long ngrams
         #after we tokenize for ngram and replace with words with underscores (the_projected_revenue) at each step, we redo the ngram
+        curr_arpa = {}
         for times in range(num_iter):
+            print (f"iter {file_name}", times)
             if times == 0:
               os.system(f"cp {file_name} __tmp__{file_name}")
-            print (f"iter {file_name}", times)
+            elif times == dedup_ngram_num_iter:
+              # sometimes we want to do some pre-processing b/c n-grams larger than a certain amount are just duplicates
+              # and can mess up our word counts
+              with open(f"__tmp__2_{file_name}", "w", encoding="utf8") as tmp2:
+                with open(f"__tmp__{file_name}", "r") as f:
+                  seen_large_ngrams = {}
+                  for l in f:
+                    l = self.tokenize(l.strip(), min_compound_weight=0, compound=compound, ngram2weight=ngram2weight,  synonyms=synonyms, use_synonym_replacement=use_synonym_replacement)
+                    l = l.split()
+                    dedup_ngram = [w for w in l if "_" in w or w.count("_") + 1 >= dedup_ngrams_larger_than]
+                    l = [w if ("_" not in w or w.count("_") + 1 < dedup_ngrams_larger_than or w not in seen_large_ngrams) else '...' for w in l]
+                    for w in dedup_ngram:
+                      seen_large_ngrams[w] = 1
+                    tmp2.write(" ".join(l).replace("_", " ")+"\n")
+                  seen_large_ngrams = None
+              os.system(f"mv __tmp__2_{file_name} __tmp__{file_name}")   
+              curr_arpa = {}
             # we only do synonym and embedding creation as the last step of each file processed 
             # b/c this is very expensive. we do this right before the last counting if we
             # do synonym replacement so we have a chancee to create syonyms for the replacement.
@@ -351,7 +391,7 @@ class Riverbed:
             synonyms_created=  False          
             if use_synonym_replacement and times == num_iter-1 and ngram2weight:
                 synonyms_created = True
-                synonyms = self.create_word_embeds_and_synonyms(project_name, f"__tmp__{file_name}", stopword=stopword, ngram2weight=ngram2weight, synonyms=synonyms, kmeans_batch_size=kmeans_batch_size, \
+                synonyms = self.create_word_embeds_and_synonyms(project_name, stopword=stopword, ngram2weight=ngram2weight, synonyms=synonyms, kmeans_batch_size=kmeans_batch_size, \
                   embedder=embedder, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents)   
             if ngram2weight:
               with open(f"__tmp__2_{file_name}", "w", encoding="utf8") as tmp2:
@@ -377,7 +417,7 @@ class Riverbed:
                 elif do_ngram:
                   line = line.split("\t")
                   if len(line) > 1:
-                    arpa[line[1]] = min(float(line[0]), arpa.get(line[1], 100))
+                    curr_arpa[line[1]] = min(float(line[0]), curr_arpa.get(line[1], 100))
                   #print (line)
                   try:
                     weight = float(line[0])
@@ -404,8 +444,10 @@ class Riverbed:
                     weight = weight * len(wordArr)            
                     ngram2weight[word] = min(ngram2weight.get(word, 100), weight) 
             os.system(f"rm {file_name}.arpa")
+            for line, weight in curr_arpa.items():
+              arpa[line] = min(float(weight), arpa.get(line, 100))
             if times == num_iter-1  and not synonyms_created:
-                synonyms = self.create_word_embeds_and_synonyms(project_name, f"__tmp__{file_name}", stopword=stopword, ngram2weight=ngram2weight, synonyms=synonyms, kmeans_batch_size=kmeans_batch_size, \
+                synonyms = self.create_word_embeds_and_synonyms(project_name, stopword=stopword, ngram2weight=ngram2weight, synonyms=synonyms, kmeans_batch_size=kmeans_batch_size, \
                   embedder=embedder, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents)   
       top_stopword={} 
       #TODO, cleamnup tmp files
