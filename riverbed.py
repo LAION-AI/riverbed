@@ -270,6 +270,18 @@ class Riverbed:
         if len(parents) < max_top_parents: continue
         true_k = int(math.sqrt(len(parents)))
         synonyms = self.cluster_one_batch(cluster_vecs, cluster_vecs2_idx, parents, true_k, synonyms=synonyms, stopword=stopword, ngram2weight=ngram2weight, )
+    parents = self.get_top_parents()
+    cluster_vecs2 = []
+    cluster_vecs2_idx = []
+    for parent in parents:
+        if parent not in ngram2weight:
+          cluster = ontology[parent]
+          cluster_vecs2.append(np.mean(cluster_vecs[[terms2idx[child] for child in cluster]]))
+          cluster_vecs2_idx.append(len(ngram2weight))
+          ngram2weight[parent] = statistics.mean([ngram2weight[child] for child in cluster])
+    if cluster_vecs2_idx:
+        cluster_vecs2 = np.vstack(cluster_vecs2)
+        cluster_vecs = np_memmap(f"{project_name}.{embedder}_words", shape=[len(ngram2weight), embed_dim], dat=cluster_vecs2, idxs=cluster_vecs2_idx)  
     return synonyms
  
   def create_word_embeds_and_synonyms(self, project_name, synonyms=None, stopword=None, ngram2weight=None, words_per_ontology_cluster = 10, kmeans_batch_size=50000, epoch = 10, embed_batch_size=7000, min_prev_ids=10000, embedder="minilm", max_ontology_depth=4, max_top_parents=10000):
