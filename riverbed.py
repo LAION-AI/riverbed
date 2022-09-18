@@ -79,26 +79,26 @@ def np_memmap(f, dat=None, idxs=None, shape=None, dtype=np.float32, ):
     memmap[idxs] = dat
   return memmap
 
+if minilm_model is None:
+  clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")   
+  minilm_tokenizer = AutoTokenizer.from_pretrained('sentence-transformers/all-MiniLM-L6-v2')
+  if device == 'cuda':
+    clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").half().eval().to(device)
+    minilm_model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2').half().eval().to(device)
+  else:
+    clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").eval().to(device)
+    minilm_model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2').eval().to(device)
+  spacy_nlp = spacy.load('en_core_web_md')
+  stopwords_set = set(nltk_stopwords.words('english') + ['could', 'should', 'shall', 'can', 'might', 'may', 'include', 'including'])
+
 
 class Riverbed:
   def __init__(self):
-    global minilm_model, clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set, device
-    if minilm_model is None:
-      clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")   
-      minilm_tokenizer = AutoTokenizer.from_pretrained('sentence-transformers/all-MiniLM-L6-v2')
-      if device == 'cuda':
-        clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").half().eval().to(device)
-        minilm_model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2').half().eval().to(device)
-      else:
-        clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").eval().to(device)
-        minilm_model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2').eval().to(device)
-      spacy_nlp = spacy.load('en_core_web_md')
-      stopwords_set = set(nltk_stopwords.words('english') + ['could', 'should', 'shall', 'can', 'might', 'may', 'include', 'including'])
-
-
+    pass
+    
   @staticmethod
   def pp(log_score, length):
-        return float((10.0 ** (-log_score / length)))
+    return float((10.0 ** (-log_score / length)))
 
   def get_perplexity(self,  doc, kenlm_model=None):
     if kenlm_model is None: kenlm_model = {} if not hasattr(self, 'kenlm_model') else self.kenlm_model
@@ -163,16 +163,19 @@ class Riverbed:
     return top_parents
 
   def cluster_one_batch(self, cluster_vecs, idxs, terms2, true_k, synonyms=None, stopword=None, ngram2weight=None, ):
+    print ('cluster_one_batch', len(idxs))
     if synonyms is None: synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
     if ngram2weight is None: ngram2weight = {} if not hasattr(self, 'ngram2weight') else self.ngram2weight    
     if stopword is None: stopword = {} if not hasattr(self, 'stopword') else self.stopword
     km = MiniBatchKMeans(n_clusters=true_k, init='k-means++', n_init=1,
                                         init_size=max(true_k*3,1000), batch_size=1024).fit(cluster_vecs[idxs])
     ontology = {}
+    print (true_k)
     for term, label in zip(terms2, km.labels_):
       ontology[label] = ontology.get(label, [])+[term]
+    print (ontology)
     for key, vals in ontology.items():
-      items = [v for v in vals if "_" in v]
+      items = [v for v in vals if "_" in v and not v.startswith('¶')]
       if len(items) > 1:
           old_syn_upper =  [synonyms[v] for v in vals if "_" in v and v in synonyms and synonyms[v][1].upper() == synonyms[v][0]]
           old_syn_lower = [synonyms[v] for v in vals if "_" in v and v in synonyms and synonyms[v][1].upper() != synonyms[v][0]]
@@ -214,9 +217,14 @@ class Riverbed:
               syn_label = '¶'+[a for a in items if a[0].lower() == a[0]][0]
               for word in items:
                 synonyms[word] = syn_label
-      items = [v for v in vals if "_" not in v]
+      items = [v for v in vals if v not in synonyms]
       if len(items) > 1:
         items.sort(key=lambda a: ngram2weight.get(a, len(a)))
+        parents_only = [a for a in items if a.startswith('¶')]
+        if parents_only: 
+          label = '¶'+parents_only[0]
+          for word in parents_only:
+              synonyms[word] = label        
         stopwords_only = [a for a in items if a in stopword or a in stopwords_set]
         if stopwords_only: 
           label = '¶'+stopwords_only[0]
@@ -237,10 +245,17 @@ class Riverbed:
     # assumes ngram2weight is an ordered dict, ordered roughly by frequency
     terms = list(ngram2weight.keys())
     if not terms: return synonyms
+    if embedder == "clip":
+      embed_dim = clip_model.config.text_config.hidden_size
+    elif embedder == "minilm":
+      embed_dim = minilm_model.config.hidden_size
+    cluster_vecs = np_memmap(f"{project_name}.{embedder}_words", shape=[len(ngram2weight), embed_dim])
     terms2idx = dict([(term, idx) for idx, term in enumerate(terms)])
     for level in range(max_ontology_depth): 
       ontology = self.get_ontology(synonyms)
+      print (len(ontology.keys() ))
       parents = [parent for parent in ontology.keys() if parent.count('¶') == level + 1]
+      print (len(parents))
       if len(parents) < max_top_parents: break
       true_k = int(math.sqrt(len(parents)))
       cluster_vecs2 = []
@@ -252,11 +267,11 @@ class Riverbed:
           cluster_vecs2_idx.append(len(ngram2weight))
           ngram2weight[parent] = statistics.mean([ngram2weight[child] for child in cluster])
       if cluster_vecs2_idx:
+        print ('***', cluster_vecs2_idx)
         cluster_vecs2 = np.vstack(cluster_vecs2)
-        cluster_vecs = np_memmap(f"{project_name}.{embedder}_words", shape=[len(ngram2weight), cluster_vecs2.shape[1]], dat=cluster_vecs2, idxs=cluster_vecs2_idx)  
+        cluster_vecs = np_memmap(f"{project_name}.{embedder}_words", shape=[len(ngram2weight), embed_dim], dat=cluster_vecs2, idxs=cluster_vecs2_idx)  
         cluster_vecs2 = None
-        idxs = [terms2idx[parent] for parent in parents]
-        synonyms = self.cluster_one_batch(cluster_vecs, idxs, parents, true_k, synonyms=synonyms, stopword=stopword, ngram2weight=ngram2weight, )
+        synonyms = self.cluster_one_batch(cluster_vecs, cluster_vecs2_idx, parents, true_k, synonyms=synonyms, stopword=stopword, ngram2weight=ngram2weight, )
     return synonyms
  
   def create_word_embeds_and_synonyms(self, project_name, synonyms=None, stopword=None, ngram2weight=None, words_per_ontology_cluster = 10, kmeans_batch_size=50000, epoch = 10, embed_batch_size=7000, min_prev_ids=10000, embedder="minilm", max_ontology_depth=4, max_top_parents=10000):
@@ -266,6 +281,11 @@ class Riverbed:
     # assumes ngram2weight is an ordered dict, ordered roughly by frequency
     terms = list(ngram2weight.keys())
     if not terms: return synonyms
+    if embedder == "clip":
+      embed_dim = clip_model.config.text_config.hidden_size
+    elif embedder == "minilm":
+      embed_dim = minilm_model.config.hidden_size
+    cluster_vecs = np_memmap(f"{project_name}.{embedder}_words", shape=[len(ngram2weight), embed_dim])
     terms_idx = [idx for idx, term in enumerate(terms) if term not in synonyms and term[0] != '¶' ]
     terms_idx_in_synonyms = [idx for idx, term in enumerate(terms) if term in synonyms and term[0] != '¶']
     len_terms_idx = len(terms_idx)
