@@ -216,7 +216,7 @@ class Riverbed:
 
   #TODO: option to do ngram2weight, ontology and synonyms in lowercase
   #TODO: hiearhical clustering
-  def create_word_embeds_and_synonyms(self, project_name, file_name, synonyms=None, stopword=None, ngram2weight=None, words_per_ontology_cluster = 10, kmeans_batch_size=100000, epoch = 10, embed_batch_size=10000, min_prev_ids=10000, embedder="minilm"):
+  def create_word_embeds_and_synonyms(self, project_name, file_name, synonyms=None, stopword=None, ngram2weight=None, words_per_ontology_cluster = 10, kmeans_batch_size=100000, epoch = 10, embed_batch_size=7000, min_prev_ids=10000, embedder="minilm", max_recluster=4):
     if synonyms is None: synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
     if ngram2weight is None: ngram2weight = {} if not hasattr(self, 'ngram2weight') else self.ngram2weight    
     if stopword is None: stopword = {} if not hasattr(self, 'stopword') else self.stopword
@@ -239,8 +239,9 @@ class Riverbed:
           cluster_vecs = self.mean_pooling(cluster_vecs, toks.attention_mask).cpu().numpy()
       cluster_vecs = np_memmap(f"{project_name}.{embedder}_words", shape=[len(terms), cluster_vecs.shape[1]], dat=cluster_vecs, idxs=terms_idx[rng:max_rng])  
     # assumes ngram2weight is an ordered dict
-    for times in range(4): 
+    for times in range(max_recluster): 
       for rng in range(0, len(terms_idx), int(kmeans_batch_size*.7)):
+          max_rng = min(len(terms_idx), rng+int(kmeans_batch_size*.7))
           prev_ids = [idx for idx in terms_idx[:rng] if terms[idx] not in synonyms]
           terms_idx_in_synonyms.extend([idx for idx in terms_idx[:rng] if terms[idx] in synonyms])
           terms_idx_in_synonyms = list(set(terms_idx_in_synonyms))
@@ -258,15 +259,16 @@ class Riverbed:
           #TODO - re-cluster to break any large clusters into many smaller clusters if needed
           synonyms = self.cluster_one_batch(cluster_vecs, idxs, terms2, true_k, synonyms=synonyms, stopword=stopword, ngram2weight=ngram2weight, )
       ontology = self.get_ontology()
-      decluster = []
-      for key, cluster in ontology.items():
-        if len(cluster) > words_per_ontology_cluster*2:
-          decluster.extend(cluster[words_per_ontology_cluster*2:])
-      if len(decluster) < words_per_ontology_cluster:
-        break
-      print ('decluster', len(decluster))
-      for word in decluster:
-        del synonyms[word]
+      if times != max_recluster-1:
+        decluster = []
+        for key, cluster in ontology.items():
+          if len(cluster) > words_per_ontology_cluster*2:
+            decluster.extend(cluster[words_per_ontology_cluster*2:])
+        if len(decluster) < words_per_ontology_cluster:
+          break
+        print ('decluster', len(decluster))
+        for word in decluster:
+          del synonyms[word]
     #TODO - after leaf level clustering, do hiearchical clustering
     return synonyms
  
@@ -275,7 +277,7 @@ class Riverbed:
   #TODO: To save memory, save away the __tmp__.arpa file at each iteration (sorted label), and re-read in the cumulative arpa file while processing the new arpa file. 
   def create_tokenizer_and_train(self, project_name, files, unigram=None,  lmplz_loc="./riverbed/bin/lmplz", stopword_max_len=10, num_stopwords=75, max_ngram_size=25, \
                 non_words = "،♪↓↑→←━\₨₡€¥£¢¤™®©¶§←«»⊥∀⇒⇔√­­♣️♥️♠️♦️‘’¿*’-ツ¯‿─★┌┴└┐▒∎µ•●°。¦¬≥≤±≠¡×÷¨´:।`~�_“”/|!~@#$%^&*•()【】[]{}-_+–=<>·;…?:.,\'\"", kmeans_batch_size=100000,\
-                embed_batch_size=50000, min_prev_ids=10000, min_compound_weight=1.0, stopword=None, min_num_words=5, do_collapse_values=True, do_tokenize=True, use_synonym_replacement=False, embedder="minilm"):
+                embed_batch_size=7000, min_prev_ids=10000, min_compound_weight=1.0, stopword=None, min_num_words=5, do_collapse_values=True, do_tokenize=True, use_synonym_replacement=False, embedder="minilm"):
       #TODO, strip non_words
       
       ngram2weight =self.ngram2weight = OrderedDict() if not hasattr(self, 'ngram2weight') else self.ngram2weight
