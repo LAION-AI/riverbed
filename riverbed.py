@@ -188,7 +188,7 @@ class Riverbed:
     if stopword is None: stopword = {} if not hasattr(self, 'stopword') else self.stopword
     if device == 'cuda':
       kmeans = KMeans(n_clusters=true_k, mode='euclidean')
-      km_labels = kmeans.fit_predict(cluster_vecs[idxs])
+      km_labels = kmeans.fit_predict(torch.from_numpy(cluster_vecs[idxs]).to(device))
     else:
       km = MiniBatchKMeans(n_clusters=true_k, init='k-means++', n_init=1,
                                           init_size=max(true_k*3,1000), batch_size=1024).fit(cluster_vecs[idxs])
@@ -763,7 +763,7 @@ class Riverbed:
     global device
     if device == 'cuda':
       kmeans = KMeans(n_clusters=true_k, mode='euclidean')
-      km_labels = kmeans.fit_predict(cluster_vecs[idxs])
+      km_labels = kmeans.fit_predict(torch.from_numpy(cluster_vecs[idxs]).to(device))
     else:
       km = MiniBatchKMeans(n_clusters=true_k, init='k-means++', n_init=1,
                                     init_size=max(true_k*3,1000), batch_size=1024).fit(cluster_vecs[idxs])
