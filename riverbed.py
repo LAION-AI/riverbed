@@ -1189,7 +1189,7 @@ class Riverbed:
                                                       kmeans_batch_size=kmeans_batch_size, epoch = epoch, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, \
                                                       max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents, do_ontology=True, embedder=embedder, \
                                                       running_features_per_label=running_features_per_label, ner_to_simplify=ner_to_simplify, span_level_feature_extractors=span_level_feature_extractors, \
-                                                      running_features_size=running_features_size, label2tf=df, df=df, domain_stopword_set=domain_stopword_set, \
+                                                      running_features_size=running_features_size, label2tf=label2tf, df=df, domain_stopword_set=domain_stopword_set, \
                                                       verbose_snrokel=verbose_snrokel,  span_per_cluster=span_per_cluster, use_synonym_replacement=use_synonym_replacement, )  
           batch = []
       
@@ -1213,7 +1213,7 @@ class Riverbed:
                                                       kmeans_batch_size=kmeans_batch_size, epoch = epoch, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids,  \
                                                       max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents, do_ontology=True, embedder=embedder,\
                                                       running_features_per_label=running_features_per_label, ner_to_simplify=ner_to_simplify, span_level_feature_extractors=span_level_feature_extractors, \
-                                                      running_features_size=running_features_size, label2tf=df, df=df, domain_stopword_set=domain_stopword_set, \
+                                                      running_features_size=running_features_size, label2tf=label2tf, df=df, domain_stopword_set=domain_stopword_set, \
                                                       verbose_snrokel=verbose_snrokel)  
           batch = []
       
