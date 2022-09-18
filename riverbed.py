@@ -95,6 +95,15 @@ if minilm_model is None:
 class Riverbed:
   def __init__(self):
     pass
+
+  #Mean Pooling - Take attention mask into account for correct averaging
+  #TODO, mask out the prefix for data that isn't the first portion of a prefixed text.
+  @staticmethod
+  def mean_pooling(model_output, attention_mask):
+    with torch.no_grad():
+      token_embeddings = model_output.last_hidden_state
+      input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
+      return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
     
   @staticmethod
   def pp(log_score, length):
@@ -350,7 +359,7 @@ class Riverbed:
 
   # creating tokenizer with a kenlm model as well as getting ngram weighted by the language modeling weights (not the counts) of the words
   # we can run this in incremental mode or batched mode (just concatenate all the files togehter)
-  def create_tokenizer_and_train(self, project_name, files, lmplz_loc="./riverbed/bin/lmplz", stopword_max_len=10, num_stopwords=75, max_ngram_size=25, max_ontology_depth=4, max_top_parents=10000, \
+  def create_tokenizer_and_train(self, project_name, files, lmplz_loc="./riverbed/bin/lmplz", stopword_max_len=10, num_stopwords=75, min_ngram_size=25, max_ontology_depth=4, max_top_parents=10000, \
                 non_words = "،♪↓↑→←━\₨₡€¥£¢¤™®©¶§←«»⊥∀⇒⇔√­­♣️♥️♠️♦️‘’¿*’-ツ¯‿─★┌┴└┐▒∎µ•●°。¦¬≥≤±≠¡×÷¨´:।`~�_“”/|!~@#$%^&*•()【】[]{}-_+–=<>·;…?:.,\'\"", kmeans_batch_size=50000, dedup_ngrams_larger_than=None, \
                 embed_batch_size=7000, min_prev_ids=10000, min_compound_weight=1.0, stopword=None, min_num_words=5, do_collapse_values=True, use_synonym_replacement=False, embedder="minilm", do_ontology=True):
       #TODO, strip non_words
@@ -361,7 +370,7 @@ class Riverbed:
       stopword = self.stopword = {} if not hasattr(self, 'stopword') else self.stopword
       if dedup_ngrams_larger_than is not None:
         assert dedup_ngrams_larger_than < 50, "deduping larger than 50 gram not supported"
-        max_ngram_size = max(dedup_ngrams_larger_than+1,max_ngram_size+1)
+        min_ngram_size = max(dedup_ngrams_larger_than+1,min_ngram_size+1)
         ngram2weight = {}
         compound = {}
         synonyms = {}
@@ -389,7 +398,7 @@ class Riverbed:
           dedup_ngram_num_iter = max(1, int(dedup_ngrams_larger_than)/(5 *(doc_id+1)))
         else:
           dedup_ngram_num_iter = -1
-        num_iter = max(1,int(max_ngram_size/(5 *(doc_id+1))))
+        num_iter = max(1,int(min_ngram_size/(5 *(doc_id+1))))
         #we can repeatdly run the below to get long ngrams
         #after we tokenize for ngram and replace with words with underscores (the_projected_revenue) at each step, we redo the ngram
         curr_arpa = {}
@@ -414,10 +423,10 @@ class Riverbed:
                   seen_large_ngrams = None
               os.system(f"mv __tmp__2_{file_name} __tmp__{file_name}")   
               curr_arpa = {}
-            # we only do synonym and embedding creation as the last step of each file processed 
-            # b/c this is very expensive. we do this right before the last counting if we
-            # do synonym replacement so we have a chancee to create syonyms for the replacement.
-            # otherwise, we do it after the last count. I
+            # we only do synonym and embedding creation as the second to last or last step of each file processed 
+            # b/c this is very expensive. we can do this right before the last counting if we
+            # do synonym replacement so we have a chance to create syonyms for the replacement.
+            # otherwise, we do it after the last count. See below.
             synonyms_created=  False          
             if use_synonym_replacement and times == num_iter-1 and ngram2weight:
                 synonyms_created = True
@@ -521,8 +530,39 @@ class Riverbed:
       return {'ngram2weight':ngram2weight, 'compound': compound, 'synonyms': synonyms, 'stopword': stopword,  'kenlm_model': self.kenlm_model} 
 
   ################
-  # code for doing labeling of spans of text with different features, including clustering
+  # SPAN BASED CODE
+  # includes labeling of spans of text with different features, including clustering
   # assumes each batch is NOT shuffeled.
+
+  RELATIVE_LOW = 0
+  RELATIVE_MEDIUM = 1
+  RELATIVE_HIGH= 2
+  # for extracting a prefix for a segment of text. a segment can contain multiple spans.
+  default_prefix_extractors = [
+      ('intro_with_date', intro_with_date), \
+      ('section_with_date', section_with_date), \
+      ('conclusion_with_date', conclusion_with_date) \
+      ]
+
+  # for feature extraction on a single span and potentially between spans in a series. 
+  # tuples of (feature_label, lower_band, upper_band, extractor). assumes prefix extraction has occured.
+  # returns data which can be used to store in the feature_label for a span. if upper_band and lower_band are set, then an additional label X_level stores
+  # the relative level label as well.
+  #
+  #TODO: other potential features include similarity of embedding from its cluster centroid
+  #compound words %
+  #stopwords %
+  #tf-idf weight
+  
+  default_span_level_feature_extractors = [
+      ('perplexity', .5, 1.5, lambda self, span: 0.0 if self.kenlm_model is None else self.get_perplexity(span['tokenized_text'])),
+      ('prefix', None, None, lambda self, span: "" if " || " not in span['text'] else  span['text'].split(" || ", 1)[0].strip()),
+      ('date', None, None, lambda self, span: "" if " || " not in span['text'] else span['text'].split(" || ")[0].split(":")[-1].split("date of")[-1].strip("; ")), 
+  ]
+
+  # for labeling the spans in the batch. assumes feature extractions above. (span_label, snorkel_labling_lfs, snorkel_label_cardinality, snorkel_epochs)
+  default_lfs = []
+
 
   @staticmethod
   def dateutil_parse_ext(text):
@@ -577,44 +617,6 @@ class Riverbed:
         return 'conclusion: ' +text + " || "
     return None
 
-  RELATIVE_LOW = 0
-  RELATIVE_MEDIUM = 1
-  RELATIVE_HIGH= 2
-  # for extracting a prefix for a segment of text. a segment can contain multiple spans.
-  default_prefix_extractors = [
-      ('intro_with_date', intro_with_date), \
-      ('section_with_date', section_with_date), \
-      ('conclusion_with_date', conclusion_with_date) \
-      ]
-
-  # for feature extraction on a single span and potentially between spans in a series. 
-  # tuples of (feature_label, lower_band, upper_band, extractor). assumes prefix extraction has occured.
-  # returns data which can be used to store in the feature_label for a span. if upper_band and lower_band are set, then an additional label X_level stores
-  # the relative level label as well.
-  #
-  #TODO: other potential features include similarity of embedding from its cluster centroid
-  #compound words %
-  #stopwords %
-  #tf-idf weight
-  
-  default_span_level_feature_extractors = [
-      ('perplexity', .5, 1.5, lambda self, span: 0.0 if self.kenlm_model is None else self.get_perplexity(span['tokenized_text'])),
-      ('prefix', None, None, lambda self, span: "" if " || " not in span['text'] else  span['text'].split(" || ", 1)[0].strip()),
-      ('date', None, None, lambda self, span: "" if " || " not in span['text'] else span['text'].split(" || ")[0].split(":")[-1].split("date of")[-1].strip("; ")), 
-  ]
-
-  # for labeling the spans in the batch. assumes feature extractions above. (span_label, snorkel_labling_lfs, snorkel_label_cardinality, snorkel_epochs)
-  default_lfs = []
-
-  #Mean Pooling - Take attention mask into account for correct averaging
-  #TODO, mask out the prefix for data that isn't the first portion of a prefixed text.
-  @staticmethod
-  def mean_pooling(model_output, attention_mask):
-    with torch.no_grad():
-      token_embeddings = model_output.last_hidden_state
-      input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
-      return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
-
   # the similarity models sometimes put too much weight on proper names, etc. but we might want to cluster by general concepts
   # such as change of control, regulatory actions, etc. The proper names themselves can be collapsed to one canonical form (The Person). 
   # Similarly, we want similar concepts (e.g., compound words) to cluster to one canonical form.
@@ -656,6 +658,8 @@ class Riverbed:
             tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Date')
           elif label in ('LAW', ):
             tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Law')  
+          elif label in ('EVENT', ):
+            tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Event')            
           elif label in ('MONEY', ):
             tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Amount')
           else:
@@ -670,11 +674,14 @@ class Riverbed:
       tokenized_text = tokenized_text.replace("The Location and The Location", "The Location").replace("The Location The Location", "The Location").replace("The Location, The Location", "The Location")
       tokenized_text = tokenized_text.replace("The Date and The Date", "The Date").replace("The Date The Date", "The Date").replace("The Date, The Date", "The Date")
       tokenized_text = tokenized_text.replace("The Law and The Law", "The Law").replace("The Law The Law", "The Law").replace("The Law, The Law", "The Law")
+      tokenized_text = tokenized_text.replace("The Event and The Event", "The Event").replace("The Event The Event", "The Event").replace("The Event, The Event", "The Event")
       tokenized_text = tokenized_text.replace("The Amount and The Amount", "The Amount").replace("The Amount The Amount", "The Amount").replace("The Amount, The Amount", "The Amount")
       
     return text, tokenized_text, ents2
-
-  def create_spans(self, curr_file_size, batch, text_span_size=1000, ner_to_simplify=(), use_synonym_replacement=False):
+  
+  #transform a doc batch into a span batch, breaking up doc into spans
+  #all spans/leaf nodes of a cluster are stored as a triple of (file_name, lineno, offset)
+  def create_spans_batch(self, curr_file_size, batch, text_span_size=1000, ner_to_simplify=(), use_synonym_replacement=False):
       ngram2weight, compound, synonyms  = self.ngram2weight, self.compound, self.synonyms
       batch2 = []
       for idx, span in enumerate(batch):
@@ -717,10 +724,41 @@ class Riverbed:
 
       return batch2
 
-  #compute features and embeddings in one batch for tokenized text.
-  def create_embeds_and_features_one_batch(self, project_name, curr_file_size, jsonl_file_idx, span2jsonl_file_idx, batch, cluster_batch, cluster_vecs, embed_batch_size=100, text_span_size=1000, running_features_per_label={}, ner_to_simplify=(), span_level_feature_extractors=default_span_level_feature_extractors, running_features_size=100, use_synonym_replacement=False, embedder="minilm"):
-    ngram2weight, compound, synonyms, kenlm_model  = self.ngram2weight, self.compound, self.synonyms, self.kenlm_model
-    batch = self.create_spans(curr_file_size, batch, text_span_size=text_span_size, ner_to_simplify=ner_to_simplify, use_synonym_replacement=use_synonym_replacement)
+    def create_cluster_for_spans(self, batch_id_prefix, cluster_batch, cluster_vecs, clusters, span2cluster_label,  span_per_cluster=20, kmeans_batch_size=1024, ):
+
+        km = MiniBatchKMeans(n_clusters=true_k, init='k-means++', n_init=1,
+                                        init_size=max(true_k*3,1000), batch_size=kmeans_batch_size).fit(cluster_vecs[idxs])
+        new_cluster = {}
+        for item, label in zip(cluster_batch, km.labels_):
+          span = (item['file_name'], item['lineno'], item['offset'],)
+          label = batch_id_prefix+str(label)
+          new_cluster[label] = new_cluster.get(label, [])+[span]
+        if not clusters: 
+          clusters = new_cluster
+          for label, items in clusters.items():
+            for span in items:
+              span2cluster_label[span] = label
+        else:
+          for label, items in new_cluster.items():
+            cluster_labels = [span2cluster_label[span] for span in items if span in span2cluster_label]
+            items2 = [span for span in items if span not in span2cluster_label]
+            if cluster_labels:
+              most_common = Counter(cluster_labels).most_common(1)[0]
+              if most_common[1] >= 2: #if two or more of the span in a cluster has already been labeled, use that label for the rest of the spans
+                label = most_common[0]
+                items = [span for span in items if span2cluster_label.get(span) in (label, None)]
+              else:
+                items = items2
+            else:
+              items = items2
+            for span in items:
+              if span not in clusters.get(label, []):
+                  clusters[label] = clusters.get(label, []) + [span]
+              span2cluster_label[span] = label
+
+    return clusters, span2cluster_label 
+
+  def create_span_features(self, batch):
     feature_labels = []
     features = []
     relative_levels = []
@@ -774,11 +812,9 @@ class Riverbed:
             need_to_low = True
             need_to_medium = False
           running_features.append(p)
-          relative_level_per_label.append(relative_label)
-    
+          relative_level_per_label.append(relative_label) 
+          
     for idx, span in enumerate(batch):
-      file_name, curr_lineno, offset = span['file_name'], span['lineno'], span['offset']
-      span['idx']= jsonl_file_idx
       span['cluster_label']= None
       span['cluster_label_before']= None
       span['cluster_label_after']= None
@@ -788,10 +824,124 @@ class Riverbed:
       ent_cnts = Counter(v[1].lower()+"_cnt" for v in span['ents'])
       for feature_label, cnt in ent_cnts.items():
         span[feature_label] = cnt
-      cluster_batch.append(span)
-      span2jsonl_file_idx[(file_name, curr_lineno, offset)] = jsonl_file_idx
-      jsonl_file_idx += 1
+    return batch
 
+  def create_informative_label_and_tfidf(self, batch_id_prefx, tmp_clusters, span2idx, tmp_span2batch, label2tf=None, df=None):
+    # code to compute tfidf and more informative labels for the span clusters
+    if label2tf is None: label2tf = {}
+    if df is None: df = {}
+    label2label = {}
+    #we gather info for tf-idf with respect to each word in each clusters
+    for label, values in tmp_clusters.items(): 
+      if label.startswith(batch_id_prefix):
+        for item in values:
+          if span in span2idx:
+            span = tmp_span2batch[span]
+            text = span['tokenized_text']
+            #we don't want the artificial labels to skew the tf-idf calculations
+            text = text.replace('The Organization','').replace('The_Organization','')
+            text = text.replace('The Person','').replace('The_Person','')
+            text = text.replace('The Facility','').replace('The_Facility','')
+            text = text.replace('The Location','').replace('The_Location','')          
+            text = text.replace('The Date','').replace('The_Date','')
+            text = text.replace('The Law','').replace('The_Law','')
+            text = text.replace('The Amount','').replace('The_Amount','')
+            text = text.replace('The Event','').replace('The_Event','')
+            #we add back the entities we had replaced with the artificial labels into the tf-idf calculations
+            ents =  list(itertools.chain(*[[a[0].replace(" ", "_")]*a[-1] for a in span['ents']]))
+            if span['offset'] == 0:
+              if "||" in text:
+                prefix, text = text.split("||",1)
+                prefix = prefix.split(":")[-1].split(";")[-1].strip()
+                text = prefix.split() + text.replace("(", " ( ").replace(")", " ) ").split() + ents
+              else:
+                 text = text.replace("(", " ( ").replace(")", " ) ").split() + ents
+            else:
+              text = text.split("||",1)[-1].strip().split() + ents
+            len_text = len(text)
+            text = [a for a in text if len(a) > 1 and ("_" not in a or (a.count("_")+1 != len([b for b in a.lower().split("_") if  b in domain_stopword_set])))  and a.lower() not in domain_stopword_set and a[0].lower() in "abcdefghijklmnopqrstuvwxyz"]
+            cnts = Counter(text)
+            aHash = label2tf[label] =  label2tf.get(label, {})
+            for word, cnt in cnts.items():
+              aHash[word] = cnt/len_text
+            for word in cnts.keys():
+              df[word] = df.get(word,0) + 1
+      
+    #Now, acually create a new label from the tfidf of the words in this cluster
+    #TODO, see how we might save away the tf-idf info as features, then we would need to recompute the tfidf if new items are added to cluster
+    label2label = {}
+    for label, tf in label2tf.items():
+      if label.startswith(batch_id_prefix):
+        tfidf = copy.copy(tf)    
+        for word in list(tfidf.keys()):
+          tfidf[word]  = tfidf[word] * min(1.5, ngram2weight.get(word, 1)) * math.log(1.0/(1+df[word]))
+        top_words2 = [a[0].lower().strip("~!@#$%^&*()<>,.:;")  for a in Counter(tfidf).most_common(min(len(tfidf), 40))]
+        top_words2 = [a for a in top_words2 if a not in domain_stopword_set and ("_" not in a or (a.count("_")+1 != len([b for b in a.split("_") if  b in domain_stopword_set])))]
+        top_words = []
+        for t in top_words2:
+          if t not in top_words:
+            top_words.append(t)
+        if top_words:
+          if len(top_words) > 5: top_words = top_words[:5]
+          label2 = ", ".join(top_words) 
+          label2label[label] = label2
+          
+    #swap out the labels
+    for old_label, new_label in label2label.items():
+      if new_label != old_label:
+        if old_label in tmp_clusters:
+          a_cluster = clusters[old_label]
+          for item in a_cluster:
+            span2cluster_label[item] = new_label
+       label2tf[new_label] =  copy.copy(label2tf.get(old_label, {}))
+       del label2tf[old_label] 
+    for label, values in clusters.items():          
+      spans = [span for span in values if span in span2idx]
+      for span in spans:
+        tmp_span2batch[span]['cluster_label'] = label
+        
+    # add before and after label as additional features
+    prior_b = None
+    for b in batch:
+      if prior_span is not None:
+        b['cluster_label_before'] = prior_b['cluster_label']
+        prior_b['cluster_label_after'] = b['cluster_label']
+      prior_b = b
+      
+  return batch, label2tf, df
+  
+  # similar to create_word_embeds_and_synonyms, except for spans     
+  #(1) compute features and embeddings in one batch for tokenized text.
+  #(2) create clusters in an incremental fashion from batch
+  #all leaf nodes are spans
+  #spanf2idx is a mapping from the span to the actual underlying storage idx (e.g., a jsonl file or database)
+  #span2cluster_label is like the synonym data-structure for words.
+  def create_span_embeds_and_span2cluster_label(self, project_name, curr_file_size, jsonl_file_idx, spanf2idx, batch, \
+                                                      jsonl_file, batch_id_prefix, span_lfs,  span2cluster_label, \
+                                                      spans_per_ontology_leaf = 10, kmeans_batch_size=50000, epoch = 10, embed_batch_size=7000, min_prev_ids=10000, embedder="minilm", \
+                                                      max_ontology_depth=4, max_top_parents=10000, do_ontology=True, \
+                                                      running_features_per_label={}, ner_to_simplify=(), span_level_feature_extractors=default_span_level_feature_extractors, \
+                                                      running_features_size=100, label2tf=None, df=None, domain_stopword_set=stopwords_set, \
+                                                      verbose_snrokel=False):
+    ngram2weight, compound, synonyms, kenlm_model  = self.ngram2weight, self.compound, self.synonyms, self.kenlm_model
+    
+    #transform a doc batch into a span batch, breaking up doc into spans
+    batch = self.create_spans_batch(curr_file_size, batch, text_span_size=text_span_size, ner_to_simplify=ner_to_simplify, use_synonym_replacement=use_synonym_replacement)
+    #create features, assuming linear spans.
+    batch = self.create_span_features(batch)
+    #add the current back to the span2idx data structure
+    start_idx_for_curr_batch = len(span2idx)
+    tmp_span2batch = {}
+    batch_idx = []
+    for b in batch:
+      span = (b['file_name'], b['lineno'], b['offset'])
+      tmp_span2batch[span] = b
+      if span not in span2idx:
+        b['idx']= span2idx[span] = len(span2idx)
+      else:
+        b['idx']= span2idx[span]
+      batch_idx.append(b['idx'])
+      
     if embedder == "clip":
       embed_dim = clip_model.config.text_config.hidden_size
     elif embedder == "minilm":
@@ -811,172 +961,48 @@ class Riverbed:
           cluster_vecs = self.mean_pooling(cluster_vecs, toks.attention_mask).cpu().numpy()
       cluster_vecs = np_memmap(f"{project_name}.{embedder}_spans", shape=[jsonl_file_idx, embed_dim],  dat=cluster_vecs, idxs=range(jsonl_file_idx-len(batch), jsonl_file_idx-len(batch)+(max_rng-rng)))  
     
-    return cluster_batch, cluster_vecs, span2jsonl_file_idx, jsonl_file_idx
 
-  def create_cluster_for_spans(self, batch_id_prefix, cluster_batch, cluster_vecs, clusters, span2cluster_label,  span_per_cluster=20, kmeans_batch_size=1024, ):
-    len_cluster_batch = len(cluster_batch)
-    for rng in range(0, len_cluster_batch, 75000):
-        max_rng = min(len_cluster_batch, rng+75000)
+    len_batch = len(batch)
+    for rng in range(0, len_batch, int(kmeans_batch_size*.7)):
+        max_rng = min(len_batch, rng+int(kmeans_batch_size*.7))
         if rng > 0:
-          prev_ids = [term for term in cluster_batch[:rng] if term not in span2cluster_label]
-          if len(prev_ids) < 25000: prev_ids.extend(random.sample(range(0, rng), 25000-len(prev_ids)))
-          true_k=int((max_rng+75000)/span_per_cluster)
+          prev_ids = [term for span in batch[:rng] if span not in span2cluster_label]
+          if len(prev_ids) < kmeans_batch_size*.3: prev_ids.extend(random.sample(range(0, rng), (kmeans_batch_size*.3)-len(prev_ids)))
         else:
           prev_ids = []
-          true_k=int((max_rng)/span_per_cluster)
         print (rng, max_rng)
         idxs = prev_ids + list(range(rng, max_rng))
-        terms2 = [cluster_batch[idx] for idx in idxs]
-        km = MiniBatchKMeans(n_clusters=true_k, init='k-means++', n_init=1,
-                                        init_size=max(true_k*3,1000), batch_size=kmeans_batch_size).fit(cluster_vecs[idxs])
-        new_cluster = {}
-        for item, label in zip(cluster_batch, km.labels_):
-          span = (item['file_name'], item['lineno'], item['offset'],)
-          label = batch_id_prefix+str(label)
-          new_cluster[label] = new_cluster.get(label, [])+[span]
-        if not clusters: 
-          clusters = new_cluster
-          for label, items in clusters.items():
-            for span in items:
-              span2cluster_label[span] = label
-        else:
-          for label, items in new_cluster.items():
-            cluster_labels = [span2cluster_label[span] for span in items if span in span2cluster_label]
-            items2 = [span for span in items if span not in span2cluster_label]
-            if cluster_labels:
-              most_common = Counter(cluster_labels).most_common(1)[0]
-              if most_common[1] >= 2: #if two or more of the span in a cluster has already been labeled, use that label for the rest of the spans
-                label = most_common[0]
-                items = [span for span in items if span2cluster_label.get(span) in (label, None)]
-              else:
-                items = items2
-            else:
-              items = items2
-            for span in items:
-              if span not in clusters.get(label, []):
-                  clusters[label] = clusters.get(label, []) + [span]
-              span2cluster_label[span] = label
-
-    return clusters, span2cluster_label 
-
-  #we create clusters in an incremental fashion from cluster_batch
-  #cluster_batch should be larger batches than embeds_and_features's batch
-  def create_cluster_and_label_one_batch(self, jsonl_file, batch_id_prefix, jsonl_file_idx, jsonl_file_idx_for_curr_batch, retained_spans_per_cluster, span_lfs, cluster_batch, cluster_vecs, clusters, span2cluster_label, \
-                                        span_per_cluster, kmeans_batch_size=1024, label2tf=None, df=None, domain_stopword_set=stopwords_set, verbose_snrokel=False):
-    ngram2weight  = self.ngram2weight
-    clusters, span2cluster_label = self.create_cluster_for_spans(batch_id_prefix, cluster_batch, cluster_vecs, clusters, span2cluster_label, span_per_cluster=span_per_cluster, kmeans_batch_size=kmeans_batch_size)
-    #all leaf nodes of the cluster are stored as a triple of (file_name, lineno, offset)
-    cluster_leaf2idx = dict([((b['file_name'], b['lineno'], b['offset']), idx) for idx, b in enumerate(cluster_batch) ])
-    new_cluster_batch = []
-    new_cluster_vecs = []
-    if label2tf is None: label2tf = {}
-    if df is None: df = {}
+        true_k=int((len(ids)/span_per_cluster)
+        spans2 = [(batch[idx]['file_name'], batch[idx]['lineno'], batch[idx]['offset']) for idx in idxs]
+        tmp_clusters, span2cluster_label = self.create_cluster_for_spans(batch_id_prefix, spans2, cluster_vecs, tmp_clusters, span2cluster_label, span_per_cluster=span_per_cluster)
+        # TODO: recluster
     
-    #we compute the weighted tf-idf with respect to each word in each clusters
-    len_clusters = len(clusters)
-    for label, values in clusters.items():  
-      for item in values:
-        if item in cluster_leaf2idx:
-          span = cluster_batch[cluster_leaf2idx[item]]
-          text = span['tokenized_text']
-          text = text.replace('The Organization','').replace('The_Organization','')
-          text = text.replace('The Person','').replace('The_Person','')
-          text = text.replace('The Facility','').replace('The_Facility','')
-          text = text.replace('The Date','').replace('The_Date','')
-          text = text.replace('The Law','').replace('The_Law','')
-          text = text.replace('The Amount','').replace('The_Amount','')
-          ents =  list(itertools.chain(*[[a[0].replace(" ", "_")]*a[-1] for a in span['ents']]))
-          if span['offset'] == 0:
-            if "||" in text:
-              prefix, text = text.split("||",1)
-              prefix = prefix.split(":")[-1].split(";")[-1].strip()
-              text = prefix.split() + text.replace("(", " ( ").replace(")", " ) ").split() + ents
-            else:
-               text = text.replace("(", " ( ").replace(")", " ) ").split() + ents
-          else:
-            text = text.split("||",1)[-1].strip().split() + ents
-          len_text = len(text)
-          text = [a for a in text if len(a) > 1 and ("_" not in a or (a.count("_")+1 != len([b for b in a.lower().split("_") if  b in domain_stopword_set])))  and a.lower() not in domain_stopword_set and a[0].lower() in "abcdefghijklmnopqrstuvwxyz"]
-          cnts = Counter(text)
-          aHash = label2tf[label] =  label2tf.get(label, {})
-          for word, cnt in cnts.items():
-            aHash[word] = cnt/len_text
-          for word in cnts.keys():
-            df[word] = df.get(word,0) + 1
-      
-    #create a new label from the tfidf of the words in this cluster
-    #TODO, see how we might save away the tf-idf info as features, then we would need to recompute the tfidf if new items are added to cluster
-    label2label = {}
-    for label, tf in label2tf.items():
-      if label.startswith(batch_id_prefix):
-        tfidf = copy.copy(tf)    
-        for word in list(tfidf.keys()):
-          tfidf[word]  = tfidf[word] * min(1.5, ngram2weight.get(word, 1)) * math.log(len_clusters/(1+df[word]))
-        top_words2 = [a[0].lower().strip("~!@#$%^&*()<>,.:;")  for a in Counter(tfidf).most_common(min(len(tfidf), 40))]
-        top_words2 = [a for a in top_words2 if a not in domain_stopword_set and ("_" not in a or (a.count("_")+1 != len([b for b in a.split("_") if  b in domain_stopword_set])))]
-        top_words = []
-        for t in top_words2:
-          if t not in top_words:
-            top_words.append(t)
-        if top_words:
-          if len(top_words) > 5: top_words = top_words[:5]
-          label2 = ", ".join(top_words) 
-          label2label[label] = label2
-
-    for old_label, new_label in label2label.items():
-      if new_label != old_label and old_label in clusters:
-        a_cluster = clusters[old_label]
-        del clusters[old_label]
-        clusters[new_label] = a_cluster
-        for item in clusters[new_label]:
-          span2cluster_label[item] = new_label
-    for label, values in clusters.items():          
-      items = [item for item in values if item in cluster_leaf2idx]
-      for item in items:
-        cluster_batch[cluster_leaf2idx[item]]['cluster_label'] = label
-    prior_span = None
-    for span in cluster_batch:
-      if prior_span is not None:
-        span['cluster_label_before'] = prior_span['cluster_label']
-        prior_span['cluster_label_after'] = span['cluster_label']
-      prior_span = span
-    for old_label, new_label in label2label.items():
-      if old_label != new_label and old_label in label2tf:
-        tf = label2tf[old_label]
-        del  label2tf[old_label]
-        label2tf[new_label] = tf
-
-    # at this point cluster_batch should have enough data for all snorkel labeling functions
+    # TODO: create_span_ontology
+                   
+    # create more informative labels                   
+    batch, label2tf, df = self.create_informative_label_and_tfidf(batch_id_prefx, tmp_clusters, span2idx, tmp_span2batch, label2tf, df)
+    
+    # at this point, batch should have enough data for all snorkel labeling functions
     if span_lfs:
-      df_train = pd.DataFrom(cluster_batch)
+      df_train = pd.DataFrom(batch)
       for span_label, lfs, snorkel_label_cardinality, snorkel_epochs in span_lfs:
-        df_train = df_train.shuffle()    
+        # we assume there is no shuffling, so we can tie back to the original batch
         applier = PandasLFApplier(lfs=fs)
         L_train = applier.apply(df=df_train)
         label_model = LabelModel(cardinality=snorkel_label_cardinality, verbose=verbose_snrokel)
         label_model.fit(L_train=L_train,n_epochs=snorkel_epochs)
         for idx, label in enumerate(label_model.predict(L=L_train,tie_break_policy="abstain")):
-          cluster_batch[cluster_leaf2idx[item]][span_label] = label
+          batch[idx][span_label] = label
         # note, we only use these models once, since we are doing this in an incremental fashion.
         # we would want to create a final model by training on all re-labeled data from the jsonl file
     
-    # all labeling and feature extraction is complete. now save away the batch
-    for b in cluster_batch:
-      if b['idx'] >= jsonl_file_idx_for_curr_batch:
+    # all labeling and feature extraction is complete, and the batch has all the info. now save away the batch
+    for b in batch:
+      if b['idx'] >= start_idx_for_curr_batch:
         jsonl_file.write(json.dumps(b)+"\n")
+        #TODO, replace with a datastore abstraction, such as sqlite
 
-    # we bootstrap the next clustering with a retained number of sample of the prior clusters so we can connect new clusters to the old clusters
-    # this permits us to do a type of incremental clustering
-    for key, values in clusters.items():          
-      items = [item for item in values if item in cluster_leaf2idx]
-      if len(items) > retained_spans_per_cluster:
-        items = random.sample(items, retained_spans_per_cluster)
-      new_cluster_batch.extend([cluster_batch[cluster_leaf2idx[item]] for item in items])
-      new_cluster_vecs.extend([cluster_vecs[cluster_leaf2idx[item]] for item in items])
-    new_cluster_vecs = np.vstack(new_cluster_vecs)
-    cluster_batch , cluster_vecs = new_cluster_batch, new_cluster_vecs
-    jsonl_file_idx_for_curr_batch = jsonl_file_idx
-    return clusters, jsonl_file_idx_for_curr_batch, cluster_batch, cluster_vecs, span2cluster_label, label2tf, df   
+    return span2idx, span2cluster_label, label2tf, df   
 
 
 
@@ -1007,7 +1033,6 @@ class Riverbed:
     prior_line = ""
     batch = []
     curr = ""
-    cluster_batch = []
     cluster_vecs = None
     curr_date = ""
     curr_position = 0
@@ -1100,12 +1125,14 @@ class Riverbed:
 
         # process the batches
         if len(batch) >= features_batch_size:
-          batch, cluster_vecs, span2jsonl_file_idx, jsonl_file_idx = \
-            self.create_embeds_and_features_one_batch(curr_file_size, jsonl_file_idx, span2jsonl_file_idx, batch, cluster_batch, cluster_vecs, embed_batch_size, text_span_size,  running_features_per_label, ner_to_simplify, span_level_feature_extractors, running_features_size)
           batch_id_prefix += 1
-          clusters, jsonl_file_idx_for_curr_batch, batch, cluster_vecs, span2cluster_label, label2tf, df  = \
-            self.create_cluster_and_label_one_batch(jsonl_file, f"{batch_id_prefix}_", jsonl_file_idx, jsonl_file_idx_for_curr_batch, retained_spans_per_cluster, span_lfs, batch, cluster_vecs, clusters, span2cluster_label, \
-                                        span_per_cluster, kmeans_batch_size, label2tf, df,  domain_stopword_set, verbose_snrokel)
+          span2idx, span2cluster_label, label2tf, df = self.create_span_embeds_and_span2cluster_label(project_name, curr_file_size, jsonl_file_idx, spanf2idx, batch, \
+                                                      jsonl_file,  f"{batch_id_prefix}_", span_lfs,  span2cluster_label, \
+                                                      spans_per_ontology_leaf = spans_per_ontology_leaf, kmeans_batch_size=kmeans_batch_size, epoch = epoch, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, embedder=embedder, \
+                                                      max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents, do_ontology=True, \
+                                                      running_features_per_label=running_features_per_label, ner_to_simplify=ner_to_simplify, span_level_feature_extractors=span_level_feature_extractors, \
+                                                      running_features_size=running_features_size, label2tf=df, df=df, domain_stopword_set=domain_stopword_set, \
+                                                      verbose_snrokel=verbose_snrokel)  
           batch = []
       
       # do one last batch and finish processing if there's anything left
@@ -1122,13 +1149,16 @@ class Riverbed:
           curr_lineno = 0
           curr_position = position
       if batch: 
-        batch, cluster_vecs, span2jsonl_file_idx, jsonl_file_idx = \
-            self.create_embeds_and_features_one_batch(curr_file_size, jsonl_file_idx, span2jsonl_file_idx, batch, cluster_batch, cluster_vecs, embed_batch_size, text_span_size,  running_features_per_label, ner_to_simplify, span_level_feature_extractors, running_features_size)
-        batch_id_prefix += 1
-        clusters, jsonl_file_idx_for_curr_batch, batch, cluster_vecs, span2cluster_label, label2tf, df  = \
-            self.create_cluster_and_label_one_batch(jsonl_file, f"{batch_id_prefix}_", jsonl_file_idx, jsonl_file_idx_for_curr_batch, retained_spans_per_cluster, span_lfs, batch, cluster_vecs, clusters, span2cluster_label, \
-                                        span_per_cluster, kmeans_batch_size, label2tf, df,  domain_stopword_set, verbose_snrokel)
-        batch = []
+          batch_id_prefix += 1
+          span2idx, span2cluster_label, label2tf, df = self.create_span_embeds_and_span2cluster_label(project_name, curr_file_size, jsonl_file_idx, spanf2idx, batch, \
+                                                      jsonl_file,  f"{batch_id_prefix}_", span_lfs,  span2cluster_label, \
+                                                      spans_per_ontology_leaf = spans_per_ontology_leaf, kmeans_batch_size=kmeans_batch_size, epoch = epoch, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, embedder=embedder, \
+                                                      max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents, do_ontology=True, \
+                                                      running_features_per_label=running_features_per_label, ner_to_simplify=ner_to_simplify, span_level_feature_extractors=span_level_feature_extractors, \
+                                                      running_features_size=running_features_size, label2tf=df, df=df, domain_stopword_set=domain_stopword_set, \
+                                                      verbose_snrokel=verbose_snrokel)  
+          batch = []
+      
 
     #now create global labeling functions based on all the labeled data
     #have an option to use a different labeling function, such as regression trees. 
