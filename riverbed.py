@@ -313,8 +313,6 @@ class Riverbed:
       compound = self.compound = {} if not hasattr(self, 'compound') else self.compound
       synonyms = self.synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
       stopword = self.stopword = {} if not hasattr(self, 'stopword') else self.stopword
-      word2next = self.word2next_non_stopwords = {} if not hasattr(self, 'word2next_non_stopwords') else self.word2next_non_stopwords
-      compound2next = self.compound2next = {} if not hasattr(self, 'compound2next') else self.compound2next
       
       if lmplz_loc != "./riverbed/bin/lmplz" and not os.path.exists("./lmplz"):
         os.system(f"cp {lmplz_loc} ./lmplz")
@@ -403,6 +401,7 @@ class Riverbed:
                       compound[wordArr[0]] = max(len(wordArr), compound.get(wordArr[0],0))
                     weight = weight * len(wordArr)            
                     ngram2weight[word] = min(ngram2weight.get(word, 100), weight) 
+            os.system(f"rm {file_name}.arpa")
             if times == num_iter-1  and not synonyms_created:
               synonyms = self.create_word_embeds_and_synonyms(project_name, f"__tmp__{file_name}", stopword=stopword, ngram2weight=ngram2weight, synonyms=synonyms, kmeans_batch_size=kmeans_batch_size, embedder=embedder, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids) 
       top_stopword={} 
