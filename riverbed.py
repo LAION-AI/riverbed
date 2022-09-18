@@ -253,11 +253,7 @@ class Riverbed:
     terms2idx = dict([(term, idx) for idx, term in enumerate(terms)])
     for level in range(max_ontology_depth): 
       ontology = self.get_ontology(synonyms)
-      print (len(ontology.keys() ))
       parents = [parent for parent in ontology.keys() if parent.count('¶') == level + 1]
-      print (len(parents))
-      if len(parents) < max_top_parents: break
-      true_k = int(math.sqrt(len(parents)))
       cluster_vecs2 = []
       cluster_vecs2_idx = []
       for parent in parents:
@@ -267,10 +263,12 @@ class Riverbed:
           cluster_vecs2_idx.append(len(ngram2weight))
           ngram2weight[parent] = statistics.mean([ngram2weight[child] for child in cluster])
       if cluster_vecs2_idx:
-        print ('***', cluster_vecs2_idx)
         cluster_vecs2 = np.vstack(cluster_vecs2)
+        #print ('***', cluster_vecs2)
         cluster_vecs = np_memmap(f"{project_name}.{embedder}_words", shape=[len(ngram2weight), embed_dim], dat=cluster_vecs2, idxs=cluster_vecs2_idx)  
         cluster_vecs2 = None
+        if len(parents) < max_top_parents: continue
+        true_k = int(math.sqrt(len(parents)))
         synonyms = self.cluster_one_batch(cluster_vecs, cluster_vecs2_idx, parents, true_k, synonyms=synonyms, stopword=stopword, ngram2weight=ngram2weight, )
     return synonyms
  
