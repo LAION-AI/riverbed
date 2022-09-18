@@ -151,6 +151,7 @@ class Riverbed:
       ontology[val] = ontology.get(val, []) + [key]
     return ontology
 
+  # find the top parent nodes that have no parents
   def get_top_parents(self, synonyms=None):
     top_parents = []
     if synonyms is None:
@@ -162,6 +163,7 @@ class Riverbed:
         top_parents.append(parent)
     return top_parents
 
+  # cluster one batch of words/vectors, assuming some words have already been clustered
   def cluster_one_batch(self, cluster_vecs, idxs, terms2, true_k, synonyms=None, stopword=None, ngram2weight=None, ):
     print ('cluster_one_batch', len(idxs))
     if synonyms is None: synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
@@ -237,7 +239,7 @@ class Riverbed:
               synonyms[word] = label
     return synonyms
 
-
+  # create a hiearchical structure given leaves that have already been clustered
   def create_ontology(self, project_name, synonyms=None, stopword=None, ngram2weight=None, words_per_ontology_cluster = 10, kmeans_batch_size=50000, epoch = 10, embed_batch_size=7000, min_prev_ids=10000, embedder="minilm", max_ontology_depth=4, max_top_parents=10000):
     if synonyms is None: synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
     if ngram2weight is None: ngram2weight = {} if not hasattr(self, 'ngram2weight') else self.ngram2weight    
@@ -264,7 +266,6 @@ class Riverbed:
           ngram2weight[parent] = statistics.mean([ngram2weight[child] for child in cluster])
       if cluster_vecs2_idx:
         cluster_vecs2 = np.vstack(cluster_vecs2)
-        #print ('***', cluster_vecs2)
         cluster_vecs = np_memmap(f"{project_name}.{embedder}_words", shape=[len(ngram2weight), embed_dim], dat=cluster_vecs2, idxs=cluster_vecs2_idx)  
         cluster_vecs2 = None
         if len(parents) < max_top_parents: continue
@@ -284,7 +285,8 @@ class Riverbed:
         cluster_vecs = np_memmap(f"{project_name}.{embedder}_words", shape=[len(ngram2weight), embed_dim], dat=cluster_vecs2, idxs=cluster_vecs2_idx)  
     return synonyms
  
-  def create_word_embeds_and_synonyms(self, project_name, synonyms=None, stopword=None, ngram2weight=None, words_per_ontology_cluster = 10, kmeans_batch_size=50000, epoch = 10, embed_batch_size=7000, min_prev_ids=10000, embedder="minilm", max_ontology_depth=4, max_top_parents=10000):
+  
+  def create_word_embeds_and_synonyms(self, project_name, synonyms=None, stopword=None, ngram2weight=None, words_per_ontology_cluster = 10, kmeans_batch_size=50000, epoch = 10, embed_batch_size=7000, min_prev_ids=10000, embedder="minilm", max_ontology_depth=4, max_top_parents=10000, do_ontology=True):
     if synonyms is None: synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
     if ngram2weight is None: ngram2weight = {} if not hasattr(self, 'ngram2weight') else self.ngram2weight    
     if stopword is None: stopword = {} if not hasattr(self, 'stopword') else self.stopword
@@ -328,12 +330,11 @@ class Riverbed:
       print ('clustering', len(idxs))
       true_k=int(max(2, (len(idxs))/words_per_ontology_cluster))
       terms2 = [terms[idx] for idx in idxs]
-      #TODO - re-cluster to break any large clusters into many smaller clusters if needed
       synonyms = self.cluster_one_batch(cluster_vecs, idxs, terms2, true_k, synonyms=synonyms, stopword=stopword, ngram2weight=ngram2weight, )
       ontology = self.get_ontology(synonyms)
       for key, cluster in ontology.items():
         if len(cluster) > max_top_parents*1.5:
-          print ('recluster', key)
+          print ('recluster larger to small clusters', key)
           orig_key = key.lstrip('¶')
           cluster.sort(key=lambda a: ngram2weight.get(a, 100))
           for rng2 in range(0, len(cluster),max_top_parents):
@@ -344,15 +345,14 @@ class Riverbed:
               syn_label = '¶'+cluster[rng2]
             for word in cluster[rng2:max_rng2]:
               synonyms[word] = syn_label
-    synonyms = self.create_ontology(project_name, synonyms=synonyms, stopword=stopword, ngram2weight=ngram2weight, words_per_ontology_cluster = words_per_ontology_cluster, kmeans_batch_size=50000, epoch = 10, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, embedder=embedder, max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents)
+    if do_ontology: synonyms = self.create_ontology(project_name, synonyms=synonyms, stopword=stopword, ngram2weight=ngram2weight, words_per_ontology_cluster = words_per_ontology_cluster, kmeans_batch_size=50000, epoch = 10, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, embedder=embedder, max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents)
     return synonyms
 
   # creating tokenizer with a kenlm model as well as getting ngram weighted by the language modeling weights (not the counts) of the words
   # we can run this in incremental mode or batched mode (just concatenate all the files togehter)
-  #TODO: To save memory, save away the __tmp__.arpa file at each iteration (sorted label), and re-read in the cumulative arpa file while processing the new arpa file. 
   def create_tokenizer_and_train(self, project_name, files, lmplz_loc="./riverbed/bin/lmplz", stopword_max_len=10, num_stopwords=75, max_ngram_size=25, max_ontology_depth=4, max_top_parents=10000, \
                 non_words = "،♪↓↑→←━\₨₡€¥£¢¤™®©¶§←«»⊥∀⇒⇔√­­♣️♥️♠️♦️‘’¿*’-ツ¯‿─★┌┴└┐▒∎µ•●°。¦¬≥≤±≠¡×÷¨´:।`~�_“”/|!~@#$%^&*•()【】[]{}-_+–=<>·;…?:.,\'\"", kmeans_batch_size=50000, dedup_ngrams_larger_than=None, \
-                embed_batch_size=7000, min_prev_ids=10000, min_compound_weight=1.0, stopword=None, min_num_words=5, do_collapse_values=True, use_synonym_replacement=False, embedder="minilm"):
+                embed_batch_size=7000, min_prev_ids=10000, min_compound_weight=1.0, stopword=None, min_num_words=5, do_collapse_values=True, use_synonym_replacement=False, embedder="minilm", do_ontology=True):
       #TODO, strip non_words
       
       ngram2weight = self.ngram2weight = OrderedDict() if not hasattr(self, 'ngram2weight') else self.ngram2weight
@@ -422,7 +422,7 @@ class Riverbed:
             if use_synonym_replacement and times == num_iter-1 and ngram2weight:
                 synonyms_created = True
                 synonyms = self.create_word_embeds_and_synonyms(project_name, stopword=stopword, ngram2weight=ngram2weight, synonyms=synonyms, kmeans_batch_size=kmeans_batch_size, \
-                  embedder=embedder, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents)   
+                  embedder=embedder, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents, do_ontology=do_ontology)   
             if ngram2weight:
               with open(f"__tmp__2_{file_name}", "w", encoding="utf8") as tmp2:
                 with open(f"__tmp__{file_name}", "r") as f:
@@ -478,9 +478,8 @@ class Riverbed:
               arpa[line] = min(float(weight), arpa.get(line, 100))
             if times == num_iter-1  and not synonyms_created:
                 synonyms = self.create_word_embeds_and_synonyms(project_name, stopword=stopword, ngram2weight=ngram2weight, synonyms=synonyms, kmeans_batch_size=kmeans_batch_size, \
-                  embedder=embedder, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents)   
+                  embedder=embedder, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents, do_ontology=do_ontology)   
       top_stopword={} 
-      #TODO, cleamnup tmp files
       if unigram:
           stopword_list = [l for l in unigram.items() if len(l[0]) > 0]
           stopword_list.sort(key=lambda a: a[1])
@@ -517,12 +516,9 @@ class Riverbed:
       os.system(f"mv __tmp__.arpa {project_name}.arpa")
 
       self.ngram2weight, self.compound, self.synonyms, self.stopword = ngram2weight, compound, synonyms, stopword 
-      self.word2next = word2next
-      self.compound2next = compound2next
       self.kenlm_model = kenlm.LanguageModel(f"{project_name}.arpa") 
       os.system("rm -rf __tmp__*")
-      return {'word2next': word2next, 'compound2next': compound2next, \
-              'ngram2weight':ngram2weight, 'compound': compound, 'synonyms': synonyms, 'stopword': stopword,  'kenlm_model': self.kenlm_model} 
+      return {'ngram2weight':ngram2weight, 'compound': compound, 'synonyms': synonyms, 'stopword': stopword,  'kenlm_model': self.kenlm_model} 
 
   ################
   # code for doing labeling of spans of text with different features, including clustering
@@ -620,52 +616,63 @@ class Riverbed:
       return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
 
   # the similarity models sometimes put too much weight on proper names, etc. but we might want to cluster by general concepts
-  # such as change of control, regulatory actions, etc. The proper names themselves can be collapsed to one canonical form. 
+  # such as change of control, regulatory actions, etc. The proper names themselves can be collapsed to one canonical form (The Person). 
   # Similarly, we want similar concepts (e.g., compound words) to cluster to one canonical form.
   # we do this by collapsing to an NER label and/or creating a synonym map from compound words to known words. See create_ontology_and_synonyms
   # and we use that data to simplify the sentence here.  
   # TODO: have an option NOT to simplify the prefix. 
-  def simplify_text(self, text, ents, ner_to_simplify=()):
+  def simplify_text(self, text, ents, ner_to_simplify=(), use_synonym_replacement=False):
     ngram2weight, compound, synonyms  = self.ngram2weight, self.compound, self.synonyms
     if not ner_to_simplify and not synonyms and not ents: return text, ents
-    # first tokenize
-    if compound or synonyms or ngram2weight:
-      text = self.tokenize(text)  
+    # assumes the text has already been tokenized and replacing NER with @#@{idx}@#@ 
+    tokenized_text = text
+    #do a second tokenize if we want to do synonym replacement.
+    if use_synonym_replacement:
+      tokenized_text = self.tokenize(text, use_synonym_replacement=True)  
     ents2 = []
-    # as a fallback, we will use spacy for other ners.  
+
     for idx, ent in enumerate(ents):
         entity, label = ent
+        if "@#@" not in text: break
         if f"@#@{idx}@#@" not in text: continue
+        text = text.replace(f"@#@{idx}@#@", entity) 
+    text = text.replace("_", " ")
+
+    for idx, ent in enumerate(ents):
+        entity, label = ent
+        if "@#@" not in tokenized_text: break
+        if f"@#@{idx}@#@" not in tokenized_text: continue
         ents2.append((entity, label,  text.count(f"@#@{idx}@#@")))
         if label in ner_to_simplify:   
           if label == 'ORG':
-            text = text.replace(f"@#@{idx}@#@", 'The Organization')
+            tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Organization')
           elif label == 'PERSON':
-            text = text.replace(f"@#@{idx}@#@", 'The Person')
+            tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Person')
           elif label == 'FAC':
-            text = text.replace(f"@#@{idx}@#@", 'The Facility')
+            tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Facility')
           elif label in ('GPE', 'LOC'):
-            text = text.replace(f"@#@{idx}@#@", 'The Location')
+            tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Location')
           elif label in ('DATE', ):
-            text = text.replace(f"@#@{idx}@#@", 'The Date')
+            tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Date')
           elif label in ('LAW', ):
-            text = text.replace(f"@#@{idx}@#@", 'The Law')  
+            tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Law')  
           elif label in ('MONEY', ):
-            text = text.replace(f"@#@{idx}@#@", 'The Amount')
+            tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Amount')
           else:
-            text = text.replace(f"@#@{idx}@#@", entity)
+            tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", entity.replace(" ", "_"))
         else:
-          text = text.replace(f"@#@{idx}@#@", entity)              
+          tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", entity.replace(" ", "_"))    
+
     for _ in range(3):
-      text = text.replace("The Person and The Person", "The Person").replace("The Person The Person", "The Person").replace("The Person, The Person", "The Person")
-      text = text.replace("The Facility and The Facility", "The Facility").replace("The Facility The Facility", "The Facility").replace("The Facility, The Facility", "The Facility")
-      text = text.replace("The Organization and The Organization", "The Organization").replace("The Organization The Organization", "The Organization").replace("The Organization, The Organization", "The Organization")
-      text = text.replace("The Location and The Location", "The Location").replace("The Location The Location", "The Location").replace("The Location, The Location", "The Location")
-      text = text.replace("The Date and The Date", "The Date").replace("The Date The Date", "The Date").replace("The Date, The Date", "The Date")
-      text = text.replace("The Law and The Law", "The Law").replace("The Law The Law", "The Law").replace("The Law, The Law", "The Law")
-      text = text.replace("The Amount and The Amount", "The Amount").replace("The Amount The Amount", "The Amount").replace("The Amount, The Amount", "The Amount")
+      tokenized_text = tokenized_text.replace("The Person and The Person", "The Person").replace("The Person The Person", "The Person").replace("The Person, The Person", "The Person")
+      tokenized_text = tokenized_text.replace("The Facility and The Facility", "The Facility").replace("The Facility The Facility", "The Facility").replace("The Facility, The Facility", "The Facility")
+      tokenized_text = tokenized_text.replace("The Organization and The Organization", "The Organization").replace("The Organization The Organization", "The Organization").replace("The Organization, The Organization", "The Organization")
+      tokenized_text = tokenized_text.replace("The Location and The Location", "The Location").replace("The Location The Location", "The Location").replace("The Location, The Location", "The Location")
+      tokenized_text = tokenized_text.replace("The Date and The Date", "The Date").replace("The Date The Date", "The Date").replace("The Date, The Date", "The Date")
+      tokenized_text = tokenized_text.replace("The Law and The Law", "The Law").replace("The Law The Law", "The Law").replace("The Law, The Law", "The Law")
+      tokenized_text = tokenized_text.replace("The Amount and The Amount", "The Amount").replace("The Amount The Amount", "The Amount").replace("The Amount, The Amount", "The Amount")
       
-    return text, ents2
+    return text, tokenized_text, ents2
 
   def create_spans(self, curr_file_size, batch, text_span_size=1000, ner_to_simplify=(), use_synonym_replacement=False):
       ngram2weight, compound, synonyms  = self.ngram2weight, self.compound, self.synonyms
@@ -674,8 +681,8 @@ class Riverbed:
         file_name, curr_lineno, ents, text  = span['file_name'], span['lineno'], span['ents'], span['text']
         for idx, ent in enumerate(ents):
           text = text.replace(ent[0], f' @#@{idx}@#@ ')
-        # we tokenize to make ngram words underlined, so that we don't split a span in the middle of a ngram.
-        text  = self.tokenize(text, use_synonym_replacement=use_synonym_replacement) 
+        # we do placeholder replacement tokenize to make ngram words underlined, so that we don't split a span in the middle of an ner word or ngram.
+        text  = self.tokenize(text, use_synonym_replacement=False) 
         len_text = len(text)
         prefix = ""
         if "||" in text:
@@ -685,7 +692,10 @@ class Riverbed:
         while offset < len_text:
           max_rng  = min(len_text, offset+text_span_size+1)
           if text[max_rng-1] != ' ':
-            if ' ' in text[max_rng:]:
+            # extend for non english periods and other punctuations
+            if '. ' in text[max_rng:]:
+              max_rng = max_rng + text[max_rng:].index('. ')+1
+            elif ' ' in text[max_rng:]:
               max_rng = max_rng + text[max_rng:].index(' ')
             else:
               max_rng = len_text
@@ -693,7 +703,9 @@ class Riverbed:
             text2 = prefix +" || ... " + text[offset:max_rng].strip().replace("_", " ").replace("  ", " ").replace("  ", " ")
           else:
             text2 = text[offset:max_rng].strip().replace("_", " ").replace("  ", " ").replace("  ", " ")
-          tokenized_text, ents2 = self.simplify_text(text2, ents, ner_to_simplify) 
+          text2, tokenized_text, ents2 = self.simplify_text(text2, ents, ner_to_simplify, use_synonym_replacement=use_synonym_replacement) 
+          if prefix and offset > 0:
+            _, text2 = text2.split(" || ... ", 1)
           sub_span = copy.deepcopy(span)
           sub_span['position'] += offset/curr_file_size
           sub_span['offset'] = offset
@@ -705,8 +717,8 @@ class Riverbed:
 
       return batch2
 
-  #compute features and embeddings in one batch.
-  def create_embeds_and_features_one_batch(self, curr_file_size, jsonl_file_idx, span2jsonl_file_idx, batch, cluster_batch, cluster_vecs, embed_batch_size=100, text_span_size=1000, running_features_per_label={}, ner_to_simplify=(), span_level_feature_extractors=default_span_level_feature_extractors, running_features_size=100, use_synonym_replacement=False):
+  #compute features and embeddings in one batch for tokenized text.
+  def create_embeds_and_features_one_batch(self, project_name, curr_file_size, jsonl_file_idx, span2jsonl_file_idx, batch, cluster_batch, cluster_vecs, embed_batch_size=100, text_span_size=1000, running_features_per_label={}, ner_to_simplify=(), span_level_feature_extractors=default_span_level_feature_extractors, running_features_size=100, use_synonym_replacement=False, embedder="minilm"):
     ngram2weight, compound, synonyms, kenlm_model  = self.ngram2weight, self.compound, self.synonyms, self.kenlm_model
     batch = self.create_spans(curr_file_size, batch, text_span_size=text_span_size, ner_to_simplify=ner_to_simplify, use_synonym_replacement=use_synonym_replacement)
     feature_labels = []
@@ -780,18 +792,25 @@ class Riverbed:
       span2jsonl_file_idx[(file_name, curr_lineno, offset)] = jsonl_file_idx
       jsonl_file_idx += 1
 
+    if embedder == "clip":
+      embed_dim = clip_model.config.text_config.hidden_size
+    elif embedder == "minilm":
+      embed_dim = minilm_model.config.hidden_size
+    cluster_vecs = np_memmap(f"{project_name}.{embedder}_spans", shape=[jsonl_file_idx, embed_dim])
+
     for rng in range(0, len(batch), embed_batch_size):
       max_rng = min(len(batch), rng+embed_batch_size)
-      #TODO: save away the vectors (in a mmap file) to enable ANN search of batches 
-      toks = sim_tokenizer([a['tokenized_text'].replace("_", " ") for a in batch[rng:max_rng]], padding=True, truncation=True, return_tensors="pt").to(device)
-      with torch.no_grad():
-        dat = sim_model(**toks)
-      dat = self.mean_pooling(dat, toks.attention_mask).cpu().numpy()
-      if cluster_vecs is None:
-        cluster_vecs = dat
-      else:
-        cluster_vecs = np.vstack([cluster_vecs, dat])
-
+      if embedder == "clip":
+        toks = clip_processor([a['tokenized_text'].replace("_", " ") for a in batch[rng:max_rng]], padding=True, truncation=True, return_tensors="pt").to(device)
+        with torch.no_grad():
+          cluster_vecs = clip_model.get_text_features(**toks).cpu().numpy()
+      elif embedder == "minilm":
+        toks = minilm_tokenizer([a['tokenized_text'].replace("_", " ") for a in batch[rng:max_rng]], padding=True, truncation=True, return_tensors="pt").to(device)
+        with torch.no_grad():
+          cluster_vecs = minilm_model(**toks)
+          cluster_vecs = self.mean_pooling(cluster_vecs, toks.attention_mask).cpu().numpy()
+      cluster_vecs = np_memmap(f"{project_name}.{embedder}_spans", shape=[jsonl_file_idx, embed_dim],  dat=cluster_vecs, idxs=range(jsonl_file_idx-len(batch), jsonl_file_idx-len(batch)+(max_rng-rng)))  
+    
     return cluster_batch, cluster_vecs, span2jsonl_file_idx, jsonl_file_idx
 
   def create_cluster_for_spans(self, batch_id_prefix, cluster_batch, cluster_vecs, clusters, span2cluster_label,  span_per_cluster=20, kmeans_batch_size=1024, ):
