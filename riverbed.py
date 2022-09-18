@@ -29,7 +29,7 @@
 import math, os
 import copy
 import fasttext
-from sklearn.cluster import KMeans, MiniBatchKMeans
+from sklearn.cluster import MiniBatchKMeans
 from sklearn.cluster import AgglomerativeClustering
 from time import time
 import numpy as np
@@ -49,6 +49,8 @@ import itertools
 from nltk.corpus import stopwords as nltk_stopwords
 import pickle
 from collections import OrderedDict
+from fast_pytorch_kmeans import KMeans
+import torch
 
 if torch.cuda.is_available():
   device = 'cuda'
@@ -179,15 +181,21 @@ class Riverbed:
 
   # cluster one batch of words/vectors, assuming some words have already been clustered
   def cluster_one_batch(self, cluster_vecs, idxs, terms2, true_k, synonyms=None, stopword=None, ngram2weight=None, ):
+    global device
     print ('cluster_one_batch', len(idxs))
     if synonyms is None: synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
     if ngram2weight is None: ngram2weight = {} if not hasattr(self, 'ngram2weight') else self.ngram2weight    
     if stopword is None: stopword = {} if not hasattr(self, 'stopword') else self.stopword
-    km = MiniBatchKMeans(n_clusters=true_k, init='k-means++', n_init=1,
-                                        init_size=max(true_k*3,1000), batch_size=1024).fit(cluster_vecs[idxs])
+    if device == 'cuda':
+      kmeans = KMeans(n_clusters=true_k, mode='euclidean')
+      km_labels = kmeans.fit_predict(cluster_vecs[idxs])
+    else:
+      km = MiniBatchKMeans(n_clusters=true_k, init='k-means++', n_init=1,
+                                          init_size=max(true_k*3,1000), batch_size=1024).fit(cluster_vecs[idxs])
+      km_labels = km.labels_
     ontology = {}
     print (true_k)
-    for term, label in zip(terms2, km.labels_):
+    for term, label in zip(terms2, km_labels):
       ontology[label] = ontology.get(label, [])+[term]
     print (ontology)
     for key, vals in ontology.items():
@@ -752,10 +760,17 @@ class Riverbed:
       return batch2
 
   def create_cluster_for_spans(self, true_k, batch_id_prefix, spans, cluster_vecs, tmp_clusters, span2cluster_label,  idxs, span_per_cluster=20, kmeans_batch_size=1024, ):
-    km = MiniBatchKMeans(n_clusters=true_k, init='k-means++', n_init=1,
+    global device
+    if device == 'cuda':
+      kmeans = KMeans(n_clusters=true_k, mode='euclidean')
+      km_labels = kmeans.fit_predict(cluster_vecs[idxs])
+    else:
+      km = MiniBatchKMeans(n_clusters=true_k, init='k-means++', n_init=1,
                                     init_size=max(true_k*3,1000), batch_size=1024).fit(cluster_vecs[idxs])
+      km_labels = km.labels_
+      
     new_cluster = {}
-    for span, label in zip(spans, km.labels_):
+    for span, label in zip(spans, km_labels):
       label = batch_id_prefix+str(label)
       new_cluster[label] = new_cluster.get(label, [])+[span]
       
