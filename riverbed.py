@@ -1057,7 +1057,7 @@ class Riverbed:
                                                 ner_to_simplify=(), span_level_feature_extractors=default_span_level_feature_extractors, running_features_size=100, \
                                                 prefix_extractors = default_prefix_extractors, dedup=True, max_top_parents=10000, \
                                                 span_lfs = [], verbose_snrokel=True, use_synonym_replacement=False, max_ontology_depth=4, \
-                                                batch_id_prefix = 0, seen = None, span2jsonl_file_idx = None, embedder="minilm", \
+                                                batch_id_prefix = 0, seen = None, span2idx = None, embedder="minilm", \
                                                 clusters = None, label2tf = None, df = None, span2cluster_label = None, label_models = None, auto_create_tokenizer_and_train=True, \
                                                 ):
     global clip_model, minilm_model, labse_model
@@ -1105,14 +1105,12 @@ class Riverbed:
 
     #TODO, load the below from an config file
     if seen is None: seen = {}
-    if span2jsonl_file_idx is None: span2jsonl_file_idx = {}
+    if span2idx is None: span2idx = {}
     if clusters is None: clusters = {}
     if label2tf is None: label2tf = {}
     if df is None: df = {}
     if span2cluster_label is None: span2cluster_label = {}
     if label_models is None: label_models = []  
-    jsonl_file_idx = 0 if not span2jsonl_file_idx else max(span2jsonl_file_idx.values())
-    jsonl_file_idx_for_curr_batch= jsonl_file_idx
     
 
     with open(f"{project_name}.jsonl", "w", encoding="utf8") as jsonl_file:
@@ -1231,8 +1229,8 @@ class Riverbed:
         L_train = applier.apply(df=df_train)
         label_models.append(span_label, LabelModel(cardinality=snorkel_label_cardinality,verbose=verbose_snrokel))
         
-    return {'clusters': clusters, 'span2cluster_label': span2cluster_label, 'span2jsonl_file_idx': span2jsonl_file_idx, 'label_models': label_models, \
-            'batch_id_prefix': batch_id_prefix, 'seen': seen, 'label2tf': label2tf, 'df': df,  'label_models': label_models} 
+    return {'clusters': clusters, 'span2cluster_label': span2cluster_label, 'span2idx': span2idx, 'label_models': label_models, \
+            'batch_id_prefix': batch_id_prefix, 'seen': seen, 'label2tf': label2tf, 'df': df,   
 
   def save_pretrained(self, project_name):
       pickle.dump(self, open(f"{project_name}.pickle", "wb"))
