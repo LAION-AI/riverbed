@@ -37,8 +37,7 @@ from collections import Counter
 import kenlm
 import statistics
 import torch
-from transformers import AutoTokenizer, AutoModel
-from transformers import CLIPProcessor, CLIPModel
+from transformers import AutoTokenizer, AutoModel, BertTokenizerFast, CLIPProcessor, CLIPModel, BertModel
 import torch.nn.functional as F
 import random
 import spacy
@@ -60,7 +59,7 @@ try:
   if minilm_model is not None: 
     pass
 except:
-  clip_processor = minilm_tokenizer= clip_model= minilm_model= spacy_nlp= stopwords_set = None
+   labse_tokenizer= labse_model=  clip_processor = minilm_tokenizer= clip_model= minilm_model= spacy_nlp= stopwords_set = None
   
 def np_memmap(f, dat=None, idxs=None, shape=None, dtype=np.float32, ):
   if not f.endswith(".mmap"):
@@ -82,12 +81,18 @@ def np_memmap(f, dat=None, idxs=None, shape=None, dtype=np.float32, ):
 if minilm_model is None:
   clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")   
   minilm_tokenizer = AutoTokenizer.from_pretrained('sentence-transformers/all-MiniLM-L6-v2')
+  labse_tokenizer = BertTokenizerFast.from_pretrained("setu4993/smaller-LaBSE")
+
+
   if device == 'cuda':
-    clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").half().eval().to(device)
-    minilm_model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2').half().eval().to(device)
+    clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").half().eval()
+    minilm_model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2').half().eval()
+    labse_model = BertModel.from_pretrained("setu4993/smaller-LaBSE").half().eval()
   else:
-    clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").eval().to(device)
-    minilm_model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2').eval().to(device)
+    clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").eval()
+    minilm_model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2').eval()
+    lbase_model = BertModel.from_pretrained("setu4993/smaller-LaBSE").eval()
+
   spacy_nlp = spacy.load('en_core_web_md')
   stopwords_set = set(nltk_stopwords.words('english') + ['could', 'should', 'shall', 'can', 'might', 'may', 'include', 'including'])
 
@@ -296,6 +301,7 @@ class Riverbed:
  
   
   def create_word_embeds_and_synonyms(self, project_name, synonyms=None, stopword=None, ngram2weight=None, words_per_ontology_cluster = 10, kmeans_batch_size=50000, epoch = 10, embed_batch_size=7000, min_prev_ids=10000, embedder="minilm", max_ontology_depth=4, max_top_parents=10000, do_ontology=True):
+    global clip_model, minilm_model, labse_model
     if synonyms is None: synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
     if ngram2weight is None: ngram2weight = {} if not hasattr(self, 'ngram2weight') else self.ngram2weight    
     if stopword is None: stopword = {} if not hasattr(self, 'stopword') else self.stopword
@@ -306,6 +312,8 @@ class Riverbed:
       embed_dim = clip_model.config.text_config.hidden_size
     elif embedder == "minilm":
       embed_dim = minilm_model.config.hidden_size
+    elif embedder == "labse":
+      embed_dim = labse_model.config.hidden_size
     cluster_vecs = np_memmap(f"{project_name}.{embedder}_words", shape=[len(ngram2weight), embed_dim])
     terms_idx = [idx for idx, term in enumerate(terms) if term not in synonyms and term[0] != '¶' ]
     terms_idx_in_synonyms = [idx for idx, term in enumerate(terms) if term in synonyms and term[0] != '¶']
@@ -321,6 +329,10 @@ class Riverbed:
         with torch.no_grad():
           cluster_vecs = minilm_model(**toks)
           cluster_vecs = self.mean_pooling(cluster_vecs, toks.attention_mask).cpu().numpy()
+      elif embedder == "labse":
+        toks = labse_tokenizer([terms[idx].replace("_", " ") for idx in terms_idx[rng:max_rng]], padding=True, truncation=True, return_tensors="pt").to(device)
+        with torch.no_grad():
+          cluster_vecs = labse_model(**toks).pooler_output.cpu().numpy()          
       cluster_vecs = np_memmap(f"{project_name}.{embedder}_words", shape=[len(terms), cluster_vecs.shape[1]], dat=cluster_vecs, idxs=terms_idx[rng:max_rng])  
     
     for rng in range(0, len(terms_idx), int(kmeans_batch_size*.7)):
@@ -357,20 +369,34 @@ class Riverbed:
     if do_ontology: synonyms = self.create_ontology(project_name, synonyms=synonyms, stopword=stopword, ngram2weight=ngram2weight, words_per_ontology_cluster = words_per_ontology_cluster, kmeans_batch_size=50000, epoch = 10, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, embedder=embedder, max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents)
     return synonyms
 
+  #TODO, strip non_words
   # creating tokenizer with a kenlm model as well as getting ngram weighted by the language modeling weights (not the counts) of the words
   # we can run this in incremental mode or batched mode (just concatenate all the files togehter)
-  def create_tokenizer_and_train(self, project_name, files, lmplz_loc="./riverbed/bin/lmplz", stopword_max_len=10, num_stopwords=75, min_compound_word_size=5, max_compound_word_size=25, max_ontology_depth=4, max_top_parents=10000, \
+  def create_tokenizer_and_train(self, project_name, files, lmplz_loc="./riverbed/bin/lmplz", stopword_max_len=10, num_stopwords=75, min_compound_word_size=25, max_ontology_depth=4, max_top_parents=10000, \
                 non_words = "،♪↓↑→←━\₨₡€¥£¢¤™®©¶§←«»⊥∀⇒⇔√­­♣️♥️♠️♦️‘’¿*’-ツ¯‿─★┌┴└┐▒∎µ•●°。¦¬≥≤±≠¡×÷¨´:।`~�_“”/|!~@#$%^&*•()【】[]{}-_+–=<>·;…?:.,\'\"", kmeans_batch_size=50000, dedup_ngrams_larger_than=None, \
                 embed_batch_size=7000, min_prev_ids=10000, min_compound_weight=1.0, stopword=None, min_num_words=5, do_collapse_values=True, use_synonym_replacement=False, embedder="minilm", do_ontology=True):
-      #TODO, strip non_words
+      global device, clip_model, minilm_model, labse_model
       
+      if embedder == "clip":
+        clip_model = clip_model.to(device)
+        minilm_model =  minilm_model.cpu()
+        labse_model =  labse_model.cpu()
+      elif embedder == "minilm":
+        clip_model = clip_model.cpu()
+        minilm_model =  minilm_model.to(device)
+        labse_model =  labse_model.cpu()
+      elif embedder == "labse":
+        clip_model = clip_model.cpu()
+        minilm_model =  minilm_model.cpu()
+        labse_model =  labse_model.to(device)
+
       ngram2weight = self.ngram2weight = OrderedDict() if not hasattr(self, 'ngram2weight') else self.ngram2weight
       compound = self.compound = {} if not hasattr(self, 'compound') else self.compound
       synonyms = self.synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
       stopword = self.stopword = {} if not hasattr(self, 'stopword') else self.stopword
       if dedup_ngrams_larger_than is not None:
         assert dedup_ngrams_larger_than < 50, "deduping larger than 50 gram not supported"
-        min_ngram_size = max(dedup_ngrams_larger_than+1,max_compound_word_size+1)
+        min_ngram_size = max(dedup_ngrams_larger_than+1,min_compound_word_size+1)
         ngram2weight = {}
         compound = {}
         synonyms = {}
@@ -395,10 +421,10 @@ class Riverbed:
       #TODO, we should try to create consolidated files of around 1GB to get enough information in the arpa files
       for doc_id, file_name in enumerate(files):
         if dedup_ngrams_larger_than:
-          dedup_ngram_num_iter = max(1, int(dedup_ngrams_larger_than)/(min_compound_word_size *(doc_id+1)))
+          dedup_ngram_num_iter = max(1, int(dedup_ngrams_larger_than)/(5 *(doc_id+1)))
         else:
           dedup_ngram_num_iter = -1
-        num_iter = max(1,int(min_ngram_size/(min_compound_word_size *(doc_id+1))))
+        num_iter = max(1,int(min_compound_word_size/(5 *(doc_id+1))))
         #we can repeatdly run the below to get long ngrams
         #after we tokenize for ngram and replace with words with underscores (the_projected_revenue) at each step, we redo the ngram
         curr_arpa = {}
@@ -534,35 +560,6 @@ class Riverbed:
   # includes labeling of spans of text with different features, including clustering
   # assumes each batch is NOT shuffeled.
 
-  RELATIVE_LOW = 0
-  RELATIVE_MEDIUM = 1
-  RELATIVE_HIGH= 2
-  # for extracting a prefix for a segment of text. a segment can contain multiple spans.
-  default_prefix_extractors = [
-      ('intro_with_date', intro_with_date), \
-      ('section_with_date', section_with_date), \
-      ('conclusion_with_date', conclusion_with_date) \
-      ]
-
-  # for feature extraction on a single span and potentially between spans in a series. 
-  # tuples of (feature_label, lower_band, upper_band, extractor). assumes prefix extraction has occured.
-  # returns data which can be used to store in the feature_label for a span. if upper_band and lower_band are set, then an additional label X_level stores
-  # the relative level label as well.
-  #
-  #TODO: other potential features include similarity of embedding from its cluster centroid
-  #compound words %
-  #stopwords %
-  #tf-idf weight
-  
-  default_span_level_feature_extractors = [
-      ('perplexity', .5, 1.5, lambda self, span: 0.0 if self.kenlm_model is None else self.get_perplexity(span['tokenized_text'])),
-      ('prefix', None, None, lambda self, span: "" if " || " not in span['text'] else  span['text'].split(" || ", 1)[0].strip()),
-      ('date', None, None, lambda self, span: "" if " || " not in span['text'] else span['text'].split(" || ")[0].split(":")[-1].split("date of")[-1].strip("; ")), 
-  ]
-
-  # for labeling the spans in the batch. assumes feature extractions above. (span_label, snorkel_labling_lfs, snorkel_label_cardinality, snorkel_epochs)
-  default_lfs = []
-
 
   @staticmethod
   def dateutil_parse_ext(text):
@@ -616,6 +613,36 @@ class Riverbed:
       else:
         return 'conclusion: ' +text + " || "
     return None
+
+
+  RELATIVE_LOW = 0
+  RELATIVE_MEDIUM = 1
+  RELATIVE_HIGH= 2
+  # for extracting a prefix for a segment of text. a segment can contain multiple spans.
+  default_prefix_extractors = [
+      ('intro_with_date', intro_with_date), \
+      ('section_with_date', section_with_date), \
+      ('conclusion_with_date', conclusion_with_date) \
+      ]
+
+  # for feature extraction on a single span and potentially between spans in a series. 
+  # tuples of (feature_label, lower_band, upper_band, extractor). assumes prefix extraction has occured.
+  # returns data which can be used to store in the feature_label for a span. if upper_band and lower_band are set, then an additional label X_level stores
+  # the relative level label as well.
+  #
+  #TODO: other potential features include similarity of embedding from its cluster centroid
+  #compound words %
+  #stopwords %
+  #tf-idf weight
+  
+  default_span_level_feature_extractors = [
+      ('perplexity', .5, 1.5, lambda self, span: 0.0 if self.kenlm_model is None else self.get_perplexity(span['tokenized_text'])),
+      ('prefix', None, None, lambda self, span: "" if " || " not in span['text'] else  span['text'].split(" || ", 1)[0].strip()),
+      ('date', None, None, lambda self, span: "" if " || " not in span['text'] else span['text'].split(" || ")[0].split(":")[-1].split("date of")[-1].strip("; ")), 
+  ]
+
+  # for labeling the spans in the batch. assumes feature extractions above. (span_label, snorkel_labling_lfs, snorkel_label_cardinality, snorkel_epochs)
+  default_lfs = []
 
   # the similarity models sometimes put too much weight on proper names, etc. but we might want to cluster by general concepts
   # such as change of control, regulatory actions, etc. The proper names themselves can be collapsed to one canonical form (The Person). 
@@ -756,7 +783,7 @@ class Riverbed:
           span2cluster_label[span] = label
     return tmp_clusters, span2cluster_label 
 
-  def create_span_features(self, batch):
+  def create_span_features(self, batch, span_level_feature_extractors, running_features_per_label, running_features_size):
     feature_labels = []
     features = []
     relative_levels = []
@@ -824,9 +851,8 @@ class Riverbed:
         span[feature_label] = cnt
     return batch
 
-  def create_informative_label_and_tfidf(self, batch_id_prefix, tmp_clusters, span2idx, tmp_span2batch, label2tf=None, df=None, domain_stopword_set=stopwords_set,):
+  def create_informative_label_and_tfidf(self, batch, batch_id_prefix, tmp_clusters, span2idx, tmp_span2batch, span2cluster_label, label2tf=None, df=None, domain_stopword_set=stopwords_set,):
     ngram2weight, compound, synonyms, kenlm_model  = self.ngram2weight, self.compound, self.synonyms, self.kenlm_model
-    
     # code to compute tfidf and more informative labels for the span clusters
     if label2tf is None: label2tf = {}
     if df is None: df = {}
@@ -890,12 +916,12 @@ class Riverbed:
     for old_label, new_label in label2label.items():
       if new_label != old_label:
         if old_label in tmp_clusters:
-          a_cluster = clusters[old_label]
+          a_cluster = tmp_span2batch[old_label]
           for item in a_cluster:
             span2cluster_label[item] = new_label
         label2tf[new_label] =  copy.copy(label2tf.get(old_label, {}))
         del label2tf[old_label] 
-    for label, values in clusters.items():          
+    for label, values in tmp_clusters.items():          
       spans = [span for span in values if span in span2idx]
       for span in spans:
         tmp_span2batch[span]['cluster_label'] = label
@@ -928,8 +954,10 @@ class Riverbed:
     
     #transform a doc batch into a span batch, breaking up doc into spans
     batch = self.create_spans_batch(curr_file_size, batch, text_span_size=text_span_size, ner_to_simplify=ner_to_simplify, use_synonym_replacement=use_synonym_replacement)
+    
     #create features, assuming linear spans.
-    batch = self.create_span_features(batch)
+    batch = self.create_span_features(batch, span_level_feature_extractors, running_features_per_label, running_features_size)
+    
     #add the current back to the span2idx data structure
     start_idx_for_curr_batch = len(span2idx)
     tmp_span2batch = {}
@@ -949,12 +977,13 @@ class Riverbed:
         tmp_batch_idx_not_in_span2cluster.append(b['idx'])
       tmp_idx2span[b['idx']] = span
       
-      
     if embedder == "clip":
       embed_dim = clip_model.config.text_config.hidden_size
     elif embedder == "minilm":
       embed_dim = minilm_model.config.hidden_size
-    cluster_vecs = np_memmap(f"{project_name}.{embedder}_spans", shape=[jsonl_file_idx, embed_dim])
+    elif embedder == "labse":
+      embed_dim = labse_model.config.hidden_size
+    cluster_vecs = np_memmap(f"{project_name}.{embedder}_spans", shape=[len(span2idx), embed_dim])
 
     for rng in range(0, len(batch), embed_batch_size):
       max_rng = min(len(batch), rng+embed_batch_size)
@@ -967,9 +996,12 @@ class Riverbed:
         with torch.no_grad():
           cluster_vecs = minilm_model(**toks)
           cluster_vecs = self.mean_pooling(cluster_vecs, toks.attention_mask).cpu().numpy()
-      cluster_vecs = np_memmap(f"{project_name}.{embedder}_spans", shape=[jsonl_file_idx, embed_dim],  dat=cluster_vecs, idxs=range(jsonl_file_idx-len(batch), jsonl_file_idx-len(batch)+(max_rng-rng)))  
+      elif embedder == "labse":
+        toks = labse_tokenizer([a['tokenized_text'].replace("_", " ") for a in batch[rng:max_rng]], padding=True, truncation=True, return_tensors="pt").to(device)
+        with torch.no_grad():
+          cluster_vecs = labse_model(**toks).pooler_output.cpu().numpy()  
+      cluster_vecs = np_memmap(f"{project_name}.{embedder}_spans", shape=[len(span2idx), embed_dim],  dat=cluster_vecs, idxs=range(len(span2idx)-len(batch)+rng, len(span2idx)-len(batch)+max_rng))  
     
-
     len_batch = len(tmp_batch_idx_not_in_span2cluster)
     for rng in range(0, len_batch, int(kmeans_batch_size*.7)):
         max_rng = min(len_batch, rng+int(kmeans_batch_size*.7))
@@ -991,7 +1023,7 @@ class Riverbed:
     # TODO: create_span_ontology
                    
     # create more informative labels                   
-    batch, label2tf, df = self.create_informative_label_and_tfidf(batch_id_prefix, tmp_clusters, span2idx, tmp_span2batch, label2tf, df)
+    batch, label2tf, df = self.create_informative_label_and_tfidf(batch, batch_id_prefix, tmp_clusters, span2idx, tmp_span2batch, span2cluster_label, label2tf, df)
     
     # at this point, batch should have enough data for all snorkel labeling functions
     if span_lfs:
@@ -1021,18 +1053,32 @@ class Riverbed:
 
   def apply_span_feature_detect_and_labeling(self, project_name, files, text_span_size=1000, max_lines_per_section=10, max_len_for_prefix=100, min_len_for_prefix=20, embed_batch_size=100, 
                                                 features_batch_size = 10000000, kmeans_batch_size=1024, \
-                                                span_per_cluster= 20, retained_spans_per_cluster=5, \
+                                                span_per_cluster= 20, retained_spans_per_cluster=5, min_prev_ids=10000, \
                                                 ner_to_simplify=(), span_level_feature_extractors=default_span_level_feature_extractors, running_features_size=100, \
-                                                prefix_extractors = default_prefix_extractors, dedup=True, \
+                                                prefix_extractors = default_prefix_extractors, dedup=True, max_top_parents=10000, \
                                                 span_lfs = [], verbose_snrokel=True, use_synonym_replacement=False, max_ontology_depth=4, \
-                                                batch_id_prefix = 0, seen = None, span2jsonl_file_idx = None, \
+                                                batch_id_prefix = 0, seen = None, span2jsonl_file_idx = None, embedder="minilm", \
                                                 clusters = None, label2tf = None, df = None, span2cluster_label = None, label_models = None, auto_create_tokenizer_and_train=True, \
                                                 ):
+    global clip_model, minilm_model, labse_model
+    
     self.ngram2weight = {} if not hasattr(self, 'ngram2weight') else self.ngram2weight
     self.compound = {} if not hasattr(self, 'compound') else self.compound
     self.synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
     stopword = self.stopword = {} if not hasattr(self, 'stopword') else self.stopword
-    
+    if embedder == "clip":
+      clip_model = clip_model.to(device)
+      minilm_model =  minilm_model.cpu()
+      labse_model =  labse_model.cpu()
+    elif embedder == "minilm":
+      clip_model = clip_model.cpu()
+      minilm_model =  minilm_model.to(device)
+      labse_model =  labse_model.cpu()
+    elif embedder == "labse":
+      clip_model = clip_model.cpu()
+      minilm_model =  minilm_model.cpu()
+      labse_model =  labse_model.to(device)
+
     if os.path.exists(f"{project_name}.arpa") and (not hasattr(self, 'kenlm_model') or self.kenlm_model is None):
       kenlm_model = self.kenlm_model = kenlm.LanguageModel(f"{project_name}.arpa")
     kenlm_model = self.kenlm_model if hasattr(self, 'kenlm_model') else None
@@ -1142,8 +1188,8 @@ class Riverbed:
           batch_id_prefix += 1
           retained_batch, span2idx, span2cluster_label, label2tf, df = self.create_span_embeds_and_span2cluster_label(project_name, curr_file_size, jsonl_file_idx, span2idx, batch, \
                                                       retained_batch, jsonl_file,  f"{batch_id_prefix}_", span_lfs,  span2cluster_label, text_span_size, \
-                                                      kmeans_batch_size=kmeans_batch_size, epoch = epoch, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, embedder=embedder, \
-                                                      max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents, do_ontology=True, \
+                                                      kmeans_batch_size=kmeans_batch_size, epoch = epoch, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, \
+                                                      max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents, do_ontology=True, embedder=embedder, \
                                                       running_features_per_label=running_features_per_label, ner_to_simplify=ner_to_simplify, span_level_feature_extractors=span_level_feature_extractors, \
                                                       running_features_size=running_features_size, label2tf=df, df=df, domain_stopword_set=domain_stopword_set, \
                                                       verbose_snrokel=verbose_snrokel,  span_per_cluster=span_per_cluster, use_synonym_replacement=use_synonym_replacement, )  
@@ -1166,8 +1212,8 @@ class Riverbed:
           batch_id_prefix += 1
           retained_batch, span2idx, span2cluster_label, label2tf, df = self.create_span_embeds_and_span2cluster_label(project_name, curr_file_size, jsonl_file_idx, spanf2idx, batch, \
                                                       retained_batch, jsonl_file,  f"{batch_id_prefix}_", span_lfs,  span2cluster_label, text_span_size, \
-                                                      spans_per_ontology_leaf = spans_per_ontology_leaf, kmeans_batch_size=kmeans_batch_size, epoch = epoch, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, embedder=embedder, \
-                                                      max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents, do_ontology=True, \
+                                                      kmeans_batch_size=kmeans_batch_size, epoch = epoch, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids,  \
+                                                      max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents, do_ontology=True, embedder=embedder,\
                                                       running_features_per_label=running_features_per_label, ner_to_simplify=ner_to_simplify, span_level_feature_extractors=span_level_feature_extractors, \
                                                       running_features_size=running_features_size, label2tf=df, df=df, domain_stopword_set=domain_stopword_set, \
                                                       verbose_snrokel=verbose_snrokel)  
