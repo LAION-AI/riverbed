@@ -1230,7 +1230,7 @@ class Riverbed:
         label_models.append(span_label, LabelModel(cardinality=snorkel_label_cardinality,verbose=verbose_snrokel))
         
     return {'clusters': clusters, 'span2cluster_label': span2cluster_label, 'span2idx': span2idx, 'label_models': label_models, \
-            'batch_id_prefix': batch_id_prefix, 'seen': seen, 'label2tf': label2tf, 'df': df,   
+            'batch_id_prefix': batch_id_prefix, 'seen': seen, 'label2tf': label2tf, 'df': df,}   
 
   def save_pretrained(self, project_name):
       pickle.dump(self, open(f"{project_name}.pickle", "wb"))
