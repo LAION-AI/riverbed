@@ -724,18 +724,18 @@ class Riverbed:
 
       return batch2
 
-    def create_cluster_for_spans(self, batch_id_prefix, cluster_batch, cluster_vecs, clusters, span2cluster_label,  span_per_cluster=20, kmeans_batch_size=1024, ):
+    def create_cluster_for_spans(self, batch_id_prefix, spans, cluster_vecs, tmp_clusters, span2cluster_label,  idxs, span_per_cluster=20, kmeans_batch_size=1024, ):
 
         km = MiniBatchKMeans(n_clusters=true_k, init='k-means++', n_init=1,
                                         init_size=max(true_k*3,1000), batch_size=kmeans_batch_size).fit(cluster_vecs[idxs])
         new_cluster = {}
-        for item, label in zip(cluster_batch, km.labels_):
-          span = (item['file_name'], item['lineno'], item['offset'],)
+        for span, label in zip(spans, km.labels_):
           label = batch_id_prefix+str(label)
           new_cluster[label] = new_cluster.get(label, [])+[span]
-        if not clusters: 
-          clusters = new_cluster
-          for label, items in clusters.items():
+          
+        if not tmp_clusters: 
+          tmp_clusters = new_cluster
+          for label, items in tmp_clusters.items():
             for span in items:
               span2cluster_label[span] = label
         else:
@@ -753,7 +753,7 @@ class Riverbed:
               items = items2
             for span in items:
               if span not in clusters.get(label, []):
-                  clusters[label] = clusters.get(label, []) + [span]
+                  tmp_clusters[label] = tmp_clusters.get(label, []) + [span]
               span2cluster_label[span] = label
 
     return clusters, span2cluster_label 
@@ -916,7 +916,7 @@ class Riverbed:
   #all leaf nodes are spans
   #spanf2idx is a mapping from the span to the actual underlying storage idx (e.g., a jsonl file or database)
   #span2cluster_label is like the synonym data-structure for words.
-  def create_span_embeds_and_span2cluster_label(self, project_name, curr_file_size, jsonl_file_idx, spanf2idx, batch, \
+  def create_span_embeds_and_span2cluster_label(self, project_name, curr_file_size, jsonl_file_idx, spanf2idx, batch, retained_batch, \
                                                       jsonl_file, batch_id_prefix, span_lfs,  span2cluster_label, \
                                                       spans_per_ontology_leaf = 10, kmeans_batch_size=50000, epoch = 10, embed_batch_size=7000, min_prev_ids=10000, embedder="minilm", \
                                                       max_ontology_depth=4, max_top_parents=10000, do_ontology=True, \
@@ -932,15 +932,22 @@ class Riverbed:
     #add the current back to the span2idx data structure
     start_idx_for_curr_batch = len(span2idx)
     tmp_span2batch = {}
-    batch_idx = []
-    for b in batch:
+    tmp_idx2span = {}
+    tmp_batch_idx_in_span2cluster = []
+    tmp_batch_idx_not_in_span2cluster = []
+    for b in retained_batch + batch :
       span = (b['file_name'], b['lineno'], b['offset'])
       tmp_span2batch[span] = b
       if span not in span2idx:
         b['idx']= span2idx[span] = len(span2idx)
       else:
         b['idx']= span2idx[span]
-      batch_idx.append(b['idx'])
+      if b['idx'] in span2cluster_label:
+        tmp_batch_idx_in_span2cluster.append(b['idx'])
+      else:
+        tmp_batch_idx_not_in_span2cluster.append(b['idx'])
+      tmp_idx2span[b['idx']] = span
+      
       
     if embedder == "clip":
       embed_dim = clip_model.config.text_config.hidden_size
@@ -962,19 +969,22 @@ class Riverbed:
       cluster_vecs = np_memmap(f"{project_name}.{embedder}_spans", shape=[jsonl_file_idx, embed_dim],  dat=cluster_vecs, idxs=range(jsonl_file_idx-len(batch), jsonl_file_idx-len(batch)+(max_rng-rng)))  
     
 
-    len_batch = len(batch)
+    len_batch = len(tmp_batch_idx_not_in_span2cluster)
     for rng in range(0, len_batch, int(kmeans_batch_size*.7)):
         max_rng = min(len_batch, rng+int(kmeans_batch_size*.7))
         if rng > 0:
-          prev_ids = [term for span in batch[:rng] if span not in span2cluster_label]
-          if len(prev_ids) < kmeans_batch_size*.3: prev_ids.extend(random.sample(range(0, rng), (kmeans_batch_size*.3)-len(prev_ids)))
+          prev_ids = [idx for idx in tmp_batch_idx_not_in_span2cluster[:rng] if tmp_idx2span[idx] not in span2cluster_label]
+          tmp_batch_idx_in_span2cluster.extend( [idx for idx in tmp_batch_idx_not_in_span2cluster[:rng] if tmp_idx2span[idx] in span2cluster_label])
+          tmp_batch_idx_in_span2cluster = list(set(tmp_batch_idx_in_span2cluster))
+          if len(prev_ids) > kmeans_batch_size*.3: prev_ids.extend(random.sample(range(0, rng), (kmeans_batch_size*.3)-len(prev_ids)))
+          #TODO: add some more stuff from tmp_batch_idx_in_span2cluster
         else:
           prev_ids = []
-        print (rng, max_rng)
-        idxs = prev_ids + list(range(rng, max_rng))
+        idxs = prev_ids + [tmp_batch_idx_not_in_span2cluster[idx] for idx in range(rng, max_rng)]
+        print (len(idxs))
         true_k=int((len(ids)/span_per_cluster)
-        spans2 = [(batch[idx]['file_name'], batch[idx]['lineno'], batch[idx]['offset']) for idx in idxs]
-        tmp_clusters, span2cluster_label = self.create_cluster_for_spans(batch_id_prefix, spans2, cluster_vecs, tmp_clusters, span2cluster_label, span_per_cluster=span_per_cluster)
+        spans2 = [tmp_idx2span[idx] or idx in idxs]
+        tmp_clusters, span2cluster_label = self.create_cluster_for_spans(batch_id_prefix, spans2, cluster_vecs, tmp_clusters, idxs, span2cluster_label, span_per_cluster=span_per_cluster)
         # TODO: recluster
     
     # TODO: create_span_ontology
@@ -1001,8 +1011,10 @@ class Riverbed:
       if b['idx'] >= start_idx_for_curr_batch:
         jsonl_file.write(json.dumps(b)+"\n")
         #TODO, replace with a datastore abstraction, such as sqlite
-
-    return span2idx, span2cluster_label, label2tf, df   
+    
+    # add stuff to the retained batches
+                   
+    return retained_batch, span2idx, span2cluster_label, label2tf, df   
 
 
 
@@ -1032,6 +1044,7 @@ class Riverbed:
     domain_stopword_set = set(list(stopwords_set) + list(stopword.keys()))
     prior_line = ""
     batch = []
+    retained_batch = []
     curr = ""
     cluster_vecs = None
     curr_date = ""
@@ -1126,8 +1139,8 @@ class Riverbed:
         # process the batches
         if len(batch) >= features_batch_size:
           batch_id_prefix += 1
-          span2idx, span2cluster_label, label2tf, df = self.create_span_embeds_and_span2cluster_label(project_name, curr_file_size, jsonl_file_idx, spanf2idx, batch, \
-                                                      jsonl_file,  f"{batch_id_prefix}_", span_lfs,  span2cluster_label, \
+          retained_batch, span2idx, span2cluster_label, label2tf, df = self.create_span_embeds_and_span2cluster_label(project_name, curr_file_size, jsonl_file_idx, spanf2idx, batch, \
+                                                      retained_batch, jsonl_file,  f"{batch_id_prefix}_", span_lfs,  span2cluster_label, \
                                                       spans_per_ontology_leaf = spans_per_ontology_leaf, kmeans_batch_size=kmeans_batch_size, epoch = epoch, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, embedder=embedder, \
                                                       max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents, do_ontology=True, \
                                                       running_features_per_label=running_features_per_label, ner_to_simplify=ner_to_simplify, span_level_feature_extractors=span_level_feature_extractors, \
@@ -1150,8 +1163,8 @@ class Riverbed:
           curr_position = position
       if batch: 
           batch_id_prefix += 1
-          span2idx, span2cluster_label, label2tf, df = self.create_span_embeds_and_span2cluster_label(project_name, curr_file_size, jsonl_file_idx, spanf2idx, batch, \
-                                                      jsonl_file,  f"{batch_id_prefix}_", span_lfs,  span2cluster_label, \
+          retained_batch, span2idx, span2cluster_label, label2tf, df = self.create_span_embeds_and_span2cluster_label(project_name, curr_file_size, jsonl_file_idx, spanf2idx, batch, \
+                                                      retained_batch, jsonl_file,  f"{batch_id_prefix}_", span_lfs,  span2cluster_label, \
                                                       spans_per_ontology_leaf = spans_per_ontology_leaf, kmeans_batch_size=kmeans_batch_size, epoch = epoch, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, embedder=embedder, \
                                                       max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents, do_ontology=True, \
                                                       running_features_per_label=running_features_per_label, ner_to_simplify=ner_to_simplify, span_level_feature_extractors=span_level_feature_extractors, \
