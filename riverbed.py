@@ -296,7 +296,7 @@ class Riverbed:
           cluster_vecs2_idx.append(len(ngram2weight))
           ngram2weight[parent] = statistics.mean([ngram2weight[child] for child in cluster])
       if cluster_vecs2_idx:
-        cluster_vecs[cluster_vecs2_idx] = np.stack(cluster_vecs2)
+        cluster_vecs[cluster_vecs2_idx] = np.vstack(cluster_vecs2)
       cluster_vecs2 = None
       idxs = [terms2idx[child] for child in parents]
       synonyms = self.cluster_one_batch(cluster_vecs, idxs, parents, true_k, synonyms=synonyms, stopword=stopword, ngram2weight=ngram2weight, )
