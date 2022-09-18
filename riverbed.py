@@ -139,6 +139,10 @@ class Riverbed:
               break
     return (" ".join([d for d in doc if d]))
 
+
+  #NOTE: we use the '¶' in front of a word to designate a word is a parent in an ontology. 
+  #the level of the ontology is determined by the number of '¶'.
+  #More '¶' means higher up the ontology. Leaf words have no '¶'
   def get_ontology(self, synonyms=None):
     ontology = {}
     if synonyms is None:
@@ -146,6 +150,14 @@ class Riverbed:
     for key, val in synonyms.items():
       ontology[val] = ontology.get(val, []) + [key]
     return ontology
+
+  def get_top_parents(self, synonyms=None):
+    top_parents = []
+    ontology = self.get_ontology(synonyms)
+    for parent in ontology:
+      if parent not in synonyms:
+        top_parents.append(parent)
+    return top_parents
 
   def cluster_one_batch(self, cluster_vecs, idxs, terms2, true_k, synonyms=None, stopword=None, ngram2weight=None, ):
     if synonyms is None: synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
@@ -159,8 +171,8 @@ class Riverbed:
     for key, vals in ontology.items():
       items = [v for v in vals if "_" in v]
       if len(items) > 1:
-          old_syn_upper =  [synonyms[v] for v in vals if "_" in v and v in synonyms and synonyms[v][0].upper() == synonyms[v][0]]
-          old_syn_lower = [synonyms[v] for v in vals if "_" in v and v in synonyms and synonyms[v][0].upper() != synonyms[v][0]]
+          old_syn_upper =  [synonyms[v] for v in vals if "_" in v and v in synonyms and synonyms[v][1].upper() == synonyms[v][0]]
+          old_syn_lower = [synonyms[v] for v in vals if "_" in v and v in synonyms and synonyms[v][1].upper() != synonyms[v][0]]
           items_upper_case = []
           if old_syn_upper:
             old_syn_upper =  Counter(old_syn_upper)
@@ -190,13 +202,13 @@ class Riverbed:
             items_upper_case = list(set(items_upper_case))
             if len(items_upper_case)  > 1:
               items_upper_case.sort(key=lambda a: ngram2weight.get(a, len(a)))
-              syn_label = items_upper_case[0]
+              syn_label = '¶'+items_upper_case[0]
               for word in items_upper_case:
                 synonyms[word] = syn_label
               items = [v for v in items if v not in items_upper_case]
             if len(items) > 1:
               items.sort(key=lambda a: ngram2weight.get(a, len(a)))
-              syn_label = [a for a in items if a[0].lower() == a[0]][0]
+              syn_label = '¶'+[a for a in items if a[0].lower() == a[0]][0]
               for word in items:
                 synonyms[word] = syn_label
       items = [v for v in vals if "_" not in v]
@@ -204,27 +216,25 @@ class Riverbed:
         items.sort(key=lambda a: ngram2weight.get(a, len(a)))
         stopwords_only = [a for a in items if a in stopword or a in stopwords_set]
         if stopwords_only: 
-          label = stopwords_only[0]
+          label = '¶'+stopwords_only[0]
           for word in stopwords_only:
               synonyms[word] = label
         not_stopwords = [a for a in items if a not in stopword and a not in stopwords_set]
         if not_stopwords: 
-          label = not_stopwords[0]
+          label = '¶'+not_stopwords[0]
           for word in not_stopwords:
               synonyms[word] = label
     return synonyms
 
-  #TODO: option to do ngram2weight, ontology and synonyms in lowercase
-  #TODO: hiearhical clustering
-  def create_word_embeds_and_synonyms(self, project_name, file_name, synonyms=None, stopword=None, ngram2weight=None, words_per_ontology_cluster = 10, kmeans_batch_size=100000, epoch = 10, embed_batch_size=7000, min_prev_ids=10000, embedder="minilm", max_recluster=4):
+  def create_word_embeds_and_synonyms(self, project_name, file_name, synonyms=None, stopword=None, ngram2weight=None, words_per_ontology_cluster = 10, kmeans_batch_size=100000, epoch = 10, embed_batch_size=7000, min_prev_ids=10000, embedder="minilm", max_recluster=4, max_top_parents=10000):
     if synonyms is None: synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
     if ngram2weight is None: ngram2weight = {} if not hasattr(self, 'ngram2weight') else self.ngram2weight    
     if stopword is None: stopword = {} if not hasattr(self, 'stopword') else self.stopword
-    
+    # assumes ngram2weight is an ordered dict, ordered roughly by frequency
     terms = list(ngram2weight.keys())
     if not terms: return synonyms
-    terms_idx = [idx for idx, term in enumerate(terms) if term not in synonyms]
-    terms_idx_in_synonyms = [idx for idx, term in enumerate(terms) if term in synonyms]
+    terms_idx = [idx for idx, term in enumerate(terms) if term not in synonyms and term[0] != '¶' ]
+    terms_idx_in_synonyms = [idx for idx, term in enumerate(terms) if term in synonyms and term[0] != '¶']
     len_terms_idx = len(terms_idx)
     for rng in range(0, len(terms_idx), embed_batch_size):
       max_rng = min(len(terms_idx), rng+embed_batch_size)
@@ -238,38 +248,57 @@ class Riverbed:
           cluster_vecs = minilm_model(**toks)
           cluster_vecs = self.mean_pooling(cluster_vecs, toks.attention_mask).cpu().numpy()
       cluster_vecs = np_memmap(f"{project_name}.{embedder}_words", shape=[len(terms), cluster_vecs.shape[1]], dat=cluster_vecs, idxs=terms_idx[rng:max_rng])  
-    # assumes ngram2weight is an ordered dict
-    for times in range(max_recluster): 
-      for rng in range(0, len(terms_idx), int(kmeans_batch_size*.7)):
-          max_rng = min(len(terms_idx), rng+int(kmeans_batch_size*.7))
-          prev_ids = [idx for idx in terms_idx[:rng] if terms[idx] not in synonyms]
-          terms_idx_in_synonyms.extend([idx for idx in terms_idx[:rng] if terms[idx] in synonyms])
-          terms_idx_in_synonyms = list(set(terms_idx_in_synonyms))
-          max_prev_ids = max(int(kmeans_batch_size*.3), min_prev_ids)
-          if len(prev_ids) < max_prev_ids:
-            avail_prev_ids= max_prev_ids-len(prev_ids)
-            if len(terms_idx_in_synonyms) > avail_prev_ids: 
-              prev_ids.extend(random.sample(terms_idx_in_synonyms, avail_prev_ids))
-            else: 
-              prev_ids.extend(terms_idx_in_synonyms)
-          idxs = prev_ids + terms_idx[rng:max_rng]
-          print ('clustering', min(idxs), max(idxs), rng, max_rng)
-          true_k=int(max(2, (len(idxs))/words_per_ontology_cluster))
-          terms2 = [terms[idx] for idx in idxs]
-          #TODO - re-cluster to break any large clusters into many smaller clusters if needed
-          synonyms = self.cluster_one_batch(cluster_vecs, idxs, terms2, true_k, synonyms=synonyms, stopword=stopword, ngram2weight=ngram2weight, )
-      ontology = self.get_ontology()
-      if times != max_recluster-1:
-        decluster = []
-        for key, cluster in ontology.items():
-          if len(cluster) > words_per_ontology_cluster*2:
-            decluster.extend(cluster[words_per_ontology_cluster*2:])
-        if len(decluster) < words_per_ontology_cluster:
-          break
-        print ('decluster', len(decluster))
-        for word in decluster:
-          del synonyms[word]
-    #TODO - after leaf level clustering, do hiearchical clustering
+    
+    for rng in range(0, len(terms_idx), int(kmeans_batch_size*.7)):
+      max_rng = min(len(terms_idx), rng+int(kmeans_batch_size*.7))
+      prev_ids = [idx for idx in terms_idx[:rng] if terms[idx] not in synonyms]
+      terms_idx_in_synonyms.extend([idx for idx in terms_idx[:rng] if terms[idx] in synonyms])
+      terms_idx_in_synonyms = list(set(terms_idx_in_synonyms))
+      max_prev_ids = max(int(kmeans_batch_size*.3), min_prev_ids)
+      if len(prev_ids) < max_prev_ids:
+        avail_prev_ids= max_prev_ids-len(prev_ids)
+        if len(terms_idx_in_synonyms) > avail_prev_ids: 
+          prev_ids.extend(random.sample(terms_idx_in_synonyms, avail_prev_ids))
+        else: 
+          prev_ids.extend(terms_idx_in_synonyms)
+      idxs = prev_ids + terms_idx[rng:max_rng]
+      print ('clustering', min(idxs), max(idxs), rng, max_rng)
+      true_k=int(max(2, (len(idxs))/words_per_ontology_cluster))
+      terms2 = [terms[idx] for idx in idxs]
+      #TODO - re-cluster to break any large clusters into many smaller clusters if needed
+      synonyms = self.cluster_one_batch(cluster_vecs, idxs, terms2, true_k, synonyms=synonyms, stopword=stopword, ngram2weight=ngram2weight, )
+      ontology = self.get_ontology(synonyms)
+      for key, cluster in ontology.items():
+        if len(cluster) > max_top_parents*1.5:
+          orig_key = key.lstrip('¶')
+          cluster.sort(key=lambda a: ngram2weight.get(a, 100))
+          for rng2 in range(0, len(cluster),max_top_parents):
+            max_rng2 = min(len(cluster), rng2+max_top_parents)
+            if orig_key in cluster[rng2:max_rng2]:
+              syn_label = key
+            else:
+              syn_label = '¶'+cluster[rng2]
+            for word in cluster[rng2:max_rng2]:
+              synonyms[word] = syn_label
+    terms2idx = dict([(term, idx) for idx, term in enumerate(terms)])
+    for level in range(4): 
+      ontology = self.get_ontology(synonyms)
+      parents = [parent for parent in ontology.keys() if parent.count('¶') == level + 1]
+      if len(parents) < max_top_parents: break
+      true_k = int(math.sqrt(len(parents)))
+      cluster_vecs2 = []
+      cluster_vecs2_idx = []
+      for parent in parents:
+        if parent not in ngram2weight:
+          cluster = ontology[parent]
+          cluster_vecs2.append(np.mean(cluster_vecs[[terms2idx[child] for child in cluster]]))
+          cluster_vecs2_idx.append(len(ngram2weight))
+          ngram2weight[parent] = statistics.mean([ngram2weight[child] for child in cluster])
+      if cluster_vecs2_idx:
+        cluster_vecs[cluster_vecs2_idx] = np.stack(cluster_vecs2)
+      cluster_vecs2 = None
+      idxs = [terms2idx[child] for child in parents]
+      synonyms = self.cluster_one_batch(cluster_vecs, idxs, parents, true_k, synonyms=synonyms, stopword=stopword, ngram2weight=ngram2weight, )
     return synonyms
  
   # creating tokenizer with a kenlm model as well as getting ngram weighted by the language modeling weights (not the counts) of the words
@@ -359,7 +388,7 @@ class Riverbed:
                   if not line: continue
                   line = line.split()
                   if [l for l in line if l in non_words or l in ('<unk>', '<s>', '</s>')]: continue
-                  word = "_".join(line)
+                  word = "_".join(line).replace('¶', '')
                   wordArr = word.split("_")
                   if wordArr[0]  in ('<unk>', '<s>', '</s>', ''):
                     wordArr = wordArr[1:]
