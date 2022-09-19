@@ -268,8 +268,7 @@ class Riverbed:
     if ngram2weight is None: ngram2weight = {} if not hasattr(self, 'ngram2weight') else self.ngram2weight    
     if stopword is None: stopword = {} if not hasattr(self, 'stopword') else self.stopword
     # assumes ngram2weight is an ordered dict, ordered roughly by frequency
-    terms = list(ngram2weight.keys())
-    if not terms: return synonyms
+    if not ngram2weight: return synonyms
     if embedder == "clip":
       embed_dim = clip_model.config.text_config.hidden_size
     elif embedder == "minilm":
@@ -277,8 +276,9 @@ class Riverbed:
     elif embedder == "labse":
       embed_dim = labse_model.config.hidden_size      
     cluster_vecs = np_memmap(f"{project_name}.{embedder}_words", shape=[len(ngram2weight), embed_dim])
-    terms2idx = dict([(term, idx) for idx, term in enumerate(terms)])
     for level in range(max_ontology_depth): 
+      terms = list(ngram2weight.keys())
+      terms2idx = dict([(term, idx) for idx, term in enumerate(terms)])
       ontology = self.get_ontology(synonyms)
       parents = [parent for parent in ontology.keys() if parent.count('¶') == level + 1]
       cluster_vecs2 = []
@@ -345,12 +345,16 @@ class Riverbed:
         with torch.no_grad():
           cluster_vecs = labse_model(**toks).pooler_output.cpu().numpy()          
       cluster_vecs = np_memmap(f"{project_name}.{embedder}_words", shape=[len(terms), cluster_vecs.shape[1]], dat=cluster_vecs, idxs=terms_idx[rng:max_rng])  
-    
-    for rng in range(0, len(terms_idx), int(kmeans_batch_size*.7)):
-      max_rng = min(len(terms_idx), rng+int(kmeans_batch_size*.7))
+    len_terms_idx = len(terms_idx)
+    times = -1
+    times_start_recluster = max(0, (int(len(terms_idx)/int(kmeans_batch_size*.7))-3))
+    for rng in range(0,len_terms_idx, int(kmeans_batch_size*.7)):
+      times += 1
+      max_rng = min(len_terms_idx, rng+int(kmeans_batch_size*.7))
       prev_ids = [idx for idx in terms_idx[:rng] if terms[idx] not in synonyms]
       terms_idx_in_synonyms.extend([idx for idx in terms_idx[:rng] if terms[idx] in synonyms])
       terms_idx_in_synonyms = list(set(terms_idx_in_synonyms))
+      terms_idx_in_synonyms = [idx for idx in terms_idx_in_synonyms if terms[idx] in synonyms]
       max_prev_ids = max(int(kmeans_batch_size*.15), int(.5*min_prev_ids))
       if len(prev_ids) > max_prev_ids:
         prev_ids = random.sample(prev_ids, max_prev_ids)
@@ -364,17 +368,21 @@ class Riverbed:
       true_k=int(max(2, (len(idxs))/words_per_ontology_cluster))
       terms2 = [terms[idx] for idx in idxs]
       synonyms = self.cluster_one_batch(cluster_vecs, idxs, terms2, true_k, synonyms=synonyms, stopword=stopword, ngram2weight=ngram2weight, )
-      ontology = self.get_ontology(synonyms)
-      max_cluster_size = math.sqrt(max_top_parents)
-      for key, cluster in ontology.items():
-        if len(cluster) > max_cluster_size*1.5:
-          print ('recluster larger to small clusters', key)
-          re_cluster = set(cluster[max_cluster_size:])
-          for word in cluster[max_cluster_size:]:
-             del synonyms[word] 
-          idxs = [idx for idx, word in ngram2weight.keys() if word in re_cluster]
-          true_k=int(max(2, (len(idxs))/words_per_ontology_cluster))
-          synonyms = self.cluster_one_batch(cluster_vecs, idxs, cluster[max_cluster_size:], true_k, synonyms=synonyms, stopword=stopword, ngram2weight=ngram2weight, )           
+      if times >= times_start_recluster:
+        ontology = self.get_ontology(synonyms)
+        max_cluster_size = int(math.sqrt(max_top_parents))
+        for key, cluster in ontology.items():
+          if max_rng != len_terms_idx and len(cluster) < words_per_ontology_cluster*.5:
+            for word in cluster:
+              del synonyms[word]
+          elif len(cluster) > max_cluster_size*1.5:
+            #print ('recluster larger to small clusters', key)
+            re_cluster = set(cluster[max_cluster_size:])
+            for word in cluster[max_cluster_size:]:
+              del synonyms[word] 
+            idxs = [idx for idx, word in enumerate(ngram2weight.keys()) if word in re_cluster]
+            true_k=int(max(2, (len(idxs))/words_per_ontology_cluster))
+            synonyms = self.cluster_one_batch(cluster_vecs, idxs, cluster[max_cluster_size:], true_k, synonyms=synonyms, stopword=stopword, ngram2weight=ngram2weight, )           
     if do_ontology: synonyms = self.create_ontology(project_name, synonyms=synonyms, stopword=stopword, ngram2weight=ngram2weight, words_per_ontology_cluster = words_per_ontology_cluster, kmeans_batch_size=50000, epoch = 10, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, embedder=embedder, max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents)
     return synonyms
 
@@ -404,7 +412,6 @@ class Riverbed:
       synonyms = self.synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
       stopword = self.stopword = {} if not hasattr(self, 'stopword') else self.stopword
       if dedup_ngrams_larger_than is not None:
-        assert dedup_ngrams_larger_than < 50, "deduping larger than 50 gram not supported"
         min_ngram_size = max(dedup_ngrams_larger_than+1,min_compound_word_size+1)
         ngram2weight = {}
         compound = {}
