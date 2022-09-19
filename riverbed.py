@@ -539,17 +539,17 @@ class Riverbed:
           stopword_list.sort(key=lambda a: a[1])
           len_stopword_list = len(stopword_list)
           top_stopword = stopword_list[:min(len_stopword_list, num_stopwords)]
-
+      print ('finished stopwords')
       for word, weight in top_stopword:
         stopword[word] = min(stopword.get(word, 100), weight)
 
       self.ngram2weight, self.compound, self.synonyms, self.stopword = ngram2weight, compound, synonyms, stopword 
-      
+      print ('counting arpa')
       ngram_cnt = {}
       for key in arpa.keys():
         n = key.count(" ")
         ngram_cnt[n] = ngram_cnt.get(n,[]) + [key]
-        
+      print ('printing arpa')
       #output the final kenlm .arpa file for calculating the perplexity
       with open(f"__tmp__.arpa", "w", encoding="utf8") as tmp_arpa:
         tmp_arpa.write("\\data\\\n")
@@ -568,7 +568,7 @@ class Riverbed:
             tmp_arpa.write(f"{arpa[dat]}\t{dat}\t0\n")
         tmp_arpa.write("\n\\end\\\n\n")
       os.system(f"mv __tmp__.arpa {project_name}.arpa")
-
+      print ('creating kenlm model')
       self.kenlm_model = kenlm.LanguageModel(f"{project_name}.arpa") 
       os.system("rm -rf __tmp__*")
       return {'ngram2weight':ngram2weight, 'compound': compound, 'synonyms': synonyms, 'stopword': stopword,  'kenlm_model': self.kenlm_model} 
