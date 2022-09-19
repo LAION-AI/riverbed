@@ -453,6 +453,7 @@ class Riverbed:
             elif times == dedup_ngram_num_iter:
               # sometimes we want to do some pre-processing b/c n-grams larger than a certain amount are just duplicates
               # and can mess up our word counts
+              print ('deduping n-grams')
               with open(f"__tmp__2_{file_name}", "w", encoding="utf8") as tmp2:
                 with open(f"__tmp__{file_name}", "r") as f:
                   seen_large_ngrams = {}
@@ -486,26 +487,41 @@ class Riverbed:
                     tmp2.write(l+"\n")  
               os.system(f"mv __tmp__2_{file_name} __tmp__{file_name}")  
             if do_collapse_values:
-              os.system(f"./{lmplz} --collapse_values  --discount_fallback  --skip_symbols -o {min_compound_word_size} --prune {min_num_words}  --arpa {file_name}.arpa <  __tmp__{file_name}") ##
+              os.system(f"./{lmplz} --collapse_values  --discount_fallback  --skip_symbols -o 5 --prune {min_num_words}  --arpa {file_name}.arpa <  __tmp__{file_name}") ##
             else:
-              os.system(f"./{lmplz}  --discount_fallback  --skip_symbols -o {min_compound_word_size} --prune {min_num_words}  --arpa {file_name}.arpa <  __tmp__{file_name}") ##
+              os.system(f"./{lmplz}  --discount_fallback  --skip_symbols -o 5 --prune {min_num_words}  --arpa {file_name}.arpa <  __tmp__{file_name}") ##
             do_ngram = False
+            n = 0
             with open(f"{file_name}.arpa", "rb") as f:    
               for line in  f: 
                 line = line.decode().strip()
                 if not line: 
                   continue
                 if line.startswith("\\1-grams:"):
+                  n = 1
+                  do_ngram = True
+                elif line.startswith("\\2-grams:"):
+                  n = 2
+                  do_ngram = True
+                elif line.startswith("\\3-grams:"):
+                  n = 3
+                  do_ngram = True
+                elif line.startswith("\\4-grams:"):
+                  n = 4
+                  do_ngram = True
+                elif line.startswith("\\5-grams:"):
+                  n = 5
                   do_ngram = True
                 elif do_ngram:
                   line = line.split("\t")
-                  if len(line) > 1:
-                    curr_arpa[line[1]] = min(float(line[0]), curr_arpa.get(line[1], 100))
-                  #print (line)
                   try:
                     weight = float(line[0])
                   except:
-                    continue
+                    continue                  
+                  if len(line) > 1:
+                    key = (n, line[1])
+                    curr_arpa[key] = min(curr_arpa.get(key,100), weight)
+                  #print (line
                   weight = math.exp(weight)
                   line = line[1]
                   if not line: continue
@@ -527,8 +543,9 @@ class Riverbed:
                     weight = weight * len(wordArr)            
                     ngram2weight[word] = min(ngram2weight.get(word, 100), weight) 
             os.system(f"rm {file_name}.arpa")
-            for line, weight in curr_arpa.items():
-              arpa[line] = min(float(weight), arpa.get(line, 100))
+            for key, weight in curr_arpa.items():
+              arpa[key] = min(float(weight), arpa.get(key, 100))
+            curr_arpa = {}
             if times == num_iter-1  and not synonyms_created:
                 self.synonyms = synonyms = self.create_word_embeds_and_synonyms(project_name, stopword=stopword, ngram2weight=ngram2weight, synonyms=synonyms, kmeans_batch_size=kmeans_batch_size, \
                   embedder=embedder, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents, do_ontology=do_ontology)   
@@ -545,10 +562,11 @@ class Riverbed:
 
       self.ngram2weight, self.compound, self.synonyms, self.stopword = ngram2weight, compound, synonyms, stopword 
       print ('counting arpa')
-      ngram_cnt = {}
+
+      ngram_cnt = [0]*5
       for key in arpa.keys():
-        n = key.count(" ")
-        ngram_cnt[n] = ngram_cnt.get(n,[]) + [key]
+        n = key[0]-1
+        ngram_cnt[n] += 1
       print ('printing arpa')
       #output the final kenlm .arpa file for calculating the perplexity
       with open(f"__tmp__.arpa", "w", encoding="utf8") as tmp_arpa:
@@ -562,10 +580,12 @@ class Riverbed:
           tmp_arpa.write("\n")
           j =i+1
           tmp_arpa.write(f"\\{j}-grams:\n")
-          for dat in ngram_cnt[i]:
-            if arpa[dat] > 0:
-              arpa[dat] =  0
-            tmp_arpa.write(f"{arpa[dat]}\t{dat}\t0\n")
+          for key, val in arpa.items():
+            n, dat = key
+            if n != j: continue
+            if val > 0:
+              val =  0
+            tmp_arpa.write(f"{val}\t{dat}\t0\n")
         tmp_arpa.write("\n\\end\\\n\n")
       os.system(f"mv __tmp__.arpa {project_name}.arpa")
       print ('creating kenlm model')
