@@ -135,7 +135,7 @@ class Riverbed:
     if ngram2weight is None: ngram2weight = {} if not hasattr(self, 'ngram2weight') else self.ngram2weight    
     if compound is None: compound = {} if not hasattr(self, 'compound') else self.compound
     if not use_synonym_replacement: synonyms = {} 
-    doc = [synonyms.get(d,d).lstrip('¶') for d in doc.split(" ") if d.strip()]
+    doc = [synonyms.get(d,d) for d in doc.split(" ") if d.strip()]
     len_doc = len(doc)
     for i in range(len_doc-1):
         if doc[i] is None: continue
@@ -148,7 +148,7 @@ class Riverbed:
             wordArr = word.split("_")
             if len(wordArr) <= max_compound_len and word in ngram2weight and ngram2weight.get(word, 0) >= min_compound_weight:
               old_word = word
-              doc[j-1] = synonyms.get(word, word).lstrip('¶').strip("_").replace("__", "_")
+              doc[j-1] = synonyms.get(word, word).strip("_").replace("__", "_")
               #if old_word != doc[j-1]: print (old_word, doc[j-1])
               for k in range(i, j-1):
                   doc[k] = None
@@ -250,12 +250,12 @@ class Riverbed:
           label = '¶'+parents_only[0]
           for word in parents_only:
               synonyms[word] = label        
-        stopwords_only = [a for a in items if a in stopword or a in stopwords_set]
+        stopwords_only = [a for a in items if a.lower() in stopword or a in stopwords_set]
         if stopwords_only: 
           label = '¶'+stopwords_only[0]
           for word in stopwords_only:
               synonyms[word] = label
-        not_stopwords = [a for a in items if a not in stopword and a not in stopwords_set]
+        not_stopwords = [a for a in items if a.lower() not in stopword and a not in stopwords_set]
         if not_stopwords: 
           label = '¶'+not_stopwords[0]
           for word in not_stopwords:
@@ -390,7 +390,7 @@ class Riverbed:
   # creating tokenizer with a kenlm model as well as getting ngram weighted by the language modeling weights (not the counts) of the words
   # we can run this in incremental mode or batched mode (just concatenate all the files togehter)
   def create_tokenizer_and_train(self, project_name, files, lmplz_loc="./riverbed/bin/lmplz", stopword_max_len=10, num_stopwords=75, min_compound_word_size=25, max_ontology_depth=4, max_top_parents=10000, \
-                non_words = "،♪↓↑→←━\₨₡€¥£¢¤™®©¶§←«»⊥∀⇒⇔√­­♣️♥️♠️♦️‘’¿*’-ツ¯‿─★┌┴└┐▒∎µ•●°。¦¬≥≤±≠¡×÷¨´:।`~�_“”/|!~@#$%^&*•()【】[]{}-_+–=<>·;…?:.,\'\"", kmeans_batch_size=50000, dedup_ngrams_larger_than=None, \
+                lstrip_stopword=False, rstrip_stopword=False, non_words = "،♪↓↑→←━\₨₡€¥£¢¤™®©¶§←«»⊥∀⇒⇔√­­♣️♥️♠️♦️‘’¿*’-ツ¯‿─★┌┴└┐▒∎µ•●°。¦¬≥≤±≠¡×÷¨´:।`~�_“”/|!~@#$%^&*•()【】[]{}-_+–=<>·;…?:.,\'\"", kmeans_batch_size=50000, dedup_ngrams_larger_than=None, \
                 embed_batch_size=7000, min_prev_ids=10000, min_compound_weight=1.0, stopword=None, min_num_words=5, do_collapse_values=True, use_synonym_replacement=False, embedder="minilm", do_ontology=True):
       global device, clip_model, minilm_model, labse_model
       
@@ -412,13 +412,10 @@ class Riverbed:
       synonyms = self.synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
       stopword = self.stopword = {} if not hasattr(self, 'stopword') else self.stopword
       for word in stopwords_set:
+        word = word.lower()
         stopword[word] = stopword.get(word, 1.0)
       if dedup_ngrams_larger_than is not None:
         min_ngram_size = max(dedup_ngrams_larger_than+1,min_compound_word_size+1)
-        ngram2weight = {}
-        compound = {}
-        synonyms = {}
-        stopword = {}
       if lmplz_loc != "./riverbed/bin/lmplz" and not os.path.exists("./lmplz"):
         os.system(f"cp {lmplz_loc} ./lmplz")
         lmplz = "./lmplz"
@@ -444,7 +441,7 @@ class Riverbed:
           dedup_ngram_num_iter = -1
         num_iter = max(1,int(min_compound_word_size/(5 *(doc_id+1))))
         #we can repeatdly run the below to get long ngrams
-        #after we tokenize for ngram and replace with words with underscores (the_projected_revenue) at each step, we redo the ngram
+        #after we tokenize for ngram and replace with words with underscores (the_projected_revenue) at each step, we redo the ngram count
         curr_arpa = {}
         for times in range(num_iter):
             print (f"iter {file_name}", times)
@@ -458,7 +455,7 @@ class Riverbed:
                 with open(f"__tmp__{file_name}", "r") as f:
                   seen_large_ngrams = {}
                   for l in f:
-                    l = self.tokenize(l.strip(), min_compound_weight=0, compound=compound, ngram2weight=ngram2weight,  synonyms=synonyms, use_synonym_replacement=use_synonym_replacement)
+                    l = self.tokenize(l.strip(), min_compound_weight=0, compound=compound, ngram2weight=ngram2weight,  synonyms=synonyms, use_synonym_replacement=False)
                     l = l.split()
                     dedup_ngram = [w for w in l if "_" in w or w.count("_") + 1 >= dedup_ngrams_larger_than]
                     l = [w if ("_" not in w or w.count("_") + 1 < dedup_ngrams_larger_than or w not in seen_large_ngrams) else '...' for w in l]
@@ -527,7 +524,22 @@ class Riverbed:
                   if not line: continue
                   line = line.split()
                   if [l for l in line if l in non_words or l in ('<unk>', '<s>', '</s>')]: continue
-                  word = "_".join(line).replace('¶', '')
+                  if not(len(line) == 1 and line[0] in stopword):
+                    if lstrip_stopword:
+                      while line:
+                        if line[0].lower() in stopword:
+                          line = line[1:]
+                         else:
+                          break
+                    if rstrip_stopword:
+                      while line:
+                        if line[-1].lower() in stopword:
+                          line = line[:-1]
+                         else:
+                          break
+                  word = "_".join(line)
+                  if word.startswith('¶') and word not in ngram2weight: #unless this word is a parent synonym, we will strip our special prefix
+                    word = word.lstrip('¶')
                   wordArr = word.split("_")
                   if wordArr[0]  in ('<unk>', '<s>', '</s>', ''):
                     wordArr = wordArr[1:]
@@ -535,9 +547,11 @@ class Riverbed:
                     wordArr = wordArr[:-1]
                   if wordArr:
                     # we are prefering stopwords that starts an n-gram. 
-                    if len(wordArr[0]) <= stopword_max_len:
+                    if (not lstrip_stopword or len(wordArr) == 1) and len(wordArr[0]) <= stopword_max_len:
                       sw = wordArr[0].lower()
                       unigram[sw] = min(unigram.get(sw,100), weight)
+                      
+                    #create the compound words length data structure
                     if weight >= min_compound_weight:
                       compound[wordArr[0]] = max(len(wordArr), compound.get(wordArr[0],0))
                     weight = weight * len(wordArr)            
