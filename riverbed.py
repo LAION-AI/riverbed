@@ -135,7 +135,7 @@ class Riverbed:
     if ngram2weight is None: ngram2weight = {} if not hasattr(self, 'ngram2weight') else self.ngram2weight    
     if compound is None: compound = {} if not hasattr(self, 'compound') else self.compound
     if not use_synonym_replacement: synonyms = {} 
-    doc = [synonyms.get(d,d) for d in doc.split(" ") if d.strip()]
+    doc = [synonyms.get(d,d).lstrip('¶') for d in doc.split(" ") if d.strip()]
     len_doc = len(doc)
     for i in range(len_doc-1):
         if doc[i] is None: continue
@@ -148,7 +148,7 @@ class Riverbed:
             wordArr = word.split("_")
             if len(wordArr) <= max_compound_len and word in ngram2weight and ngram2weight.get(word, 0) >= min_compound_weight:
               old_word = word
-              doc[j-1] = synonyms.get(word, word).strip("_").replace("__", "_")
+              doc[j-1] = synonyms.get(word, word).lstrip('¶').strip("_").replace("__", "_")
               #if old_word != doc[j-1]: print (old_word, doc[j-1])
               for k in range(i, j-1):
                   doc[k] = None
@@ -195,10 +195,10 @@ class Riverbed:
                                           init_size=max(true_k*3,1000), batch_size=1024).fit(cluster_vecs[idxs])
       km_labels = km.labels_
     ontology = {}
-    print (true_k)
+    #print (true_k)
     for term, label in zip(terms2, km_labels):
       ontology[label] = ontology.get(label, [])+[term]
-    print (ontology)
+    #print (ontology)
     for key, vals in ontology.items():
       items = [v for v in vals if "_" in v and not v.startswith('¶')]
       if len(items) > 1:
@@ -364,7 +364,7 @@ class Riverbed:
       else: 
           prev_ids.extend(terms_idx_in_synonyms)
       idxs = prev_ids + terms_idx[rng:max_rng]
-      print ('clustering', len(idxs))
+      #print ('clustering', len(idxs))
       true_k=int(max(2, (len(idxs))/words_per_ontology_cluster))
       terms2 = [terms[idx] for idx in idxs]
       synonyms = self.cluster_one_batch(cluster_vecs, idxs, terms2, true_k, synonyms=synonyms, stopword=stopword, ngram2weight=ngram2weight, )
