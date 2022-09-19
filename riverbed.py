@@ -375,14 +375,14 @@ class Riverbed:
           if max_rng != len_terms_idx and len(cluster) < words_per_ontology_cluster*.5:
             for word in cluster:
               del synonyms[word]
-          elif len(cluster) > max_cluster_size*1.5:
+          elif len(cluster) > max_cluster_size:
             #print ('recluster larger to small clusters', key)
-            re_cluster = set(cluster[max_cluster_size:])
-            for word in cluster[max_cluster_size:]:
+            re_cluster = set(cluster)
+            for word in cluster:
               del synonyms[word] 
             idxs = [idx for idx, word in enumerate(ngram2weight.keys()) if word in re_cluster]
             true_k=int(max(2, (len(idxs))/words_per_ontology_cluster))
-            synonyms = self.cluster_one_batch(cluster_vecs, idxs, cluster[max_cluster_size:], true_k, synonyms=synonyms, stopword=stopword, ngram2weight=ngram2weight, )           
+            synonyms = self.cluster_one_batch(cluster_vecs, idxs, cluster, true_k, synonyms=synonyms, stopword=stopword, ngram2weight=ngram2weight, )           
     if do_ontology: synonyms = self.create_ontology(project_name, synonyms=synonyms, stopword=stopword, ngram2weight=ngram2weight, words_per_ontology_cluster = words_per_ontology_cluster, kmeans_batch_size=50000, epoch = 10, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, embedder=embedder, max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents)
     return synonyms
 
