@@ -529,13 +529,13 @@ class Riverbed:
                       while line:
                         if line[0].lower() in stopword:
                           line = line[1:]
-                         else:
+                        else:
                           break
                     if rstrip_stopword:
                       while line:
                         if line[-1].lower() in stopword:
                           line = line[:-1]
-                         else:
+                        else:
                           break
                   word = "_".join(line)
                   if word.startswith('¶') and word not in ngram2weight: #unless this word is a parent synonym, we will strip our special prefix
