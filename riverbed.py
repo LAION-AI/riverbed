@@ -274,6 +274,8 @@ class Riverbed:
       embed_dim = clip_model.config.text_config.hidden_size
     elif embedder == "minilm":
       embed_dim = minilm_model.config.hidden_size
+    elif embedder == "labse":
+      embed_dim = labse_model.config.hidden_size      
     cluster_vecs = np_memmap(f"{project_name}.{embedder}_words", shape=[len(ngram2weight), embed_dim])
     terms2idx = dict([(term, idx) for idx, term in enumerate(terms)])
     for level in range(max_ontology_depth): 
