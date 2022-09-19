@@ -96,7 +96,7 @@ if minilm_model is None:
     lbase_model = BertModel.from_pretrained("setu4993/smaller-LaBSE").eval()
 
   spacy_nlp = spacy.load('en_core_web_md')
-  stopwords_set = set(nltk_stopwords.words('english') + ['could', 'should', 'shall', 'can', 'might', 'may', 'include', 'including'])
+  stopwords_set = set(nltk_stopwords.words('english') + ['...', 'could', 'should', 'shall', 'can', 'might', 'may', 'include', 'including'])
 
 
 class Riverbed:
@@ -414,8 +414,8 @@ class Riverbed:
       for word in stopwords_set:
         word = word.lower()
         stopword[word] = stopword.get(word, 1.0)
-      if dedup_compound_words_than is not None:
-        min_compound_word_size = max(dedup_compound_words_larger_than+1,min_compound_word_size+1)
+      if dedup_compound_words_larger_than is not None:
+        min_compound_word_size = max(dedup_compound_words_larger_than,min_compound_word_size)
       if lmplz_loc != "./riverbed/bin/lmplz" and not os.path.exists("./lmplz"):
         os.system(f"cp {lmplz_loc} ./lmplz")
         lmplz = "./lmplz"
@@ -436,33 +436,43 @@ class Riverbed:
       #TODO, we should try to create consolidated files of around 1GB to get enough information in the arpa files
       for doc_id, file_name in enumerate(files):
         if dedup_compound_words_larger_than:
-          dedup_compound_words_num_iter = max(1, int(dedup_compound_words_larger_than)/(5 *(doc_id+1)))
+          dedup_compound_words_num_iter = max(0, math.ceil(dedup_compound_words_larger_than/(5 *(doc_id+1))))
+          num_iter = max(1,1+math.ceil(min_compound_word_size/(5 *(doc_id+1))))
         else:
-          dedup_ngram_num_iter = -1
-        num_iter = max(1,int(min_compound_word_size/(5 *(doc_id+1))))
+          dedup_compound_words_num_iter = -1
+          num_iter = max(1,math.ceil(min_compound_word_size/(5 *(doc_id+1))))
         #we can repeatedly run the below to get long ngrams
         #after we tokenize for ngram and replace with words with underscores (the_projected_revenue) at each step, we redo the ngram count
         curr_arpa = {}
+        print ('num iter', num_iter, dedup_compound_words_num_iter)
         for times in range(num_iter):
             print (f"iter {file_name}", times)
             if times == 0:
               os.system(f"cp {file_name} __tmp__{file_name}")
-            elif times == dedup_min_compound_word_size_num_iter:
+            elif times == dedup_compound_words_num_iter:
               # sometimes we want to do some pre-processing b/c n-grams larger than a certain amount are just duplicates
               # and can mess up our word counts
               print ('deduping compound words larger than',dedup_compound_words_larger_than)
               with open(f"__tmp__2_{file_name}", "w", encoding="utf8") as tmp2:
                 with open(f"__tmp__{file_name}", "r") as f:
-                  seen_large_compound_words = {}
+                  seen_dedup_compound_words = {}
                   for l in f:
+                    orig_l = l.replace("_", " ").replace("  ", " ").strip()
                     l = self.tokenize(l.strip(), min_compound_weight=0, compound=compound, ngram2weight=ngram2weight,  synonyms=synonyms, use_synonym_replacement=False)
                     l = l.split()
-                    dedup_compound_word = [w for w in l if "_" in w or w.count("_") + 1 >= dedup_compound_words_larger_than]
-                    l = [w if ("_" not in w or w.count("_") + 1 < dedup_compound_words_larger_than or w not in seen_large_ngrams) else '...' for w in l]
+                    dedup_compound_word = [w for w in l if "_" in w and w.count("_") + 1 > dedup_compound_words_larger_than]
+                    if not dedup_compound_word:
+                      l2 = " ".join(l).replace("_", " ").strip()
+                      tmp2.write(l2+"\n")
+                      continue
+                    l = [w if ("_" not in w or w.count("_") + 1 <= dedup_compound_words_larger_than or w not in seen_dedup_compound_words) else '...' for w in l]
+                    l2 = " ".join(l).replace("_", " ").replace(' ... ...', ' ...').strip()
+                    #if dedup_compound_word and l2 != orig_l:
+                    #  print ('dedup ngram', dedup_compound_word, l2)
                     for w in dedup_compound_word:
-                      seen_large_compound_words[w] = 1
-                    tmp2.write(" ".join(l).replace("_", " ")+"\n")
-                  seen_large_ngrams = None
+                      seen_dedup_compound_words[w] = 1
+                    tmp2.write(l2+"\n")
+                  seen_dedup_compound_words = None
               os.system(f"mv __tmp__2_{file_name} __tmp__{file_name}")   
               curr_arpa = {}
             # we only do synonym and embedding creation as the second to last or last step of each file processed 
