@@ -411,6 +411,8 @@ class Riverbed:
       compound = self.compound = {} if not hasattr(self, 'compound') else self.compound
       synonyms = self.synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
       stopword = self.stopword = {} if not hasattr(self, 'stopword') else self.stopword
+      for word in stopwords_set:
+        stopword[word] = stopword.get(word, 1.0)
       if dedup_ngrams_larger_than is not None:
         min_ngram_size = max(dedup_ngrams_larger_than+1,min_compound_word_size+1)
         ngram2weight = {}
@@ -472,7 +474,7 @@ class Riverbed:
             synonyms_created=  False          
             if use_synonym_replacement and times == num_iter-1 and ngram2weight:
                 synonyms_created = True
-                synonyms = self.create_word_embeds_and_synonyms(project_name, stopword=stopword, ngram2weight=ngram2weight, synonyms=synonyms, kmeans_batch_size=kmeans_batch_size, \
+                self.synonyms = synonyms = self.create_word_embeds_and_synonyms(project_name, stopword=stopword, ngram2weight=ngram2weight, synonyms=synonyms, kmeans_batch_size=kmeans_batch_size, \
                   embedder=embedder, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents, do_ontology=do_ontology)   
             if ngram2weight:
               with open(f"__tmp__2_{file_name}", "w", encoding="utf8") as tmp2:
@@ -528,8 +530,9 @@ class Riverbed:
             for line, weight in curr_arpa.items():
               arpa[line] = min(float(weight), arpa.get(line, 100))
             if times == num_iter-1  and not synonyms_created:
-                synonyms = self.create_word_embeds_and_synonyms(project_name, stopword=stopword, ngram2weight=ngram2weight, synonyms=synonyms, kmeans_batch_size=kmeans_batch_size, \
+                self.synonyms = synonyms = self.create_word_embeds_and_synonyms(project_name, stopword=stopword, ngram2weight=ngram2weight, synonyms=synonyms, kmeans_batch_size=kmeans_batch_size, \
                   embedder=embedder, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents, do_ontology=do_ontology)   
+      print ('len syn', len(synonyms))
       top_stopword={} 
       if unigram:
           stopword_list = [l for l in unigram.items() if len(l[0]) > 0]
@@ -539,8 +542,8 @@ class Riverbed:
 
       for word, weight in top_stopword:
         stopword[word] = min(stopword.get(word, 100), weight)
-      for word in stopwords_set:
-        stopword[word] = stopword.get(word, 1.0)
+        
+      self.ngram2weight, self.compound, self.synonyms, self.stopword = ngram2weight, compound, synonyms, stopword 
       
       ngram_cnt = {}
       for key in arpa.keys():
@@ -566,7 +569,6 @@ class Riverbed:
         tmp_arpa.write("\n\\end\\\n\n")
       os.system(f"mv __tmp__.arpa {project_name}.arpa")
 
-      self.ngram2weight, self.compound, self.synonyms, self.stopword = ngram2weight, compound, synonyms, stopword 
       self.kenlm_model = kenlm.LanguageModel(f"{project_name}.arpa") 
       os.system("rm -rf __tmp__*")
       return {'ngram2weight':ngram2weight, 'compound': compound, 'synonyms': synonyms, 'stopword': stopword,  'kenlm_model': self.kenlm_model} 
