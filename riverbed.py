@@ -571,11 +571,11 @@ class Riverbed:
       #output the final kenlm .arpa file for calculating the perplexity
       with open(f"__tmp__.arpa", "w", encoding="utf8") as tmp_arpa:
         tmp_arpa.write("\\data\\\n")
-        tmp_arpa.write(f"ngram 1={len(ngram_cnt[0])}\n")
-        tmp_arpa.write(f"ngram 2={len(ngram_cnt[1])}\n")
-        tmp_arpa.write(f"ngram 3={len(ngram_cnt[2])}\n")
-        tmp_arpa.write(f"ngram 4={len(ngram_cnt[3])}\n")
-        tmp_arpa.write(f"ngram 5={len(ngram_cnt[4])}\n")
+        tmp_arpa.write(f"ngram 1={ngram_cnt[0]}\n")
+        tmp_arpa.write(f"ngram 2={ngram_cnt[1]}\n")
+        tmp_arpa.write(f"ngram 3={ngram_cnt[2]}\n")
+        tmp_arpa.write(f"ngram 4={ngram_cnt[3]}\n")
+        tmp_arpa.write(f"ngram 5={ngram_cnt[4]}\n")
         for i in range(5):
           tmp_arpa.write("\n")
           j =i+1
