@@ -556,6 +556,14 @@ class Riverbed:
                       compound[wordArr[0]] = max(len(wordArr), compound.get(wordArr[0],0))
                     weight = weight * len(wordArr)            
                     ngram2weight[word] = min(ngram2weight.get(word, 100), weight) 
+            top_stopword={} 
+            if unigram:
+                stopword_list = [l for l in unigram.items() if len(l[0]) > 0]
+                stopword_list.sort(key=lambda a: a[1])
+                len_stopword_list = len(stopword_list)
+                top_stopword = stopword_list[:min(len_stopword_list, num_stopwords)]
+            for word, weight in top_stopword:
+              stopword[word] = min(stopword.get(word, 100), weight)
             os.system(f"rm {file_name}.arpa")
             for key, weight in curr_arpa.items():
               arpa[key] = min(float(weight), arpa.get(key, 100))
@@ -564,15 +572,7 @@ class Riverbed:
                 self.synonyms = synonyms = self.create_word_embeds_and_synonyms(project_name, stopword=stopword, ngram2weight=ngram2weight, synonyms=synonyms, kmeans_batch_size=kmeans_batch_size, \
                   embedder=embedder, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents, do_ontology=do_ontology)   
       print ('len syn', len(synonyms))
-      top_stopword={} 
-      if unigram:
-          stopword_list = [l for l in unigram.items() if len(l[0]) > 0]
-          stopword_list.sort(key=lambda a: a[1])
-          len_stopword_list = len(stopword_list)
-          top_stopword = stopword_list[:min(len_stopword_list, num_stopwords)]
-      print ('finished stopwords')
-      for word, weight in top_stopword:
-        stopword[word] = min(stopword.get(word, 100), weight)
+
 
       self.ngram2weight, self.compound, self.synonyms, self.stopword = ngram2weight, compound, synonyms, stopword 
       print ('counting arpa')
