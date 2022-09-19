@@ -187,7 +187,7 @@ class Riverbed:
     if ngram2weight is None: ngram2weight = {} if not hasattr(self, 'ngram2weight') else self.ngram2weight    
     if stopword is None: stopword = {} if not hasattr(self, 'stopword') else self.stopword
     if device == 'cuda':
-      kmeans = KMeans(n_clusters=true_k, mode='euclidean')
+      kmeans = KMeans(n_clusters=true_k, mode='cosine')
       km_labels = kmeans.fit_predict(torch.from_numpy(cluster_vecs[idxs]).to(device))
       km_labels = [l.item() for l in km_labels]
     else:
@@ -765,7 +765,7 @@ class Riverbed:
   def create_cluster_for_spans(self, true_k, batch_id_prefix, spans, cluster_vecs, tmp_clusters, span2cluster_label,  idxs, span_per_cluster=20, kmeans_batch_size=1024, ):
     global device
     if device == 'cuda':
-      kmeans = KMeans(n_clusters=true_k, mode='euclidean')
+      kmeans = KMeans(n_clusters=true_k, mode='cosine')
       km_labels = kmeans.fit_predict(torch.from_numpy(cluster_vecs[idxs]).to(device))
       km_labels = [l.item() for l in km_labels]
     else:
