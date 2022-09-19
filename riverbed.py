@@ -329,6 +329,7 @@ class Riverbed:
     terms_idx = [idx for idx, term in enumerate(terms) if term not in synonyms and term[0] != '¶' ]
     terms_idx_in_synonyms = [idx for idx, term in enumerate(terms) if term in synonyms and term[0] != '¶']
     len_terms_idx = len(terms_idx)
+    #increase the terms_idx list to include non-parent words that have empty embeddings
     for rng in range(0, len(terms_idx), embed_batch_size):
       max_rng = min(len(terms_idx), rng+embed_batch_size)
       if embedder == "clip":
@@ -427,10 +428,29 @@ class Riverbed:
           if "_" not in word: unigram[word] = min(unigram.get(word,0), ngram2weight[word])
       if os.path.exists(f"{project_name}.arpa"):
         with open(f"{project_name}.arpa", "rb") as af:
+          n = 0
+          do_ngram = False
           for line in af:
-            line = line.decode().strip().split("\t")
-            if len(line) > 1:
-              arpa[line[1]] = min(float(line[0]), arpa.get(line[1], 0))
+            line = line.decode().strip()
+            if line.startswith("\\1-grams:"):
+              n = 1
+              do_ngram = True
+            elif line.startswith("\\2-grams:"):
+              n = 2
+              do_ngram = True
+            elif line.startswith("\\3-grams:"):
+              n = 3
+              do_ngram = True
+            elif line.startswith("\\4-grams:"):
+              n = 4
+              do_ngram = True
+            elif line.startswith("\\5-grams:"):
+              n = 5
+              do_ngram = True
+            elif do_ngram:
+              line = line.decode().strip().split("\t")
+              if len(line) > 1:
+                arpa[(n, line[1])] = min(float(line[0]), arpa.get((n, line[1]), 100))
       #TODO, we should try to create consolidated files of around 1GB to get enough information in the arpa files
       for doc_id, file_name in enumerate(files):
         if dedup_compound_words_larger_than:
@@ -597,7 +617,6 @@ class Riverbed:
 
       self.ngram2weight, self.compound, self.synonyms, self.stopword = ngram2weight, compound, synonyms, stopword 
       print ('counting arpa')
-
       ngram_cnt = [0]*5
       for key in arpa.keys():
         n = key[0]-1
