@@ -351,12 +351,13 @@ class Riverbed:
       prev_ids = [idx for idx in terms_idx[:rng] if terms[idx] not in synonyms]
       terms_idx_in_synonyms.extend([idx for idx in terms_idx[:rng] if terms[idx] in synonyms])
       terms_idx_in_synonyms = list(set(terms_idx_in_synonyms))
-      max_prev_ids = max(int(kmeans_batch_size*.3), min_prev_ids)
-      if len(prev_ids) < max_prev_ids:
-        avail_prev_ids= max_prev_ids-len(prev_ids)
-        if len(terms_idx_in_synonyms) > avail_prev_ids: 
+      max_prev_ids = max(int(kmeans_batch_size*.15), int(.5*min_prev_ids))
+      if len(prev_ids) > max_prev_ids:
+        prev_ids = random.sample(prev_ids, max_prev_ids))
+      avail_prev_ids= 2*max_prev_ids-len(prev_ids)
+      if len(terms_idx_in_synonyms) > avail_prev_ids: 
           prev_ids.extend(random.sample(terms_idx_in_synonyms, avail_prev_ids))
-        else: 
+      else: 
           prev_ids.extend(terms_idx_in_synonyms)
       idxs = prev_ids + terms_idx[rng:max_rng]
       print ('clustering', len(idxs))
@@ -364,19 +365,16 @@ class Riverbed:
       terms2 = [terms[idx] for idx in idxs]
       synonyms = self.cluster_one_batch(cluster_vecs, idxs, terms2, true_k, synonyms=synonyms, stopword=stopword, ngram2weight=ngram2weight, )
       ontology = self.get_ontology(synonyms)
+      max_cluster_size = math.sqrt(max_top_parents)
       for key, cluster in ontology.items():
-        if len(cluster) > max_top_parents*1.5:
+        if len(cluster) > max_cluster_size*1.5:
           print ('recluster larger to small clusters', key)
-          orig_key = key.lstrip('¶')
-          cluster.sort(key=lambda a: ngram2weight.get(a, 100))
-          for rng2 in range(0, len(cluster),max_top_parents):
-            max_rng2 = min(len(cluster), rng2+max_top_parents)
-            if orig_key in cluster[rng2:max_rng2]:
-              syn_label = key
-            else:
-              syn_label = '¶'+cluster[rng2]
-            for word in cluster[rng2:max_rng2]:
-              synonyms[word] = syn_label
+          re_cluster = set(cluster[max_cluster_size:])
+          for word in cluster[max_cluster_size:]:
+             del synonyms[word] 
+          idxs = [idx for idx, word in ngram2weight.keys() if word in re_cluster]
+          true_k=int(max(2, (len(idxs))/words_per_ontology_cluster))
+          synonyms = self.cluster_one_batch(cluster_vecs, idxs, cluster[max_cluster_size:], true_k, synonyms=synonyms, stopword=stopword, ngram2weight=ngram2weight, )           
     if do_ontology: synonyms = self.create_ontology(project_name, synonyms=synonyms, stopword=stopword, ngram2weight=ngram2weight, words_per_ontology_cluster = words_per_ontology_cluster, kmeans_batch_size=50000, epoch = 10, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, embedder=embedder, max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents)
     return synonyms
 
