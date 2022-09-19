@@ -422,11 +422,6 @@ class Riverbed:
       os.system(f"chmod u+x {lmplz}")
       unigram = {}
       arpa = {}
-      if dedup_compound_words_larger_than:
-        compound = {}
-        synonyms = {}
-        stopword = copy.copy(stopword)
-        ngram2weight = {}
       if ngram2weight:
         for word in ngram2weight.keys():
           if "_" not in word: unigram[word] = min(unigram.get(word,0), ngram2weight[word])
@@ -440,6 +435,11 @@ class Riverbed:
       for doc_id, file_name in enumerate(files):
         if dedup_compound_words_larger_than:
           dedup_compound_words_num_iter = max(0, math.ceil(dedup_compound_words_larger_than/(5 *(doc_id+1))))
+          self.ngram2weight, self.compound, self.synonyms, self.stopword = ngram2weight, compound, synonyms, stopword 
+          compound = copy.deepcopy(compound)
+          synonyms = copy.deepcopy(synonyms)
+          stopword = copy.deepcopy(stopword)
+          ngram2weight = copy.deepcopy(ngram2weight)
         else:
           dedup_compound_words_num_iter = 0
         num_iter = max(1,math.ceil(min_compound_word_size/(5 *(doc_id+1))))
