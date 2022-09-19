@@ -189,6 +189,7 @@ class Riverbed:
     if device == 'cuda':
       kmeans = KMeans(n_clusters=true_k, mode='euclidean')
       km_labels = kmeans.fit_predict(torch.from_numpy(cluster_vecs[idxs]).to(device))
+      km_labels = [l.item() for l in km_labels]
     else:
       km = MiniBatchKMeans(n_clusters=true_k, init='k-means++', n_init=1,
                                           init_size=max(true_k*3,1000), batch_size=1024).fit(cluster_vecs[idxs])
@@ -764,6 +765,7 @@ class Riverbed:
     if device == 'cuda':
       kmeans = KMeans(n_clusters=true_k, mode='euclidean')
       km_labels = kmeans.fit_predict(torch.from_numpy(cluster_vecs[idxs]).to(device))
+      km_labels = [l.item() for l in km_labels]
     else:
       km = MiniBatchKMeans(n_clusters=true_k, init='k-means++', n_init=1,
                                     init_size=max(true_k*3,1000), batch_size=1024).fit(cluster_vecs[idxs])
