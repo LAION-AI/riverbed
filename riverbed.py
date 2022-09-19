@@ -473,6 +473,7 @@ class Riverbed:
                       seen_dedup_compound_words[w] = 1
                     tmp2.write(l2+"\n")
                   seen_dedup_compound_words = None
+              os.system(f"cp __tmp__2_{file_name} {file_name}.dedup")  
               os.system(f"mv __tmp__2_{file_name} __tmp__{file_name}")   
               curr_arpa = {}
             # we only do synonym and embedding creation as the second to last or last step of each file processed 
