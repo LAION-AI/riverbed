@@ -414,8 +414,6 @@ class Riverbed:
       for word in stopwords_set:
         word = word.lower()
         stopword[word] = stopword.get(word, 1.0)
-      if dedup_compound_words_larger_than is not None:
-        min_compound_word_size = max(dedup_compound_words_larger_than,min_compound_word_size)
       if lmplz_loc != "./riverbed/bin/lmplz" and not os.path.exists("./lmplz"):
         os.system(f"cp {lmplz_loc} ./lmplz")
         lmplz = "./lmplz"
@@ -424,6 +422,11 @@ class Riverbed:
       os.system(f"chmod u+x {lmplz}")
       unigram = {}
       arpa = {}
+      if dedup_compound_words_larger_than:
+        compound = {}
+        synonyms = {}
+        stopword = copy.copy(stopword)
+        ngram2weight = {}
       if ngram2weight:
         for word in ngram2weight.keys():
           if "_" not in word: unigram[word] = min(unigram.get(word,0), ngram2weight[word])
@@ -437,24 +440,25 @@ class Riverbed:
       for doc_id, file_name in enumerate(files):
         if dedup_compound_words_larger_than:
           dedup_compound_words_num_iter = max(0, math.ceil(dedup_compound_words_larger_than/(5 *(doc_id+1))))
-          num_iter = max(1,1+math.ceil(min_compound_word_size/(5 *(doc_id+1))))
         else:
-          dedup_compound_words_num_iter = -1
-          num_iter = max(1,math.ceil(min_compound_word_size/(5 *(doc_id+1))))
+          dedup_compound_words_num_iter = 0
+        num_iter = max(1,math.ceil(min_compound_word_size/(5 *(doc_id+1))))
         #we can repeatedly run the below to get long ngrams
         #after we tokenize for ngram and replace with words with underscores (the_projected_revenue) at each step, we redo the ngram count
         curr_arpa = {}
         print ('num iter', num_iter, dedup_compound_words_num_iter)
-        for times in range(num_iter):
+        for times in range(num_iter+dedup_compound_words_num_iter):
             print (f"iter {file_name}", times)
             if times == 0:
               os.system(f"cp {file_name} __tmp__{file_name}")
-            elif times == dedup_compound_words_num_iter:
+            elif dedup_compound_words_larger_than is not None and times == dedup_compound_words_num_iter:
               # sometimes we want to do some pre-processing b/c n-grams larger than a certain amount are just duplicates
               # and can mess up our word counts
               print ('deduping compound words larger than',dedup_compound_words_larger_than)
+              os.system(f"cp {file_name} __tmp__{file_name}")
               with open(f"__tmp__2_{file_name}", "w", encoding="utf8") as tmp2:
                 with open(f"__tmp__{file_name}", "r") as f:
+                  deduped_num_words = 0
                   seen_dedup_compound_words = {}
                   for l in f:
                     orig_l = l.replace("_", " ").replace("  ", " ").strip()
@@ -467,21 +471,27 @@ class Riverbed:
                       continue
                     l = [w if ("_" not in w or w.count("_") + 1 <= dedup_compound_words_larger_than or w not in seen_dedup_compound_words) else '...' for w in l]
                     l2 = " ".join(l).replace("_", " ").replace(' ... ...', ' ...').strip()
-                    #if dedup_compound_word and l2 != orig_l:
+                    if dedup_compound_word and l2 != orig_l:
+                      deduped_num_words += 1
                     #  print ('dedup ngram', dedup_compound_word, l2)
                     for w in dedup_compound_word:
                       seen_dedup_compound_words[w] = 1
                     tmp2.write(l2+"\n")
                   seen_dedup_compound_words = None
+                  print ('finished deduping', deduped_num_words)
               os.system(f"cp __tmp__2_{file_name} {file_name}.dedup")  
               os.system(f"mv __tmp__2_{file_name} __tmp__{file_name}")   
+              ngram2weight = self.ngram2weight = OrderedDict() if not hasattr(self, 'ngram2weight') else self.ngram2weight
+              compound = self.compound = {} if not hasattr(self, 'compound') else self.compound
+              synonyms = self.synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
+              stopword = self.stopword = {} if not hasattr(self, 'stopword') else self.stopword              
               curr_arpa = {}
             # we only do synonym and embedding creation as the second to last or last step of each file processed 
             # b/c this is very expensive. we can do this right before the last counting if we
             # do synonym replacement so we have a chance to create syonyms for the replacement.
             # otherwise, we do it after the last count. See below.
             synonyms_created=  False          
-            if use_synonym_replacement and times == num_iter-1 and ngram2weight:
+            if use_synonym_replacement and times == num_iter+dedup_compound_words_num_iter-1 and ngram2weight:
                 synonyms_created = True
                 self.synonyms = synonyms = self.create_word_embeds_and_synonyms(project_name, stopword=stopword, ngram2weight=ngram2weight, synonyms=synonyms, kmeans_batch_size=kmeans_batch_size, \
                   embedder=embedder, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents, do_ontology=do_ontology)   
@@ -576,12 +586,12 @@ class Riverbed:
             for word, weight in top_stopword:
               stopword[word] = min(stopword.get(word, 100), weight)
             os.system(f"rm {file_name}.arpa")
-            for key, weight in curr_arpa.items():
-              arpa[key] = min(float(weight), arpa.get(key, 100))
-            curr_arpa = {}
-            if times == num_iter-1  and not synonyms_created:
+            if times == num_iter+dedup_compound_words_num_iter-1  and not synonyms_created:
                 self.synonyms = synonyms = self.create_word_embeds_and_synonyms(project_name, stopword=stopword, ngram2weight=ngram2weight, synonyms=synonyms, kmeans_batch_size=kmeans_batch_size, \
                   embedder=embedder, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents, do_ontology=do_ontology)   
+        for key, weight in curr_arpa.items():
+            arpa[key] = min(float(weight), arpa.get(key, 100))
+        curr_arpa = {}
       print ('len syn', len(synonyms))
 
 
