@@ -353,7 +353,7 @@ class Riverbed:
       terms_idx_in_synonyms = list(set(terms_idx_in_synonyms))
       max_prev_ids = max(int(kmeans_batch_size*.15), int(.5*min_prev_ids))
       if len(prev_ids) > max_prev_ids:
-        prev_ids = random.sample(prev_ids, max_prev_ids))
+        prev_ids = random.sample(prev_ids, max_prev_ids)
       avail_prev_ids= 2*max_prev_ids-len(prev_ids)
       if len(terms_idx_in_synonyms) > avail_prev_ids: 
           prev_ids.extend(random.sample(terms_idx_in_synonyms, avail_prev_ids))
