@@ -448,7 +448,7 @@ class Riverbed:
               n = 5
               do_ngram = True
             elif do_ngram:
-              line = line.decode().strip().split("\t")
+              line = line.split("\t")
               if len(line) > 1:
                 arpa[(n, line[1])] = min(float(line[0]), arpa.get((n, line[1]), 100))
       #TODO, we should try to create consolidated files of around 1GB to get enough information in the arpa files
