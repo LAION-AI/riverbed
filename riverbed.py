@@ -280,7 +280,7 @@ class Riverbed:
       terms = list(ngram2weight.keys())
       terms2idx = dict([(term, idx) for idx, term in enumerate(terms)])
       ontology = self.get_ontology(synonyms)
-      parents = [parent, cluster for parent, cluster in ontology.items() if len(parent) - len(parent.lstrip('¶')) == level + 1]
+      parents = [(parent, cluster) for parent, cluster in ontology.items() if len(parent) - len(parent.lstrip('¶')) == level + 1]
       cluster_vecs2 = []
       cluster_vecs2_idx = []
       for parent, cluster in parents:
@@ -300,7 +300,7 @@ class Riverbed:
       terms = list(ngram2weight.keys())
       terms2idx = dict([(term, idx) for idx, term in enumerate(terms)])
       ontology = self.get_ontology(synonyms)
-      parents = [parent, cluster for parent, cluster in ontology.items() if parent[0] == '¶']
+      parents = [(parent, cluster) for parent, cluster in ontology.items() if parent[0] == '¶']
       cluster_vecs2 = []
       cluster_vecs2_idx = []
       for parent, cluster in parents:
