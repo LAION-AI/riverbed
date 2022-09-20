@@ -311,7 +311,7 @@ class Riverbed:
     return synonyms
  
   
-  def create_word_embeds_and_synonyms(self, project_name, synonyms=None, stopword=None, ngram2weight=None, words_per_ontology_cluster = 10, kmeans_batch_size=50000, epoch = 10, embed_batch_size=7000, min_prev_ids=10000, embedder="minilm", max_ontology_depth=4, max_top_parents=10000, do_ontology=True):
+  def create_word_embeds_and_synonyms(self, project_name, synonyms=None, stopword=None, ngram2weight=None, words_per_ontology_cluster = 10, kmeans_batch_size=50000, epoch = 10, embed_batch_size=7000, min_prev_ids=10000, embedder="minilm", max_ontology_depth=4, max_top_parents=10000, do_ontology=True, recluster_type="batch"):
     global clip_model, minilm_model, labse_model
     if synonyms is None: synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
     if ngram2weight is None: ngram2weight = {} if not hasattr(self, 'ngram2weight') else self.ngram2weight    
@@ -370,6 +370,7 @@ class Riverbed:
       terms2 = [terms[idx] for idx in idxs]
       synonyms = self.cluster_one_batch(cluster_vecs, idxs, terms2, true_k, synonyms=synonyms, stopword=stopword, ngram2weight=ngram2weight, )
       if times >= times_start_recluster:
+        idxs_words=[]
         ontology = self.get_ontology(synonyms)
         max_cluster_size = int(math.sqrt(max_top_parents))
         for key, cluster in ontology.items():
@@ -381,9 +382,27 @@ class Riverbed:
             re_cluster = set(cluster)
             for word in cluster:
               del synonyms[word] 
-            idxs = [idx for idx, word in enumerate(ngram2weight.keys()) if word in re_cluster]
-            true_k=int(max(2, (len(idxs))/words_per_ontology_cluster))
-            synonyms = self.cluster_one_batch(cluster_vecs, idxs, cluster, true_k, synonyms=synonyms, stopword=stopword, ngram2weight=ngram2weight, )           
+            if recluster_type="individual":
+              idxs_words = [(idx,word) for idx, word in enumerate(ngram2weight.keys()) if word in re_cluster]
+              words = [a[1] for a in idxs_words]
+              idxs = [a[0] for a in idxs_words]
+              true_k=int(max(2, (len(idxs))/words_per_ontology_cluster))
+              synonyms = self.cluster_one_batch(cluster_vecs, idxs, words, true_k, synonyms=synonyms, stopword=stopword, ngram2weight=ngram2weight, )    
+              idxs_words = []
+            else:
+              idxs_words.extend[(idx,word) for idx, word in enumerate(ngram2weight.keys()) if word in re_cluster])
+              if len(idxs_words) > kmeans_batch_size:
+                words = [a[1] for a in idxs_words]
+                idxs = [a[0] for a in idxs_words]
+                true_k=int(max(2, (len(idxs))/words_per_ontology_cluster))
+                synonyms = self.cluster_one_batch(cluster_vecs, idxs, words, true_k, synonyms=synonyms, stopword=stopword, ngram2weight=ngram2weight, )    
+                idxs_words = []
+        if idxs_words:
+                words = [a[1] for a in idxs_words]
+                idxs = [a[0] for a in idxs_words]
+                true_k=int(max(2, (len(idxs))/words_per_ontology_cluster))
+                synonyms = self.cluster_one_batch(cluster_vecs, idxs, words, true_k, synonyms=synonyms, stopword=stopword, ngram2weight=ngram2weight, )    
+                idxs_words = []
     if do_ontology: synonyms = self.create_ontology(project_name, synonyms=synonyms, stopword=stopword, ngram2weight=ngram2weight, words_per_ontology_cluster = words_per_ontology_cluster, kmeans_batch_size=50000, epoch = 10, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, embedder=embedder, max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents)
     return synonyms
 
@@ -392,7 +411,7 @@ class Riverbed:
   # we can run this in incremental mode or batched mode (just concatenate all the files togehter)
   def create_tokenizer_and_train(self, project_name, files, lmplz_loc="./riverbed/bin/lmplz", stopword_max_len=10, num_stopwords=75, min_compound_word_size=25, max_ontology_depth=4, max_top_parents=10000, \
                 lstrip_stopword=False, rstrip_stopword=False, non_words = "،♪↓↑→←━\₨₡€¥£¢¤™®©¶§←«»⊥∀⇒⇔√­­♣️♥️♠️♦️‘’¿*’-ツ¯‿─★┌┴└┐▒∎µ•●°。¦¬≥≤±≠¡×÷¨´:।`~�_“”/|!~@#$%^&*•()【】[]{}-_+–=<>·;…?:.,\'\"", kmeans_batch_size=50000, dedup_compound_words_larger_than=None, \
-                embed_batch_size=7000, min_prev_ids=10000, min_compound_weight=1.0, stopword=None, min_num_words=5, do_collapse_values=True, use_synonym_replacement=False, embedder="minilm", do_ontology=True):
+                embed_batch_size=7000, min_prev_ids=10000, min_compound_weight=1.0, stopword=None, min_num_words=5, do_collapse_values=True, use_synonym_replacement=False, embedder="minilm", do_ontology=True, recluster_type="batch"):
       global device, clip_model, minilm_model, labse_model
       
       if embedder == "clip":
@@ -514,7 +533,7 @@ class Riverbed:
             if use_synonym_replacement and times == num_iter+dedup_compound_words_num_iter-1 and ngram2weight:
                 synonyms_created = True
                 self.synonyms = synonyms = self.create_word_embeds_and_synonyms(project_name, stopword=stopword, ngram2weight=ngram2weight, synonyms=synonyms, kmeans_batch_size=kmeans_batch_size, \
-                  embedder=embedder, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents, do_ontology=do_ontology)   
+                  embedder=embedder, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents, do_ontology=do_ontology, recluster_type=recluster_type)   
             if ngram2weight:
               with open(f"__tmp__2_{file_name}", "w", encoding="utf8") as tmp2:
                 with open(f"__tmp__{file_name}", "r") as f:
@@ -608,7 +627,7 @@ class Riverbed:
             os.system(f"rm {file_name}.arpa")
             if times == num_iter+dedup_compound_words_num_iter-1  and not synonyms_created:
                 self.synonyms = synonyms = self.create_word_embeds_and_synonyms(project_name, stopword=stopword, ngram2weight=ngram2weight, synonyms=synonyms, kmeans_batch_size=kmeans_batch_size, \
-                  embedder=embedder, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents, do_ontology=do_ontology)   
+                  embedder=embedder, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents, do_ontology=do_ontology, recluster_type=recluster_type)   
         for key, weight in curr_arpa.items():
             arpa[key] = min(float(weight), arpa.get(key, 100))
         curr_arpa = {}
