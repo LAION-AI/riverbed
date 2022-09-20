@@ -298,7 +298,7 @@ class RiverbedModel:
   # create a hiearchical structure given leaves that have already been clustered
   def _create_ontology(self, project_name, synonyms=None, stopword=None, word2weight=None, words_per_ontology_cluster = 10, \
                       kmeans_batch_size=50000, epoch = 10, embed_batch_size=7000, min_prev_ids=10000, embedder="minilm", \
-                      max_ontology_depth=4, max_top_parents=10000, recluster_type=="individual", min_incremental_cluster_overlap=2):
+                      max_ontology_depth=4, max_top_parents=10000, recluster_type="individual", min_incremental_cluster_overlap=2):
     if synonyms is None: synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
     if word2weight is None: word2weight = {} if not hasattr(self, 'word2weight') else self.word2weight    
     if stopword is None: stopword = {} if not hasattr(self, 'stopword') else self.stopword
