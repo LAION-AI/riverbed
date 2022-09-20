@@ -323,7 +323,7 @@ class RiverbedModel:
       idxs = []
       for parent in parents:
         idxs.append(terms2idx[parent.lstrip('¶')])
-      true_k = int(max(2, int(len(parents)/max_cluster_size))))
+      true_k = int(max(2, int(len(parents)/max_cluster_size)))
       synonyms = self._cluster_one_batch(cluster_vecs, idxs, parents, true_k, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight, )
       idxs_tokens=[]
       ontology = self.get_ontology(synonyms)
