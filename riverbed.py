@@ -510,6 +510,7 @@ class Riverbed:
                       continue
                     l = [w if ("_" not in w or w.count("_") + 1 <= dedup_compound_words_larger_than or w not in seen_dedup_compound_words) else '...' for w in l]
                     l2 = " ".join(l).replace("_", " ").replace(' ... ...', ' ...').strip()
+                    if l2.endswith(" ..."): l2 = l2[:-len(" ...")]
                     if dedup_compound_word and l2 != orig_l:
                       deduped_num_words += 1
                     #  print ('dedup ngram', dedup_compound_word, l2)
