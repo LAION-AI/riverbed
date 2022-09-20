@@ -1267,7 +1267,7 @@ class RiverbedDocumentProcessor:
     df = self.df = {} if not hasattr(self, 'df') else self.df
     span2cluster_label = self.span2cluster_label = {} if not hasattr(self, 'span2cluster_label') else self.span2cluster_label
     label_models = self.label_models = {} if not hasattr(self, 'label_models') else self.label_models
-    if (not hasattr(model, 'kenlm_model) or model.kenlm_model is not None) and auto_create_tokenizer_and_model:
+    if (not hasattr(model, 'kenlm_model') or model.kenlm_model is not None) and auto_create_tokenizer_and_model:
       tokenizer, model = self.tokenizer, self.model = RiverbedModel.create_tokenizer_and_model(project_name, files, )
     kenlm_model = self.model.kenlm_model 
       
