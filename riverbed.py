@@ -567,7 +567,7 @@ class RiverbedModel:
                   seen_dedup_compound_words = {}
                   for l in f:
                     orig_l = l.replace("_", " ").replace("  ", " ").strip()
-                    l = self.tokenize(l.strip(), min_compound_weight=0, compound=compound, word2weight=word2weight,  synonyms=synonyms, use_synonym_replacement=False)
+                    l = tokenizer.tokenize(l.strip(), min_compound_weight=0, compound=compound, word2weight=word2weight,  synonyms=synonyms, use_synonym_replacement=False)
                     l = l.split()
                     dedup_compound_word = [w for w in l if "_" in w and w.count("_") + 1 > dedup_compound_words_larger_than]
                     if not dedup_compound_word:
@@ -606,9 +606,9 @@ class RiverbedModel:
               with open(f"__tmp__2_{file_name}", "w", encoding="utf8") as tmp2:
                 with open(f"__tmp__{file_name}", "r") as f:
                   for l in f:
-                    l = self.tokenizer.tokenize(l.strip(),  min_compound_weight=min_compound_weight, compound=compound, word2weight=word2weight, synonyms=synonyms, use_synonym_replacement=use_synonym_replacement)
+                    l = tokenizer.tokenize(l.strip(),  min_compound_weight=min_compound_weight, compound=compound, word2weight=word2weight, synonyms=synonyms, use_synonym_replacement=use_synonym_replacement)
                     if times == num_iter-1:
-                      l = self.tokenizer.tokenize(l.strip(), min_compound_weight=0, compound=compound, word2weight=word2weight,  synonyms=synonyms, use_synonym_replacement=use_synonym_replacement)
+                      l = tokenizer.tokenize(l.strip(), min_compound_weight=0, compound=compound, word2weight=word2weight,  synonyms=synonyms, use_synonym_replacement=use_synonym_replacement)
                     tmp2.write(l+"\n")  
               os.system(f"mv __tmp__2_{file_name} __tmp__{file_name}")  
             if do_collapse_values:
