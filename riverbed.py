@@ -390,7 +390,7 @@ class Riverbed:
               synonyms = self.cluster_one_batch(cluster_vecs, idxs, words, true_k, synonyms=synonyms, stopword=stopword, ngram2weight=ngram2weight, )    
               idxs_words = []
             else:
-              idxs_words.extend[(idx,word) for idx, word in enumerate(ngram2weight.keys()) if word in re_cluster])
+              idxs_words.extend([(idx,word) for idx, word in enumerate(ngram2weight.keys()) if word in re_cluster])
               if len(idxs_words) > kmeans_batch_size:
                 words = [a[1] for a in idxs_words]
                 idxs = [a[0] for a in idxs_words]
