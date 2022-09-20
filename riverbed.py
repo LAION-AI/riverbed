@@ -85,7 +85,6 @@ if minilm_model is None:
   minilm_tokenizer = AutoTokenizer.from_pretrained('sentence-transformers/all-MiniLM-L6-v2')
   labse_tokenizer = BertTokenizerFast.from_pretrained("setu4993/smaller-LaBSE")
 
-
   if device == 'cuda':
     clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").half().eval()
     minilm_model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2').half().eval()
@@ -108,11 +107,14 @@ def mean_pooling(model_output, attention_mask):
     
     
 # The Riverbed code includes a RiverbedTokenizer, RiverbedModel and RiverbedDocumenProcessor for information retrieval processing. 
-# The tokenizer is stored in the stopword, compound, word2weight and synonyms data structure.
-# the model is stored in the synonyms and kenlm data structures. the model will allow us to find an ontology
+# The tokenizer stores the stopword, compound, word2weight and synonyms data structure.
+# the model stores a copy of synonyms and the kenlm data structures. the model will allow us to find an ontology
 # for words in the model, and the perplexity of a text.
-# the IR processor is stored in the 
-  
+# the processor sores in the span_clusters, span2class_label, span2idx, label_models, label2tf, and df data structures. 
+
+
+#################################################################################
+# TOKENIZER CODE
 class RiverbedTokenizer:
 
   def __init__(self):
@@ -152,7 +154,9 @@ class RiverbedTokenizer:
       self = pickle.load(open(f"{project_name}.pickle", "rb"))
       return self
 
-class RiverbedTokenizer:
+#################################################################################
+#MODEL CODE
+class RiverbedModel:
 
   def __init__(self):
     pass 
@@ -383,7 +387,7 @@ class RiverbedTokenizer:
         toks = minilm_tokenizer([terms[idx].replace("_", " ") for idx in terms_idx[rng:max_rng]], padding=True, truncation=True, return_tensors="pt").to(device)
         with torch.no_grad():
           cluster_vecs = minilm_model(**toks)
-          cluster_vecs = self.mean_pooling(cluster_vecs, toks.attention_mask).cpu().numpy()
+          cluster_vecs = mean_pooling(cluster_vecs, toks.attention_mask).cpu().numpy()
       elif embedder == "labse":
         toks = labse_tokenizer([terms[idx].replace("_", " ") for idx in terms_idx[rng:max_rng]], padding=True, truncation=True, return_tensors="pt").to(device)
         with torch.no_grad():
@@ -738,8 +742,8 @@ class RiverbedTokenizer:
       return self
 
     
-################
-# SPAN BASED CODE
+#################################################################################
+# SPAN AND DOCUMENT PROCESSOR
 # includes labeling of spans of text with different features, including clustering
 # assumes each batch is NOT shuffeled.    
 class RiverbedDocumentProcessor:
@@ -1186,7 +1190,7 @@ class RiverbedDocumentProcessor:
         toks = minilm_tokenizer([a['tokenized_text'].replace("_", " ") for a in batch[rng:max_rng]], padding=True, truncation=True, return_tensors="pt").to(device)
         with torch.no_grad():
           cluster_vecs = minilm_model(**toks)
-          cluster_vecs = self.mean_pooling(cluster_vecs, toks.attention_mask).cpu().numpy()
+          cluster_vecs = mean_pooling(cluster_vecs, toks.attention_mask).cpu().numpy()
       elif embedder == "labse":
         toks = labse_tokenizer([a['tokenized_text'].replace("_", " ") for a in batch[rng:max_rng]], padding=True, truncation=True, return_tensors="pt").to(device)
         with torch.no_grad():
@@ -1241,22 +1245,27 @@ class RiverbedDocumentProcessor:
     return retained_batch, span2idx, span2cluster_label, label2tf, df   
 
 
-
   def apply_span_feature_detect_and_labeling(self, project_name, files, text_span_size=1000, max_lines_per_section=10, max_len_for_prefix=100, min_len_for_prefix=20, embed_batch_size=100, 
                                                 features_batch_size = 10000000, kmeans_batch_size=1024, \
                                                 span_per_cluster= 20, retained_spans_per_cluster=5, min_prev_ids=10000, \
                                                 ner_to_simplify=(), span_level_feature_extractors=default_span_level_feature_extractors, running_features_size=100, \
                                                 prefix_extractors = default_prefix_extractors, dedup=True, max_top_parents=10000, \
                                                 span_lfs = [], verbose_snrokel=True, use_synonym_replacement=False, max_ontology_depth=4, \
-                                                batch_id_prefix = 0, seen = None, span2idx = None, embedder="minilm", \
-                                                clusters = None, label2tf = None, df = None, span2cluster_label = None, label_models = None, auto_create_tokenizer_and_train=True, \
+                                                batch_id_prefix = 0, seen = None,  embedder="minilm", \
+                                                auto_create_tokenizer_and_model=True, \
                                                 ):
     global clip_model, minilm_model, labse_model
     model = self.model
     tokenizer = self.tokenizer
-
-    if (not hasattr(model, 'kenlm_model) or self.kenlm_model is not None) and auto_create_tokenizer_and_train:
-      tokenizer, model = RiverbedModel.create_tokenizer_and_model(project_name, files, )
+    
+    span2idx = self.span2idx = OrderedDict() if not hasattr(self, 'span2idx') else self.span2idx
+    span_clusters = self.span_clusters = {} if not hasattr(self, 'span_clusters') else self.span_clusters
+    label2tf = self.label2tf = {} if not hasattr(self, 'label2tf') else self.label2tf
+    df = self.df = {} if not hasattr(self, 'df') else self.df
+    span2cluster_label = self.span2cluster_label = {} if not hasattr(self, 'span2cluster_label') else self.span2cluster_label
+    label_models = self.label_models = {} if not hasattr(self, 'label_models') else self.label_models
+    if (not hasattr(model, 'kenlm_model) or model.kenlm_model is not None) and auto_create_tokenizer_and_model:
+      tokenizer, model = self.tokenizer, self.model = RiverbedModel.create_tokenizer_and_model(project_name, files, )
     kenlm_model = self.model.kenlm_model 
       
     if embedder == "clip":
@@ -1291,16 +1300,8 @@ class RiverbedDocumentProcessor:
     lineno = -1
     curr_lineno = 0
 
-    #TODO, load the below from an config file
     if seen is None: seen = {}
-    if span2idx is None: span2idx = {}
-    if clusters is None: clusters = {}
-    if label2tf is None: label2tf = {}
-    if df is None: df = {}
-    if span2cluster_label is None: span2cluster_label = {}
-    if label_models is None: label_models = []  
     
-
     with open(f"{project_name}.jsonl", "w", encoding="utf8") as jsonl_file:
       while True:
         try:
@@ -1405,20 +1406,18 @@ class RiverbedDocumentProcessor:
                                                       verbose_snrokel=verbose_snrokel)  
           batch = []
       
-
     #now create global labeling functions based on all the labeled data
     #have an option to use a different labeling function, such as regression trees. 
     #we don't necessarily need snorkel lfs after we have labeled the dataset.
-
     if span_lfs:
       df_train = pd.DataFrame(f"{project_name}.jsonl").shuffle()
       for span_label, lfs, snorkel_label_cardinality, snorkel_epochs in span_lfs:
         applier = PandasLFApplier(lfs=lfs)
         L_train = applier.apply(df=df_train)
         label_models.append(span_label, LabelModel(cardinality=snorkel_label_cardinality,verbose=verbose_snrokel))
-        
-    return {'clusters': clusters, 'span2cluster_label': span2cluster_label, 'span2idx': span2idx, 'label_models': label_models, \
-            'batch_id_prefix': batch_id_prefix, 'seen': seen, 'label2tf': label2tf, 'df': df,}   
+    
+    span2idx, span_clusters, label2tf, df, span2cluster_label, label_models = self.span2idx, self.span_clusters, self.label2tf, self.df, self.span2cluster_label, self.label_models                    
+    return self
 
   def save_pretrained(self, project_name):
       pickle.dump(self, open(f"{project_name}.pickle", "wb"))
