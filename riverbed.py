@@ -318,16 +318,16 @@ class RiverbedModel:
       parents = [parent for parent in ontology.keys() if len(parent) - len(parent.lstrip('¶')) == level + 1]
       if len(parents) < max_top_parents: break
       idxs = []
-      for parent, cluster in parents:
+      for parent in parents:
         idxs.append(terms2idx[parent.lstrip('¶')])
       true_k = int(math.sqrt(len(parents)))
       synonyms = self._cluster_one_batch(cluster_vecs, idxs, parents, true_k, synonyms=synonyms, stopword=stopword, word2weight=word2weight, )
       idxs_words=[]
       ontology = self.get_ontology(synonyms)
-      for key in parents: 
+      for parent in parents: 
         cluster in ontology[parent]
         if len(cluster) > true_k:
-            #print ('recluster larger to small clusters', key)
+            #print ('recluster larger to small clusters', parent)
             re_cluster = set(cluster)
             for word in cluster:
               del synonyms[word] 
