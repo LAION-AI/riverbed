@@ -51,7 +51,7 @@ import pickle
 from collections import OrderedDict
 from fast_pytorch_kmeans import KMeans
 import torch
-
+import tqdm
 if torch.cuda.is_available():
   device = 'cuda'
 else:
@@ -208,7 +208,7 @@ class RiverbedModel:
   # cluster one batch of tokens/vectors, assuming some tokens have already been clustered
   def _cluster_one_batch(self, cluster_vecs, idxs, terms2, true_k, synonyms=None, stopwords=None, token2weight=None, min_incremental_cluster_overlap=2 ):
     global device
-    print ('cluster_one_batch', len(idxs))
+    #print ('cluster_one_batch', len(idxs))
     if synonyms is None: synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
     if token2weight is None: token2weight = {} if not hasattr(self, 'token2weight') else self.token2weight    
     if stopwords is None: stopwords = {} if not hasattr(self, 'stopwords') else self.stopwords
@@ -338,7 +338,7 @@ class RiverbedModel:
               idxs_tokens = [(idx,token) for idx, token in enumerate(token2weight.keys()) if token in re_cluster]
               tokens = [a[1] for a in idxs_tokens]
               idxs = [a[0] for a in idxs_tokens]
-              true_k=int(max(2, (len(idxs))/tokens_per_ontology_cluster))
+              true_k=int(max(2, (len(idxs))/max_cluster_size))
               synonyms = self._cluster_one_batch(cluster_vecs, idxs, tokens, true_k, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
               idxs_tokens = []
             else:
@@ -346,13 +346,13 @@ class RiverbedModel:
               if len(idxs_tokens) > kmeans_batch_size:
                 tokens = [a[1] for a in idxs_tokens]
                 idxs = [a[0] for a in idxs_tokens]
-                true_k=int(max(2, (len(idxs))/tokens_per_ontology_cluster))
+                true_k=int(max(2, (len(idxs))/max_cluster_size))
                 synonyms = self._cluster_one_batch(cluster_vecs, idxs, tokens, true_k, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
                 idxs_tokens = []
         if idxs_tokens: 
                 tokens = [a[1] for a in idxs_tokens]
                 idxs = [a[0] for a in idxs_tokens]
-                true_k=int(max(2, (len(idxs))/tokens_per_ontology_cluster))
+                true_k=int(max(2, (len(idxs))/max_cluster_size))
                 synonyms = self._cluster_one_batch(cluster_vecs, idxs, tokens, true_k, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
                 idxs_tokens = []
                 
@@ -380,7 +380,7 @@ class RiverbedModel:
     terms_idx_in_synonyms = [idx for idx, term in enumerate(terms) if term in synonyms and term[0] != '¶']
     len_terms_idx = len(terms_idx)
     #increase the terms_idx list to include non-parent tokens that have empty embeddings
-    for rng in range(0, len(terms_idx), embed_batch_size):
+    for rng in tqdm.tqdm(range(0, len(terms_idx), embed_batch_size)):
       max_rng = min(len(terms_idx), rng+embed_batch_size)
       if embedder == "clip":
         toks = clip_processor([terms[idx].replace("_", " ") for idx in terms_idx[rng:max_rng]], padding=True, truncation=True, return_tensors="pt").to(device)
@@ -399,7 +399,7 @@ class RiverbedModel:
     len_terms_idx = len(terms_idx)
     times = -1
     times_start_recluster = max(0, (int(len(terms_idx)/int(kmeans_batch_size*.7))-3))
-    for rng in range(0,len_terms_idx, int(kmeans_batch_size*.7)):
+    for rng in tqdm.tqdm(range(0,len_terms_idx, int(kmeans_batch_size*.7))):
       times += 1
       max_rng = min(len_terms_idx, rng+int(kmeans_batch_size*.7))
       prev_ids = [idx for idx in terms_idx[:rng] if terms[idx] not in synonyms]
