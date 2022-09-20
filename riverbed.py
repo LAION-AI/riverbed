@@ -162,7 +162,7 @@ class RiverbedModel:
     pass 
   
   @staticmethod
-  def pp(log_score, length):
+  def _pp(log_score, length):
     return float((10.0 ** (-log_score / length)))
 
   def get_perplexity(self,  doc, kenlm_model=None):
@@ -177,7 +177,7 @@ class RiverbedModel:
         length = len(line.split()) + 1
         doc_log_score += log_score
         doc_length += length
-    return self.pp(doc_log_score, doc_length)
+    return self._pp(doc_log_score, doc_length)
   
   #NOTE: we use the '¶' in front of a word to designate a word is a parent in an ontology. 
   #the level of the ontology is determined by the number of '¶'.
@@ -203,7 +203,7 @@ class RiverbedModel:
     return top_parents
 
   # cluster one batch of words/vectors, assuming some words have already been clustered
-  def cluster_one_batch(self, cluster_vecs, idxs, terms2, true_k, synonyms=None, stopword=None, word2weight=None, min_incremental_cluster_overlap=2 ):
+  def _cluster_one_batch(self, cluster_vecs, idxs, terms2, true_k, synonyms=None, stopword=None, word2weight=None, min_incremental_cluster_overlap=2 ):
     global device
     print ('cluster_one_batch', len(idxs))
     if synonyms is None: synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
@@ -296,7 +296,7 @@ class RiverbedModel:
     return synonyms
 
   # create a hiearchical structure given leaves that have already been clustered
-  def create_ontology(self, project_name, synonyms=None, stopword=None, word2weight=None, words_per_ontology_cluster = 10, \
+  def _create_ontology(self, project_name, synonyms=None, stopword=None, word2weight=None, words_per_ontology_cluster = 10, \
                       kmeans_batch_size=50000, epoch = 10, embed_batch_size=7000, min_prev_ids=10000, embedder="minilm", \
                       max_ontology_depth=4, max_top_parents=10000, recluster_type=="individual", min_incremental_cluster_overlap=2):
     if synonyms is None: synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
@@ -321,7 +321,7 @@ class RiverbedModel:
       for parent, cluster in parents:
         idxs.append(terms2idx[parent.lstrip('¶')])
       true_k = int(math.sqrt(len(parents)))
-      synonyms = self.cluster_one_batch(cluster_vecs, idxs, parents, true_k, synonyms=synonyms, stopword=stopword, word2weight=word2weight, )
+      synonyms = self._cluster_one_batch(cluster_vecs, idxs, parents, true_k, synonyms=synonyms, stopword=stopword, word2weight=word2weight, )
       idxs_words=[]
       ontology = self.get_ontology(synonyms)
       for key in parents: 
@@ -336,7 +336,7 @@ class RiverbedModel:
               words = [a[1] for a in idxs_words]
               idxs = [a[0] for a in idxs_words]
               true_k=int(max(2, (len(idxs))/words_per_ontology_cluster))
-              synonyms = self.cluster_one_batch(cluster_vecs, idxs, words, true_k, synonyms=synonyms, stopword=stopword, word2weight=word2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
+              synonyms = self._cluster_one_batch(cluster_vecs, idxs, words, true_k, synonyms=synonyms, stopword=stopword, word2weight=word2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
               idxs_words = []
             else:
               idxs_words.extend([(idx,word) for idx, word in enumerate(word2weight.keys()) if word in re_cluster])
@@ -344,18 +344,18 @@ class RiverbedModel:
                 words = [a[1] for a in idxs_words]
                 idxs = [a[0] for a in idxs_words]
                 true_k=int(max(2, (len(idxs))/words_per_ontology_cluster))
-                synonyms = self.cluster_one_batch(cluster_vecs, idxs, words, true_k, synonyms=synonyms, stopword=stopword, word2weight=word2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
+                synonyms = self._cluster_one_batch(cluster_vecs, idxs, words, true_k, synonyms=synonyms, stopword=stopword, word2weight=word2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
                 idxs_words = []
         if idxs_words: 
                 words = [a[1] for a in idxs_words]
                 idxs = [a[0] for a in idxs_words]
                 true_k=int(max(2, (len(idxs))/words_per_ontology_cluster))
-                synonyms = self.cluster_one_batch(cluster_vecs, idxs, words, true_k, synonyms=synonyms, stopword=stopword, word2weight=word2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
+                synonyms = self._cluster_one_batch(cluster_vecs, idxs, words, true_k, synonyms=synonyms, stopword=stopword, word2weight=word2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
                 idxs_words = []
                 
     return synonyms
   
-  def create_word_embeds_and_synonyms(self, project_name, synonyms=None, stopword=None, word2weight=None, words_per_ontology_cluster = 10, \
+  def _create_word_embeds_and_synonyms(self, project_name, synonyms=None, stopword=None, word2weight=None, words_per_ontology_cluster = 10, \
                                       kmeans_batch_size=50000, epoch = 10, embed_batch_size=7000, min_prev_ids=10000, embedder="minilm", \
                                       max_ontology_depth=4, max_top_parents=10000, do_ontology=True, recluster_type="batch", m\
                                       in_incremental_cluster_overlap=2):
@@ -415,7 +415,7 @@ class RiverbedModel:
       #print ('clustering', len(idxs))
       true_k=int(max(2, (len(idxs))/words_per_ontology_cluster))
       terms2 = [terms[idx] for idx in idxs]
-      synonyms = self.cluster_one_batch(cluster_vecs, idxs, terms2, true_k, synonyms=synonyms, stopword=stopword, word2weight=word2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)
+      synonyms = self._cluster_one_batch(cluster_vecs, idxs, terms2, true_k, synonyms=synonyms, stopword=stopword, word2weight=word2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)
       if times >= times_start_recluster:
         idxs_words=[]
         ontology = self.get_ontology(synonyms)
@@ -434,7 +434,7 @@ class RiverbedModel:
               words = [a[1] for a in idxs_words]
               idxs = [a[0] for a in idxs_words]
               true_k=int(max(2, (len(idxs))/words_per_ontology_cluster))
-              synonyms = self.cluster_one_batch(cluster_vecs, idxs, words, true_k, synonyms=synonyms, stopword=stopword, word2weight=word2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
+              synonyms = self._cluster_one_batch(cluster_vecs, idxs, words, true_k, synonyms=synonyms, stopword=stopword, word2weight=word2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
               idxs_words = []
             else:
               idxs_words.extend([(idx,word) for idx, word in enumerate(word2weight.keys()) if word in re_cluster])
@@ -442,15 +442,15 @@ class RiverbedModel:
                 words = [a[1] for a in idxs_words]
                 idxs = [a[0] for a in idxs_words]
                 true_k=int(max(2, (len(idxs))/words_per_ontology_cluster))
-                synonyms = self.cluster_one_batch(cluster_vecs, idxs, words, true_k, synonyms=synonyms, stopword=stopword, word2weight=word2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
+                synonyms = self._cluster_one_batch(cluster_vecs, idxs, words, true_k, synonyms=synonyms, stopword=stopword, word2weight=word2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
                 idxs_words = []
         if idxs_words: 
                 words = [a[1] for a in idxs_words]
                 idxs = [a[0] for a in idxs_words]
                 true_k=int(max(2, (len(idxs))/words_per_ontology_cluster))
-                synonyms = self.cluster_one_batch(cluster_vecs, idxs, words, true_k, synonyms=synonyms, stopword=stopword, word2weight=word2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
+                synonyms = self._cluster_one_batch(cluster_vecs, idxs, words, true_k, synonyms=synonyms, stopword=stopword, word2weight=word2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
                 idxs_words = []
-    if do_ontology: synonyms = self.create_ontology(project_name, synonyms=synonyms, stopword=stopword, word2weight=word2weight, words_per_ontology_cluster = words_per_ontology_cluster, kmeans_batch_size=50000, epoch = 10, \
+    if do_ontology: synonyms = self._create_ontology(project_name, synonyms=synonyms, stopword=stopword, word2weight=word2weight, words_per_ontology_cluster = words_per_ontology_cluster, kmeans_batch_size=50000, epoch = 10, \
                                                     embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, embedder=embedder, max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents, recluster_type=recluster_type, min_incremental_cluster_overlap=min_incremental_cluster_overlap)
     return synonyms
 
@@ -600,7 +600,7 @@ class RiverbedModel:
             synonyms_created=  False          
             if use_synonym_replacement and times == num_iter+dedup_compound_words_num_iter-1 and word2weight:
                 synonyms_created = True
-                self.synonyms = self.tokenizer.synonyms = synonyms = self.create_word_embeds_and_synonyms(project_name, stopword=stopword, word2weight=word2weight, synonyms=synonyms, kmeans_batch_size=kmeans_batch_size, min_incremental_cluster_overlap=min_incremental_cluster_overlap, \
+                self.synonyms = self.tokenizer.synonyms = synonyms = self._create_word_embeds_and_synonyms(project_name, stopword=stopword, word2weight=word2weight, synonyms=synonyms, kmeans_batch_size=kmeans_batch_size, min_incremental_cluster_overlap=min_incremental_cluster_overlap, \
                   embedder=embedder, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents, do_ontology=do_ontology, recluster_type=recluster_type)   
             if word2weight:
               with open(f"__tmp__2_{file_name}", "w", encoding="utf8") as tmp2:
@@ -694,7 +694,7 @@ class RiverbedModel:
               stopword[word] = min(stopword.get(word, 100), weight)
             os.system(f"rm {file_name}.arpa")
             if times == num_iter+dedup_compound_words_num_iter-1  and not synonyms_created:
-                self.synonyms = self.tokenizer.synonyms = synonyms = self.create_word_embeds_and_synonyms(project_name, stopword=stopword, word2weight=word2weight, synonyms=synonyms, kmeans_batch_size=kmeans_batch_size, min_incremental_cluster_overlap=min_incremental_cluster_overlap, \
+                self.synonyms = self.tokenizer.synonyms = synonyms = self._create_word_embeds_and_synonyms(project_name, stopword=stopword, word2weight=word2weight, synonyms=synonyms, kmeans_batch_size=kmeans_batch_size, min_incremental_cluster_overlap=min_incremental_cluster_overlap, \
                   embedder=embedder, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents, do_ontology=do_ontology, recluster_type=recluster_type)   
         for key, weight in curr_arpa.items():
             arpa[key] = min(float(weight), arpa.get(key, 100))
@@ -838,10 +838,10 @@ class RiverbedDocumentProcessor:
   # the similarity models sometimes put too much weight on proper names, etc. but we might want to cluster by general concepts
   # such as change of control, regulatory actions, etc. The proper names themselves can be collapsed to one canonical form (The Person). 
   # Similarly, we want similar concepts (e.g., compound words) to cluster to one canonical form.
-  # we do this by collapsing to an NER label and/or creating a synonym map from compound words to known words. See create_ontology_and_synonyms
+  # we do this by collapsing to an NER label and/or creating a synonym map from compound words to known words. See _create_ontology
   # and we use that data to simplify the sentence here.  
   # TODO: have an option NOT to simplify the prefix. 
-  def simplify_text(self, text, ents, ner_to_simplify=(), use_synonym_replacement=False):
+  def _simplify_text(self, text, ents, ner_to_simplify=(), use_synonym_replacement=False):
     if not ner_to_simplify and not synonyms and not ents: return text, ents
     # assumes the text has already been tokenized and replacing NER with @#@{idx}@#@ 
     tokenized_text = text
@@ -898,7 +898,7 @@ class RiverbedDocumentProcessor:
   
   #transform a doc batch into a span batch, breaking up doc into spans
   #all spans/leaf nodes of a cluster are stored as a triple of (file_name, lineno, offset)
-  def create_spans_batch(self, curr_file_size, batch, text_span_size=1000, ner_to_simplify=(), use_synonym_replacement=False):
+  def _create_spans_batch(self, curr_file_size, batch, text_span_size=1000, ner_to_simplify=(), use_synonym_replacement=False):
       batch2 = []
       for idx, span in enumerate(batch):
         file_name, curr_lineno, ents, text  = span['file_name'], span['lineno'], span['ents'], span['text']
@@ -926,7 +926,7 @@ class RiverbedDocumentProcessor:
             text2 = prefix +" || ... " + text[offset:max_rng].strip().replace("_", " ").replace("  ", " ").replace("  ", " ")
           else:
             text2 = text[offset:max_rng].strip().replace("_", " ").replace("  ", " ").replace("  ", " ")
-          text2, tokenized_text, ents2 = self.simplify_text(text2, ents, ner_to_simplify, use_synonym_replacement=use_synonym_replacement) 
+          text2, tokenized_text, ents2 = self._simplify_text(text2, ents, ner_to_simplify, use_synonym_replacement=use_synonym_replacement) 
           if prefix and offset > 0:
             _, text2 = text2.split(" || ... ", 1)
           sub_span = copy.deepcopy(span)
@@ -940,7 +940,8 @@ class RiverbedDocumentProcessor:
 
       return batch2
 
-  def create_cluster_for_spans(self, true_k, batch_id_prefix, spans, cluster_vecs, tmp_clusters, span2cluster_label,  idxs, span_per_cluster=20, kmeans_batch_size=1024, ):
+  def _create_cluster_for_spans(self, true_k, batch_id_prefix, spans, cluster_vecs, tmp_clusters, span2cluster_label,  idxs, \
+                                span_per_cluster=20, kmeans_batch_size=1024, ):
     global device
     if device == 'cuda':
       kmeans = KMeans(n_clusters=true_k, mode='cosine')
@@ -980,7 +981,7 @@ class RiverbedDocumentProcessor:
           span2cluster_label[span] = label
     return tmp_clusters, span2cluster_label 
 
-  def create_span_features(self, batch, span_level_feature_extractors, running_features_per_label, running_features_size):
+  def _create_span_features(self, batch, span_level_feature_extractors, running_features_per_label, running_features_size):
     feature_labels = []
     features = []
     relative_levels = []
@@ -1048,7 +1049,8 @@ class RiverbedDocumentProcessor:
         span[feature_label] = cnt
     return batch
 
-  def create_informative_label_and_tfidf(self, batch, batch_id_prefix, tmp_clusters, span2idx, tmp_span2batch, span2cluster_label, label2tf=None, df=None, domain_stopword_set=stopwords_set,):
+  def _create_informative_label_and_tfidf(self, batch, batch_id_prefix, tmp_clusters, span2idx, tmp_span2batch, span2cluster_label, \
+                                          label2tf=None, df=None, domain_stopword_set=stopwords_set,):
     # code to compute tfidf and more informative labels for the span clusters
     if label2tf is None: label2tf = {}
     if df is None: df = {}
@@ -1132,13 +1134,13 @@ class RiverbedDocumentProcessor:
       
     return batch, label2tf, df
   
-  # similar to create_word_embeds_and_synonyms, except for spans     
+  # similar to _create_word_embeds_and_synonyms, except for spans     
   #(1) compute features and embeddings in one batch for tokenized text.
   #(2) create clusters in an incremental fashion from batch
   #all leaf nodes are spans
   #spanf2idx is a mapping from the span to the actual underlying storage idx (e.g., a jsonl file or database)
   #span2cluster_label is like the synonym data-structure for words.
-  def create_span_embeds_and_span2cluster_label(self, project_name, curr_file_size, jsonl_file_idx, span2idx, batch, retained_batch, \
+  def _create_span_embeds_and_span2cluster_label(self, project_name, curr_file_size, jsonl_file_idx, span2idx, batch, retained_batch, \
                                                       jsonl_file, batch_id_prefix, span_lfs,  span2cluster_label, \
                                                       text_span_size=1000, kmeans_batch_size=50000, epoch = 10, \
                                                       embed_batch_size=7000, min_prev_ids=10000, embedder="minilm", \
@@ -1148,10 +1150,10 @@ class RiverbedDocumentProcessor:
                                                       verbose_snrokel=False,  span_per_cluster=10, use_synonym_replacement=False, ):
     
     #transform a doc batch into a span batch, breaking up doc into spans
-    batch = self.create_spans_batch(curr_file_size, batch, text_span_size=text_span_size, ner_to_simplify=ner_to_simplify, use_synonym_replacement=use_synonym_replacement)
+    batch = self._create_spans_batch(curr_file_size, batch, text_span_size=text_span_size, ner_to_simplify=ner_to_simplify, use_synonym_replacement=use_synonym_replacement)
     
     #create features, assuming linear spans.
-    batch = self.create_span_features(batch, span_level_feature_extractors, running_features_per_label, running_features_size)
+    batch = self._create_span_features(batch, span_level_feature_extractors, running_features_per_label, running_features_size)
     
     #add the current back to the span2idx data structure
     start_idx_for_curr_batch = len(span2idx)
@@ -1212,13 +1214,13 @@ class RiverbedDocumentProcessor:
         print (len(idxs))
         true_k=int((len(idxs)/span_per_cluster))
         spans2 = [tmp_idx2span[idx] or idx in idxs]
-        tmp_clusters, span2cluster_label = self.create_cluster_for_spans(true_k, batch_id_prefix, spans2, cluster_vecs, tmp_clusters, idxs, span2cluster_label, span_per_cluster=span_per_cluster, domain_stopword_set=domain_stopword_set)
+        tmp_clusters, span2cluster_label = self._create_cluster_for_spans(true_k, batch_id_prefix, spans2, cluster_vecs, tmp_clusters, idxs, span2cluster_label, span_per_cluster=span_per_cluster, domain_stopword_set=domain_stopword_set)
         # TODO: recluster
     
     # TODO: create_span_ontology
                    
     # create more informative labels                   
-    batch, label2tf, df = self.create_informative_label_and_tfidf(batch, batch_id_prefix, tmp_clusters, span2idx, tmp_span2batch, span2cluster_label, label2tf, df)
+    batch, label2tf, df = self._create_informative_label_and_tfidf(batch, batch_id_prefix, tmp_clusters, span2idx, tmp_span2batch, span2cluster_label, label2tf, df)
     
     # at this point, batch should have enough data for all snorkel labeling functions
     if span_lfs:
@@ -1244,8 +1246,9 @@ class RiverbedDocumentProcessor:
                    
     return retained_batch, span2idx, span2cluster_label, label2tf, df   
 
-
-  def apply_span_feature_detect_and_labeling(self, project_name, files, text_span_size=1000, max_lines_per_section=10, max_len_for_prefix=100, min_len_for_prefix=20, embed_batch_size=100, 
+  # the main method for processing documents and their spans. 
+  def apply_span_feature_detect_and_labeling(self, project_name, files, text_span_size=1000, max_lines_per_section=10, max_len_for_prefix=100, \
+                                                min_len_for_prefix=20, embed_batch_size=100, 
                                                 features_batch_size = 10000000, kmeans_batch_size=1024, \
                                                 span_per_cluster= 20, retained_spans_per_cluster=5, min_prev_ids=10000, \
                                                 ner_to_simplify=(), span_level_feature_extractors=default_span_level_feature_extractors, running_features_size=100, \
@@ -1373,7 +1376,7 @@ class RiverbedDocumentProcessor:
         # process the batches
         if len(batch) >= features_batch_size:
           batch_id_prefix += 1
-          retained_batch, span2idx, span2cluster_label, label2tf, df = self.create_span_embeds_and_span2cluster_label(project_name, curr_file_size, jsonl_file_idx, span2idx, batch, \
+          retained_batch, span2idx, span2cluster_label, label2tf, df = self._create_span_embeds_and_span2cluster_label(project_name, curr_file_size, jsonl_file_idx, span2idx, batch, \
                                                       retained_batch, jsonl_file,  f"{batch_id_prefix}_", span_lfs,  span2cluster_label, text_span_size, \
                                                       kmeans_batch_size=kmeans_batch_size, epoch = epoch, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, \
                                                       max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents, do_ontology=True, embedder=embedder, \
@@ -1397,7 +1400,7 @@ class RiverbedDocumentProcessor:
           curr_position = position
       if batch: 
           batch_id_prefix += 1
-          retained_batch, span2idx, span2cluster_label, label2tf, df = self.create_span_embeds_and_span2cluster_label(project_name, curr_file_size, jsonl_file_idx, spanf2idx, batch, \
+          retained_batch, span2idx, span2cluster_label, label2tf, df = self._create_span_embeds_and_span2cluster_label(project_name, curr_file_size, jsonl_file_idx, spanf2idx, batch, \
                                                       retained_batch, jsonl_file,  f"{batch_id_prefix}_", span_lfs,  span2cluster_label, text_span_size, \
                                                       kmeans_batch_size=kmeans_batch_size, epoch = epoch, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids,  \
                                                       max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents, do_ontology=True, embedder=embedder,\
