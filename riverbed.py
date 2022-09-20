@@ -280,13 +280,12 @@ class Riverbed:
       terms = list(ngram2weight.keys())
       terms2idx = dict([(term, idx) for idx, term in enumerate(terms)])
       ontology = self.get_ontology(synonyms)
-      parents = [parent for parent in ontology.keys() if parent.count('¶') == level + 1]
+      parents = [parent, cluster for parent, cluster in ontology.items() if len(parent) - len(parent.lstrip('¶') == level + 1]
       cluster_vecs2 = []
       cluster_vecs2_idx = []
-      for parent in parents:
+      for parent, cluster in parents:
         if parent not in ngram2weight:
-          cluster = ontology[parent]
-          cluster_vecs2.append(np.mean(cluster_vecs[[terms2idx[child] for child in cluster]]))
+          cluster_vecs2.append(cluster_vecs[terms2idx[parent.lstrip('¶')]])
           cluster_vecs2_idx.append(len(ngram2weight))
           ngram2weight[parent] = statistics.mean([ngram2weight[child] for child in cluster])
       if cluster_vecs2_idx:
@@ -295,19 +294,24 @@ class Riverbed:
         cluster_vecs2 = None
         if len(parents) < max_top_parents: continue
         true_k = int(math.sqrt(len(parents)))
-        synonyms = self.cluster_one_batch(cluster_vecs, cluster_vecs2_idx, parents, true_k, synonyms=synonyms, stopword=stopword, ngram2weight=ngram2weight, )
-    parents = self.get_top_parents()
-    cluster_vecs2 = []
-    cluster_vecs2_idx = []
-    for parent in parents:
+        synonyms = self.cluster_one_batch(cluster_vecs, cluster_vecs2_idx, [p[0] for p in parents], true_k, synonyms=synonyms, stopword=stopword, ngram2weight=ngram2weight, )
+    # take care of stragglers    
+    if True:
+      terms = list(ngram2weight.keys())
+      terms2idx = dict([(term, idx) for idx, term in enumerate(terms)])
+      ontology = self.get_ontology(synonyms)
+      parents = [parent, cluster for parent, cluster in ontology.items() if parent[0] == '¶']
+      cluster_vecs2 = []
+      cluster_vecs2_idx = []
+      for parent, cluster in parents:
         if parent not in ngram2weight:
-          cluster = ontology[parent]
-          cluster_vecs2.append(np.mean(cluster_vecs[[terms2idx[child] for child in cluster]]))
+          cluster_vecs2.append(cluster_vecs[terms2idx[parent.lstrip('¶')]])
           cluster_vecs2_idx.append(len(ngram2weight))
           ngram2weight[parent] = statistics.mean([ngram2weight[child] for child in cluster])
-    if cluster_vecs2_idx:
+      if cluster_vecs2_idx:
         cluster_vecs2 = np.vstack(cluster_vecs2)
         cluster_vecs = np_memmap(f"{project_name}.{embedder}_words", shape=[len(ngram2weight), embed_dim], dat=cluster_vecs2, idxs=cluster_vecs2_idx)  
+        cluster_vecs2 = None
     return synonyms
  
   
