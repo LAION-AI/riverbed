@@ -95,7 +95,7 @@ if minilm_model is None:
     lbase_model = BertModel.from_pretrained("setu4993/smaller-LaBSE").eval()
 
   spacy_nlp = spacy.load('en_core_web_md')
-  stopwords_set = set(nltk_stopwords.tokens('english') + ['...', 'could', 'should', 'shall', 'can', 'might', 'may', 'include', 'including'])
+  stopwords_set = set(nltk_stopwords.words('english') + ['...', 'could', 'should', 'shall', 'can', 'might', 'may', 'include', 'including'])
 
 #Mean Pooling - Take attention mask into account for correct averaging
 #TODO, mask out the prefix for data that isn't the first portion of a prefixed text.
