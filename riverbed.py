@@ -413,7 +413,7 @@ class Riverbed:
                 lstrip_stopword=False, rstrip_stopword=False, non_words = "،♪↓↑→←━\₨₡€¥£¢¤™®©¶§←«»⊥∀⇒⇔√­­♣️♥️♠️♦️‘’¿*’-ツ¯‿─★┌┴└┐▒∎µ•●°。¦¬≥≤±≠¡×÷¨´:।`~�_“”/|!~@#$%^&*•()【】[]{}-_+–=<>·;…?:.,\'\"", kmeans_batch_size=50000, dedup_compound_words_larger_than=None, \
                 embed_batch_size=7000, min_prev_ids=10000, min_compound_weight=1.0, stopword=None, min_num_words=5, do_collapse_values=True, use_synonym_replacement=False, embedder="minilm", do_ontology=True, recluster_type="batch"):
       global device, clip_model, minilm_model, labse_model
-      
+      assert min_compound_word_size <= dedup_compound_words_larger_than, "can't have a minimum compound word greter than what is removed"
       if embedder == "clip":
         clip_model = clip_model.to(device)
         minilm_model =  minilm_model.cpu()
