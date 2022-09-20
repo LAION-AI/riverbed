@@ -471,7 +471,7 @@ class RiverbedModel:
                                  embedder="minilm", do_ontology=True, recluster_type="batch", model=None):
       global device, clip_model, minilm_model, labse_model
       os.system(f"mkdir -p {model_name}")
-      assert min_compound_word_size <= dedup_compound_words_larger_than, "can't have a minimum compound token greter than what is removed"
+      assert min_compound_word_size <= dedup_compound_words_larger_than, "can't have a minimum compound words greater than what is removed"
       if embedder == "clip":
         clip_model = clip_model.to(device)
         minilm_model =  minilm_model.cpu()
@@ -562,7 +562,7 @@ class RiverbedModel:
             elif dedup_compound_words_larger_than is not None and times == dedup_compound_words_num_iter:
               # sometimes we want to do some pre-processing b/c n-grams larger than a certain amount are just duplicates
               # and can mess up our token counts
-              print ('deduping compound tokens larger than',dedup_compound_words_larger_than)
+              print ('deduping compound words larger than',dedup_compound_words_larger_than)
               os.system(f"cp {file_name} {model_name}/__tmp__{file_name}")
               with open(f"{model_name}/__tmp__2_{file_name}", "w", encoding="utf8") as tmp2:
                 with open(f"{model_name}/__tmp__{file_name}", "r") as f:
@@ -682,7 +682,7 @@ class RiverbedModel:
                       sw = tokenArr[0].lower()
                       unigram[sw] = min(unigram.get(sw,100), weight)
                       
-                    #create the compound tokens length data structure
+                    #create the compound words length data structure
                     if weight >= min_compound_weight:
                       compound[tokenArr[0]] = max(len(tokenArr), compound.get(tokenArr[0],0))
                     weight = weight * len(tokenArr)            
@@ -826,7 +826,7 @@ class RiverbedDocumentProcessor:
   # the relative level label as well.
   #
   #TODO: other potential features include similarity of embedding from its cluster centroid
-  #compound tokens %
+  #compound words %
   #stopwords %
   #tf-idf weight
   
@@ -841,8 +841,8 @@ class RiverbedDocumentProcessor:
 
   # the similarity models sometimes put too much weight on proper names, etc. but we might want to cluster by general concepts
   # such as change of control, regulatory actions, etc. The proper names themselves can be collapsed to one canonical form (The Person). 
-  # Similarly, we want similar concepts (e.g., compound tokens) to cluster to one canonical form.
-  # we do this by collapsing to an NER label and/or creating a synonym map from compound tokens to known tokens. See _create_ontology
+  # Similarly, we want similar concepts (e.g., compound words) to cluster to one canonical form.
+  # we do this by collapsing to an NER label and/or creating a synonym map from compound words to known tokens. See _create_ontology
   # and we use that data to simplify the sentence here.  
   # TODO: have an option NOT to simplify the prefix. 
   def _simplify_text(self, text, ents, ner_to_simplify=(), use_synonym_replacement=False):
