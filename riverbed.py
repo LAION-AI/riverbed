@@ -606,8 +606,8 @@ class RiverbedModel:
                 self.synonyms = self.tokenizer.synonyms = synonyms = self._create_token_embeds_and_synonyms(model_name, stopwords=stopwords, token2weight=token2weight, synonyms=synonyms, kmeans_batch_size=kmeans_batch_size, min_incremental_cluster_overlap=min_incremental_cluster_overlap, \
                   embedder=embedder, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents, do_ontology=do_ontology, recluster_type=recluster_type)   
             if token2weight:
-              with open(f"__tmp__2_{file_name}", "w", encoding="utf8") as tmp2:
-                with open(f"__tmp__{file_name}", "r") as f:
+              with open(f"{model_name}/__tmp__2_{file_name}", "w", encoding="utf8") as tmp2:
+                with open(f"{model_name}/__tmp__{file_name}", "r") as f:
                   for l in f:
                     l = tokenizer.tokenize(l.strip(),  min_compound_weight=min_compound_weight, compound=compound, token2weight=token2weight, synonyms=synonyms, use_synonym_replacement=use_synonym_replacement)
                     if times == num_iter-1:
