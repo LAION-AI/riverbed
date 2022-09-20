@@ -149,11 +149,12 @@ class RiverbedTokenizer:
     return (" ".join([d for d in doc if d]))
 
   def save_pretrained(self, tokenizer_name):
-      pickle.dump(self, open(f"{tokenizer_name}.pickle", "wb"))
+      os.system(f"mkdir -p {tokenizer_name}")
+      pickle.dump(self, open(f"{tokenizer_name}/{tokenizer_name}.pickle", "wb"))
     
   @staticmethod
   def from_pretrained(tokenizer_name):
-      self = pickle.load(open(f"{tokenizer_name}.pickle", "rb"))
+      self = pickle.load(open(f"{tokenizer_name}/{tokenizer_name}.pickle", "rb"))
       return self
 
 #################################################################################
@@ -312,7 +313,7 @@ class RiverbedModel:
       embed_dim = minilm_model.config.hidden_size
     elif embedder == "labse":
       embed_dim = labse_model.config.hidden_size      
-    cluster_vecs = np_memmap(f"{model_name}.{embedder}_tokens", shape=[len(token2weight), embed_dim])
+    cluster_vecs = np_memmap(f"{model_name}/{model_name}.{embedder}_tokens", shape=[len(token2weight), embed_dim])
     terms = list(token2weight.keys())
     terms2idx = dict([(term, idx) for idx, term in enumerate(terms)])
     for level in range(max_ontology_depth): 
@@ -374,7 +375,7 @@ class RiverbedModel:
       embed_dim = minilm_model.config.hidden_size
     elif embedder == "labse":
       embed_dim = labse_model.config.hidden_size
-    cluster_vecs = np_memmap(f"{model_name}.{embedder}_tokens", shape=[len(token2weight), embed_dim])
+    cluster_vecs = np_memmap(f"{model_name}/{model_name}.{embedder}_tokens", shape=[len(token2weight), embed_dim])
     terms_idx = [idx for idx, term in enumerate(terms) if term not in synonyms and term[0] != '¶' ]
     terms_idx_in_synonyms = [idx for idx, term in enumerate(terms) if term in synonyms and term[0] != '¶']
     len_terms_idx = len(terms_idx)
@@ -394,7 +395,7 @@ class RiverbedModel:
         toks = labse_tokenizer([terms[idx].replace("_", " ") for idx in terms_idx[rng:max_rng]], padding=True, truncation=True, return_tensors="pt").to(device)
         with torch.no_grad():
           cluster_vecs = labse_model(**toks).pooler_output.cpu().numpy()          
-      cluster_vecs = np_memmap(f"{model_name}.{embedder}_tokens", shape=[len(terms), cluster_vecs.shape[1]], dat=cluster_vecs, idxs=terms_idx[rng:max_rng])  
+      cluster_vecs = np_memmap(f"{model_name}/{model_name}.{embedder}_tokens", shape=[len(terms), cluster_vecs.shape[1]], dat=cluster_vecs, idxs=terms_idx[rng:max_rng])  
     len_terms_idx = len(terms_idx)
     times = -1
     times_start_recluster = max(0, (int(len(terms_idx)/int(kmeans_batch_size*.7))-3))
@@ -469,7 +470,7 @@ class RiverbedModel:
                                  stopwords=None, min_num_tokens=5, do_collapse_values=True, use_synonym_replacement=False, \
                                  embedder="minilm", do_ontology=True, recluster_type="batch", model=None):
       global device, clip_model, minilm_model, labse_model
-      
+      os.system(f"mkdir -p {model_name}")
       assert min_compound_word_size <= dedup_compound_words_larger_than, "can't have a minimum compound token greter than what is removed"
       if embedder == "clip":
         clip_model = clip_model.to(device)
@@ -511,8 +512,8 @@ class RiverbedModel:
       if token2weight:
         for token in token2weight.keys():
           if "_" not in token: unigram[token] = min(unigram.get(token,0), token2weight[token])
-      if os.path.exists(f"{model_name}.arpa"):
-        with open(f"{model_name}.arpa", "rb") as af:
+      if os.path.exists(f"{model_name}/{model_name}.arpa"):
+        with open(f"{model_name}/{model_name}.arpa", "rb") as af:
           n = 0
           do_ngram = False
           for line in af:
@@ -557,14 +558,14 @@ class RiverbedModel:
         for times in range(num_iter+dedup_compound_words_num_iter):
             print (f"iter {file_name}", times)
             if times == 0:
-              os.system(f"cp {file_name} __tmp__{file_name}")
+              os.system(f"cp {file_name} {model_name}/__tmp__{file_name}")
             elif dedup_compound_words_larger_than is not None and times == dedup_compound_words_num_iter:
               # sometimes we want to do some pre-processing b/c n-grams larger than a certain amount are just duplicates
               # and can mess up our token counts
               print ('deduping compound tokens larger than',dedup_compound_words_larger_than)
-              os.system(f"cp {file_name} __tmp__{file_name}")
-              with open(f"__tmp__2_{file_name}", "w", encoding="utf8") as tmp2:
-                with open(f"__tmp__{file_name}", "r") as f:
+              os.system(f"cp {file_name} {model_name}/__tmp__{file_name}")
+              with open(f"{model_name}/__tmp__2_{file_name}", "w", encoding="utf8") as tmp2:
+                with open(f"{model_name}/__tmp__{file_name}", "r") as f:
                   deduped_num_tokens = 0
                   seen_dedup_compound_words = {}
                   for l in f:
@@ -587,8 +588,8 @@ class RiverbedModel:
                     tmp2.write(l2+"\n")
                   seen_dedup_compound_words = None
                   print ('finished deduping', deduped_num_tokens)
-              os.system(f"cp __tmp__2_{file_name} {file_name}.dedup")  
-              os.system(f"mv __tmp__2_{file_name} __tmp__{file_name}")   
+              os.system(f"cp {model_name}/__tmp__2_{file_name} {model_name}/{file_name}.dedup")  
+              os.system(f"mv {model_name}/__tmp__2_{file_name} {model_name}/__tmp__{file_name}")   
               token2weight = self.tokenizer.token2weight = OrderedDict() if not hasattr(self, 'token2weight') else self.tokenizer.token2weight
               compound = self.tokenizer.compound = {} if not hasattr(self.tokenizer, 'compound') else self.tokenizer.compound
               synonyms = self.tokenizer.synonyms = {} if not hasattr(self.tokenizer, 'synonyms') else self.tokenizer.synonyms
@@ -612,14 +613,14 @@ class RiverbedModel:
                     if times == num_iter-1:
                       l = tokenizer.tokenize(l.strip(), min_compound_weight=0, compound=compound, token2weight=token2weight,  synonyms=synonyms, use_synonym_replacement=use_synonym_replacement)
                     tmp2.write(l+"\n")  
-              os.system(f"mv __tmp__2_{file_name} __tmp__{file_name}")  
+              os.system(f"mv {model_name}/__tmp__2_{file_name} {model_name}/__tmp__{file_name}")  
             if do_collapse_values:
-              os.system(f"./{lmplz} --collapse_values  --discount_fallback  --skip_symbols -o 5 --prune {min_num_tokens}  --arpa {file_name}.arpa <  __tmp__{file_name}") ##
+              os.system(f"./{lmplz} --collapse_values  --discount_fallback  --skip_symbols -o 5 --prune {min_num_tokens}  --arpa {model_name}/{file_name}.arpa <  {model_name}/__tmp__{file_name}") ##
             else:
-              os.system(f"./{lmplz}  --discount_fallback  --skip_symbols -o 5 --prune {min_num_tokens}  --arpa {file_name}.arpa <  __tmp__{file_name}") ##
+              os.system(f"./{lmplz}  --discount_fallback  --skip_symbols -o 5 --prune {min_num_tokens}  --arpa {model_name}/{file_name}.arpa <  {model_name}/__tmp__{file_name}") ##
             do_ngram = False
             n = 0
-            with open(f"{file_name}.arpa", "rb") as f:    
+            with open(f"{model_name}/{file_name}.arpa", "rb") as f:    
               for line in  f: 
                 line = line.decode().strip()
                 if not line: 
@@ -711,7 +712,7 @@ class RiverbedModel:
         ngram_cnt[n] += 1
       print ('printing arpa')
       #output the final kenlm .arpa file for calculating the perplexity
-      with open(f"__tmp__.arpa", "w", encoding="utf8") as tmp_arpa:
+      with open(f"{model_name}/__tmp__.arpa", "w", encoding="utf8") as tmp_arpa:
         tmp_arpa.write("\\data\\\n")
         tmp_arpa.write(f"ngram 1={ngram_cnt[0]}\n")
         tmp_arpa.write(f"ngram 2={ngram_cnt[1]}\n")
@@ -729,18 +730,19 @@ class RiverbedModel:
               val =  0
             tmp_arpa.write(f"{val}\t{dat}\t0\n")
         tmp_arpa.write("\n\\end\\\n\n")
-      os.system(f"mv __tmp__.arpa {model_name}.arpa")
+      os.system(f"mv {model_name}/__tmp__.arpa {model_name}/{model_name}.arpa")
       print ('creating kenlm model')
-      self.kenlm_model = kenlm.LanguageModel(f"{model_name}.arpa") 
-      os.system("rm -rf __tmp__*")
+      self.kenlm_model = kenlm.LanguageModel(f"{model_name}/{model_name}.arpa") 
+      os.system(f"rm -rf {model_name}/__tmp__*")
       return tokenizer, self
 
   def save_pretrained(self, model_name):
-      pickle.dump(self, open(f"{model_name}.pickle", "wb"))
+      os.system(f"mkdir -p {model_name}")
+      pickle.dump(self, open(f"{model_name}/{model_name}.pickle", "wb"))
     
   @staticmethod
   def from_pretrained(model_name):
-      self = pickle.load(open(f"{model_name}.pickle", "rb"))
+      self = pickle.load(open(f"{model_name}/{model_name}.pickle", "rb"))
       return self
 
     
@@ -1182,7 +1184,7 @@ class RiverbedDocumentProcessor:
       embed_dim = minilm_model.config.hidden_size
     elif embedder == "labse":
       embed_dim = labse_model.config.hidden_size
-    cluster_vecs = np_memmap(f"{project_name}.{embedder}_spans", shape=[len(span2idx), embed_dim])
+    cluster_vecs = np_memmap(f"{project_name}/{project_name}.{embedder}_spans", shape=[len(span2idx), embed_dim])
 
     for rng in range(0, len(batch), embed_batch_size):
       max_rng = min(len(batch), rng+embed_batch_size)
@@ -1199,7 +1201,7 @@ class RiverbedDocumentProcessor:
         toks = labse_tokenizer([a['tokenized_text'].replace("_", " ") for a in batch[rng:max_rng]], padding=True, truncation=True, return_tensors="pt").to(device)
         with torch.no_grad():
           cluster_vecs = labse_model(**toks).pooler_output.cpu().numpy()  
-      cluster_vecs = np_memmap(f"{project_name}.{embedder}_spans", shape=[len(span2idx), embed_dim],  dat=cluster_vecs, idxs=range(len(span2idx)-len(batch)+rng, len(span2idx)-len(batch)+max_rng))  
+      cluster_vecs = np_memmap(f"{project_name}/{project_name}.{embedder}_spans", shape=[len(span2idx), embed_dim],  dat=cluster_vecs, idxs=range(len(span2idx)-len(batch)+rng, len(span2idx)-len(batch)+max_rng))  
     
     len_batch = len(tmp_batch_idx_not_in_span2cluster)
     for rng in range(0, len_batch, int(kmeans_batch_size*.7)):
@@ -1262,7 +1264,7 @@ class RiverbedDocumentProcessor:
     global clip_model, minilm_model, labse_model
     model = self.model
     tokenizer = self.tokenizer
-    
+    os.system(f"mkdir -p {project_name}")
     span2idx = self.span2idx = OrderedDict() if not hasattr(self, 'span2idx') else self.span2idx
     span_clusters = self.span_clusters = {} if not hasattr(self, 'span_clusters') else self.span_clusters
     label2tf = self.label2tf = {} if not hasattr(self, 'label2tf') else self.label2tf
@@ -1307,7 +1309,7 @@ class RiverbedDocumentProcessor:
 
     if seen is None: seen = {}
     
-    with open(f"{project_name}.jsonl", "w", encoding="utf8") as jsonl_file:
+    with open(f"{project_name}/{project_name}.jsonl", "w", encoding="utf8") as jsonl_file:
       while True:
         try:
           line = f.readline()
@@ -1415,7 +1417,7 @@ class RiverbedDocumentProcessor:
     #have an option to use a different labeling function, such as regression trees. 
     #we don't necessarily need snorkel lfs after we have labeled the dataset.
     if span_lfs:
-      df_train = pd.DataFrame(f"{project_name}.jsonl").shuffle()
+      df_train = pd.DataFrame(f"{project_name}/{project_name}.jsonl").shuffle()
       for span_label, lfs, snorkel_label_cardinality, snorkel_epochs in span_lfs:
         applier = PandasLFApplier(lfs=lfs)
         L_train = applier.apply(df=df_train)
@@ -1425,10 +1427,11 @@ class RiverbedDocumentProcessor:
     return self
 
   def save_pretrained(self, project_name):
-      pickle.dump(self, open(f"{project_name}.pickle", "wb"))
+      os.system(f"mkdir -p {project_name}")
+      pickle.dump(self, open(f"{project_name}/{project_name}.pickle", "wb"))
     
   @staticmethod
   def from_pretrained(project_name):
-      self = pickle.load(open(f"{project_name}.pickle", "rb"))
+      self = pickle.load(open(f"{project_name}/{project_name}.pickle", "rb"))
       return self
 
