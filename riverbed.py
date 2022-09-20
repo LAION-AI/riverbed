@@ -461,16 +461,16 @@ class RiverbedModel:
   #TODO, strip non_tokens
   @staticmethod
   def create_tokenizer_and_model(model_name, files, lmplz_loc="./riverbed/bin/lmplz", stopwords_max_len=10, \
-                                 num_stopwords=75, min_compound_token_size=25, max_ontology_depth=4, max_top_parents=10000, \
+                                 num_stopwords=75, min_compound_word_size=25, max_ontology_depth=4, max_top_parents=10000, \
                                  min_incremental_cluster_overlap=2, lstrip_stopwords=False, rstrip_stopwords=False, \
                                  non_tokens = "،♪↓↑→←━\₨₡€¥£¢¤™®©¶§←«»⊥∀⇒⇔√­­♣️♥️♠️♦️‘’¿*’-ツ¯‿─★┌┴└┐▒∎µ•●°。¦¬≥≤±≠¡×÷¨´:।`~�_“”/|!~@#$%^&*•()【】[]{}-_+–=<>·;…?:.,\'\"", \
-                                 kmeans_batch_size=50000, dedup_compound_tokens_larger_than=None, \
+                                 kmeans_batch_size=50000, dedup_compound_words_larger_than=None, \
                                  embed_batch_size=7000, min_prev_ids=10000, min_compound_weight=1.0, \
                                  stopwords=None, min_num_tokens=5, do_collapse_values=True, use_synonym_replacement=False, \
                                  embedder="minilm", do_ontology=True, recluster_type="batch", model=None):
       global device, clip_model, minilm_model, labse_model
       
-      assert min_compound_token_size <= dedup_compound_tokens_larger_than, "can't have a minimum compound token greter than what is removed"
+      assert min_compound_word_size <= dedup_compound_words_larger_than, "can't have a minimum compound token greter than what is removed"
       if embedder == "clip":
         clip_model = clip_model.to(device)
         minilm_model =  minilm_model.cpu()
@@ -538,8 +538,8 @@ class RiverbedModel:
                 arpa[(n, line[1])] = min(float(line[0]), arpa.get((n, line[1]), 100))
       #TODO, we should try to create consolidated files of around 1GB to get enough information in the arpa files
       for doc_id, file_name in enumerate(files):
-        if dedup_compound_tokens_larger_than:
-          dedup_compound_tokens_num_iter = max(0, math.ceil(dedup_compound_tokens_larger_than/(5 *(doc_id+1))))
+        if dedup_compound_words_larger_than:
+          dedup_compound_words_num_iter = max(0, math.ceil(dedup_compound_words_larger_than/(5 *(doc_id+1))))
           self.tokenizer.token2weight, self.tokenizer.compound, self.tokenizer.synonyms, self.tokenizer.stopwords = token2weight, compound, synonyms, stopwords 
           self.synonyms = self.tokenizer.synonyms
           # if we are first computing ngrams to do dedup, make a temporary copy of the tokenizer data structures
@@ -548,44 +548,44 @@ class RiverbedModel:
           stopwords = copy.deepcopy(stopwords)
           token2weight = copy.deepcopy(token2weight)
         else:
-          dedup_compound_tokens_num_iter = 0
-        num_iter = max(1,math.ceil(min_compound_token_size/(5 *(doc_id+1))))
+          dedup_compound_words_num_iter = 0
+        num_iter = max(1,math.ceil(min_compound_word_size/(5 *(doc_id+1))))
         #we can repeatedly run the below to get long ngrams
         #after we tokenize for ngram and replace with tokens with underscores (the_projected_revenue) at each step, we redo the ngram count
         curr_arpa = {}
-        print ('num iter', num_iter, dedup_compound_tokens_num_iter)
-        for times in range(num_iter+dedup_compound_tokens_num_iter):
+        print ('num iter', num_iter, dedup_compound_words_num_iter)
+        for times in range(num_iter+dedup_compound_words_num_iter):
             print (f"iter {file_name}", times)
             if times == 0:
               os.system(f"cp {file_name} __tmp__{file_name}")
-            elif dedup_compound_tokens_larger_than is not None and times == dedup_compound_tokens_num_iter:
+            elif dedup_compound_words_larger_than is not None and times == dedup_compound_words_num_iter:
               # sometimes we want to do some pre-processing b/c n-grams larger than a certain amount are just duplicates
               # and can mess up our token counts
-              print ('deduping compound tokens larger than',dedup_compound_tokens_larger_than)
+              print ('deduping compound tokens larger than',dedup_compound_words_larger_than)
               os.system(f"cp {file_name} __tmp__{file_name}")
               with open(f"__tmp__2_{file_name}", "w", encoding="utf8") as tmp2:
                 with open(f"__tmp__{file_name}", "r") as f:
                   deduped_num_tokens = 0
-                  seen_dedup_compound_tokens = {}
+                  seen_dedup_compound_words = {}
                   for l in f:
                     orig_l = l.replace("_", " ").replace("  ", " ").strip()
                     l = tokenizer.tokenize(l.strip(), min_compound_weight=0, compound=compound, token2weight=token2weight,  synonyms=synonyms, use_synonym_replacement=False)
                     l = l.split()
-                    dedup_compound_token = [w for w in l if "_" in w and w.count("_") + 1 > dedup_compound_tokens_larger_than]
-                    if not dedup_compound_token:
+                    dedup_compound_word = [w for w in l if "_" in w and w.count("_") + 1 > dedup_compound_words_larger_than]
+                    if not dedup_compound_word:
                       l2 = " ".join(l).replace("_", " ").strip()
                       tmp2.write(l2+"\n")
                       continue
-                    l = [w if ("_" not in w or w.count("_") + 1 <= dedup_compound_tokens_larger_than or w not in seen_dedup_compound_tokens) else '...' for w in l]
+                    l = [w if ("_" not in w or w.count("_") + 1 <= dedup_compound_words_larger_than or w not in seen_dedup_compound_words) else '...' for w in l]
                     l2 = " ".join(l).replace("_", " ").replace(' ... ...', ' ...').strip()
                     if l2.endswith(" ..."): l2 = l2[:-len(" ...")]
-                    if dedup_compound_token and l2 != orig_l:
+                    if dedup_compound_word and l2 != orig_l:
                       deduped_num_tokens += 1
-                    #  print ('dedup ngram', dedup_compound_token, l2)
-                    for w in dedup_compound_token:
-                      seen_dedup_compound_tokens[w] = 1
+                    #  print ('dedup ngram', dedup_compound_word, l2)
+                    for w in dedup_compound_word:
+                      seen_dedup_compound_words[w] = 1
                     tmp2.write(l2+"\n")
-                  seen_dedup_compound_tokens = None
+                  seen_dedup_compound_words = None
                   print ('finished deduping', deduped_num_tokens)
               os.system(f"cp __tmp__2_{file_name} {file_name}.dedup")  
               os.system(f"mv __tmp__2_{file_name} __tmp__{file_name}")   
@@ -600,7 +600,7 @@ class RiverbedModel:
             # do synonym replacement so we have a chance to create syonyms for the replacement.
             # otherwise, we do it after the last count. See below.
             synonyms_created=  False          
-            if use_synonym_replacement and times == num_iter+dedup_compound_tokens_num_iter-1 and token2weight:
+            if use_synonym_replacement and times == num_iter+dedup_compound_words_num_iter-1 and token2weight:
                 synonyms_created = True
                 self.synonyms = self.tokenizer.synonyms = synonyms = self._create_token_embeds_and_synonyms(model_name, stopwords=stopwords, token2weight=token2weight, synonyms=synonyms, kmeans_batch_size=kmeans_batch_size, min_incremental_cluster_overlap=min_incremental_cluster_overlap, \
                   embedder=embedder, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents, do_ontology=do_ontology, recluster_type=recluster_type)   
@@ -695,7 +695,7 @@ class RiverbedModel:
             for token, weight in top_stopwords:
               stopwords[token] = min(stopwords.get(token, 100), weight)
             os.system(f"rm {file_name}.arpa")
-            if times == num_iter+dedup_compound_tokens_num_iter-1  and not synonyms_created:
+            if times == num_iter+dedup_compound_words_num_iter-1  and not synonyms_created:
                 self.synonyms = self.tokenizer.synonyms = synonyms = self._create_token_embeds_and_synonyms(model_name, stopwords=stopwords, token2weight=token2weight, synonyms=synonyms, kmeans_batch_size=kmeans_batch_size, min_incremental_cluster_overlap=min_incremental_cluster_overlap, \
                   embedder=embedder, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents, do_ontology=do_ontology, recluster_type=recluster_type)   
         for key, weight in curr_arpa.items():
