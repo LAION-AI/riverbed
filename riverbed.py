@@ -299,9 +299,9 @@ class RiverbedModel:
     return synonyms
 
   # create a hiearchical structure given leaves that have already been clustered
-  def _create_ontology(self, model_name, synonyms=None, stopwords=None, token2weight=None, tokens_per_ontology_cluster = 10, \
+  def _create_ontology(self, model_name, synonyms=None, stopwords=None, token2weight=None, \
                       kmeans_batch_size=50000, epoch = 10, embed_batch_size=7000, min_prev_ids=10000, embedder="minilm", \
-                      max_ontology_depth=4, max_top_parents=10000, recluster_type="individual", min_incremental_cluster_overlap=2):
+                      max_ontology_depth=4, max_cluster_size=100, recluster_type="individual", min_incremental_cluster_overlap=2):
     if synonyms is None: synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
     if token2weight is None: token2weight = {} if not hasattr(self, 'token2weight') else self.token2weight    
     if stopwords is None: stopwords = {} if not hasattr(self, 'stopwords') else self.stopwords
@@ -323,7 +323,7 @@ class RiverbedModel:
       idxs = []
       for parent in parents:
         idxs.append(terms2idx[parent.lstrip('¶')])
-      true_k = max_cluster_size = int(math.sqrt(len(parents)))
+      true_k = int(max(2, int(len(parents)/max_cluster_size))))
       synonyms = self._cluster_one_batch(cluster_vecs, idxs, parents, true_k, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight, )
       idxs_tokens=[]
       ontology = self.get_ontology(synonyms)
@@ -358,9 +358,9 @@ class RiverbedModel:
                 
     return synonyms
   
-  def _create_token_embeds_and_synonyms(self, model_name, synonyms=None, stopwords=None, token2weight=None, tokens_per_ontology_cluster = 10, \
+  def _create_token_embeds_and_synonyms(self, model_name, synonyms=None, stopwords=None, token2weight=None, prefered_cluster_size = 10, \
                                       kmeans_batch_size=50000, epoch = 10, embed_batch_size=7000, min_prev_ids=10000, embedder="minilm", \
-                                      max_ontology_depth=4, max_top_parents=10000, do_ontology=True, recluster_type="batch", \
+                                      max_ontology_depth=4,  max_cluster_size=100, do_ontology=True, recluster_type="batch", \
                                       min_incremental_cluster_overlap=2):
     global clip_model, minilm_model, labse_model
     if synonyms is None: synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
@@ -416,15 +416,14 @@ class RiverbedModel:
           prev_ids.extend(terms_idx_in_synonyms)
       idxs = prev_ids + terms_idx[rng:max_rng]
       #print ('clustering', len(idxs))
-      true_k=int(max(2, (len(idxs))/tokens_per_ontology_cluster))
+      true_k=int(max(2, (len(idxs))/prefered_cluster_size))
       terms2 = [terms[idx] for idx in idxs]
       synonyms = self._cluster_one_batch(cluster_vecs, idxs, terms2, true_k, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)
       if times >= times_start_recluster:
         idxs_tokens=[]
         ontology = self.get_ontology(synonyms)
-        max_cluster_size = int(math.sqrt(max_top_parents))
         for key, cluster in ontology.items():
-          if max_rng != len_terms_idx and len(cluster) < tokens_per_ontology_cluster*.5:
+          if max_rng != len_terms_idx and len(cluster) < prefered_cluster_size*.5:
             for token in cluster:
               del synonyms[token]
           elif len(cluster) > max_cluster_size:
@@ -436,7 +435,7 @@ class RiverbedModel:
               idxs_tokens = [(idx,token) for idx, token in enumerate(token2weight.keys()) if token in re_cluster]
               tokens = [a[1] for a in idxs_tokens]
               idxs = [a[0] for a in idxs_tokens]
-              true_k=int(max(2, (len(idxs))/tokens_per_ontology_cluster))
+              true_k=int(max(2, (len(idxs))/prefered_cluster_size))
               synonyms = self._cluster_one_batch(cluster_vecs, idxs, tokens, true_k, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
               idxs_tokens = []
             else:
@@ -444,17 +443,18 @@ class RiverbedModel:
               if len(idxs_tokens) > kmeans_batch_size:
                 tokens = [a[1] for a in idxs_tokens]
                 idxs = [a[0] for a in idxs_tokens]
-                true_k=int(max(2, (len(idxs))/tokens_per_ontology_cluster))
+                true_k=int(max(2, (len(idxs))/prefered_cluster_size))
                 synonyms = self._cluster_one_batch(cluster_vecs, idxs, tokens, true_k, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
                 idxs_tokens = []
         if idxs_tokens: 
                 tokens = [a[1] for a in idxs_tokens]
                 idxs = [a[0] for a in idxs_tokens]
-                true_k=int(max(2, (len(idxs))/tokens_per_ontology_cluster))
+                true_k=int(max(2, (len(idxs))/prefered_cluster_size))
                 synonyms = self._cluster_one_batch(cluster_vecs, idxs, tokens, true_k, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
                 idxs_tokens = []
-    if do_ontology: synonyms = self._create_ontology(model_name, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight, tokens_per_ontology_cluster = tokens_per_ontology_cluster, kmeans_batch_size=50000, epoch = 10, \
-                                                    embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, embedder=embedder, max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents, recluster_type=recluster_type, min_incremental_cluster_overlap=min_incremental_cluster_overlap)
+    if do_ontology: synonyms = self._create_ontology(model_name, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight,  kmeans_batch_size=50000, epoch = 10, \
+                                                    embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, embedder=embedder, max_ontology_depth=max_ontology_depth, max_cluster_size=max_cluster_size, \
+                                                     recluster_type=recluster_type, min_incremental_cluster_overlap=min_incremental_cluster_overlap)
     return synonyms
 
   
@@ -462,10 +462,10 @@ class RiverbedModel:
   #TODO, strip non_tokens
   @staticmethod
   def create_tokenizer_and_model(model_name, files, lmplz_loc="./riverbed/bin/lmplz", stopwords_max_len=10, \
-                                 num_stopwords=75, min_compound_word_size=25, max_ontology_depth=4, max_top_parents=10000, \
+                                 num_stopwords=75, min_compound_word_size=25, max_ontology_depth=4, max_cluster_size=100, \
                                  min_incremental_cluster_overlap=2, lstrip_stopwords=False, rstrip_stopwords=False, \
                                  non_tokens = "،♪↓↑→←━\₨₡€¥£¢¤™®©¶§←«»⊥∀⇒⇔√­­♣️♥️♠️♦️‘’¿*’-ツ¯‿─★┌┴└┐▒∎µ•●°。¦¬≥≤±≠¡×÷¨´:।`~�_“”/|!~@#$%^&*•()【】[]{}-_+–=<>·;…?:.,\'\"", \
-                                 kmeans_batch_size=50000, dedup_compound_words_larger_than=None, \
+                                 kmeans_batch_size=50000, dedup_compound_words_larger_than=None,  prefered_cluster_size = 10, \
                                  embed_batch_size=7000, min_prev_ids=10000, min_compound_weight=1.0, \
                                  stopwords=None, min_num_tokens=5, do_collapse_values=True, use_synonym_replacement=False, \
                                  embedder="minilm", do_ontology=True, recluster_type="batch", model=None):
@@ -604,7 +604,7 @@ class RiverbedModel:
             if use_synonym_replacement and times == num_iter+dedup_compound_words_num_iter-1 and token2weight:
                 synonyms_created = True
                 self.synonyms = self.tokenizer.synonyms = synonyms = self._create_token_embeds_and_synonyms(model_name, stopwords=stopwords, token2weight=token2weight, synonyms=synonyms, kmeans_batch_size=kmeans_batch_size, min_incremental_cluster_overlap=min_incremental_cluster_overlap, \
-                  embedder=embedder, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents, do_ontology=do_ontology, recluster_type=recluster_type)   
+                  prefered_cluster_size, embedder=embedder, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, max_ontology_depth=max_ontology_depth, max_cluster_size=max_cluster_size, do_ontology=do_ontology, recluster_type=recluster_type)   
             if token2weight:
               with open(f"{model_name}/__tmp__2_{file_name}", "w", encoding="utf8") as tmp2:
                 with open(f"{model_name}/__tmp__{file_name}", "r") as f:
@@ -698,7 +698,7 @@ class RiverbedModel:
             os.system(f"rm {file_name}.arpa")
             if times == num_iter+dedup_compound_words_num_iter-1  and not synonyms_created:
                 self.synonyms = self.tokenizer.synonyms = synonyms = self._create_token_embeds_and_synonyms(model_name, stopwords=stopwords, token2weight=token2weight, synonyms=synonyms, kmeans_batch_size=kmeans_batch_size, min_incremental_cluster_overlap=min_incremental_cluster_overlap, \
-                  embedder=embedder, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents, do_ontology=do_ontology, recluster_type=recluster_type)   
+                  prefered_cluster_size, embedder=embedder, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents, do_ontology=do_ontology, recluster_type=recluster_type)   
         for key, weight in curr_arpa.items():
             arpa[key] = min(float(weight), arpa.get(key, 100))
         curr_arpa = {}
