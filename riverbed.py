@@ -24,7 +24,7 @@
 # below is a simple detection of change from a std dev from a running mean, but we could do some more complex fitting using:
 # the library ruptures. https://centre-borelli.github.io/ruptures-docs/examples/text-segmentation/
 
-# with region labels, we can do things like tf-idf of words, and then do a mean of the tf-idf of a span. A span with high avg tf-idf means it is interesting or relevant. 
+# with region labels, we can do things like tf-idf of tokens, and then do a mean of the tf-idf of a span. A span with high avg tf-idf means it is interesting or relevant. 
 
 import math, os
 import copy
@@ -95,7 +95,7 @@ if minilm_model is None:
     lbase_model = BertModel.from_pretrained("setu4993/smaller-LaBSE").eval()
 
   spacy_nlp = spacy.load('en_core_web_md')
-  stopwords_set = set(nltk_stopwords.words('english') + ['...', 'could', 'should', 'shall', 'can', 'might', 'may', 'include', 'including'])
+  stopwords_set = set(nltk_stopwords.tokens('english') + ['...', 'could', 'should', 'shall', 'can', 'might', 'may', 'include', 'including'])
 
 #Mean Pooling - Take attention mask into account for correct averaging
 #TODO, mask out the prefix for data that isn't the first portion of a prefixed text.
@@ -107,9 +107,9 @@ def mean_pooling(model_output, attention_mask):
     
     
 # The Riverbed code includes a RiverbedTokenizer, RiverbedModel and RiverbedDocumenProcessor for information retrieval processing. 
-# The tokenizer stores the stopword, compound, word2weight and synonyms data structure.
+# The tokenizer stores the stopwords, compound, token2weight and synonyms data structure.
 # the model stores a copy of synonyms and the kenlm data structures. the model will allow us to find an ontology
-# for words in the model, and the perplexity of a text.
+# for tokens in the model, and the perplexity of a text.
 # the processor sores in the span_clusters, span2class_label, span2idx, label_models, label2tf, and df data structures. 
 
 
@@ -120,10 +120,12 @@ class RiverbedTokenizer:
   def __init__(self):
     pass
 
-
-  def tokenize(self, doc, min_compound_weight=0,  compound=None, word2weight=None, synonyms=None, use_synonym_replacement=False):
+  def token2idx(self):
+    return OrderedDict([(term, idx) for idx, term in enumerate(self.tokenweight.items())])
+    
+  def tokenize(self, doc, min_compound_weight=0,  compound=None, token2weight=None, synonyms=None, use_synonym_replacement=False):
     if synonyms is None: synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
-    if word2weight is None: word2weight = {} if not hasattr(self, 'word2weight') else self.word2weight    
+    if token2weight is None: token2weight = {} if not hasattr(self, 'token2weight') else self.token2weight    
     if compound is None: compound = {} if not hasattr(self, 'compound') else self.compound
     if not use_synonym_replacement: synonyms = {} 
     doc = [synonyms.get(d,d) for d in doc.split(" ") if d.strip()]
@@ -131,27 +133,27 @@ class RiverbedTokenizer:
     for i in range(len_doc-1):
         if doc[i] is None: continue
                 
-        wordArr = doc[i].strip("_").replace("__", "_").split("_")
-        if wordArr[0] in compound:
-          max_compound_len = compound[wordArr[0]]
+        tokenArr = doc[i].strip("_").replace("__", "_").split("_")
+        if tokenArr[0] in compound:
+          max_compound_len = compound[tokenArr[0]]
           for j in range(min(len_doc, i+max_compound_len), i+1, -1):
-            word = ("_".join(doc[i:j])).strip("_").replace("__", "_")
-            wordArr = word.split("_")
-            if len(wordArr) <= max_compound_len and word in word2weight and word2weight.get(word, 0) >= min_compound_weight:
-              old_word = word
-              doc[j-1] = synonyms.get(word, word).strip("_").replace("__", "_")
-              #if old_word != doc[j-1]: print (old_word, doc[j-1])
+            token = ("_".join(doc[i:j])).strip("_").replace("__", "_")
+            tokenArr = token.split("_")
+            if len(tokenArr) <= max_compound_len and token in token2weight and token2weight.get(token, 0) >= min_compound_weight:
+              old_token = token
+              doc[j-1] = synonyms.get(token, token).strip("_").replace("__", "_")
+              #if old_token != doc[j-1]: print (old_token, doc[j-1])
               for k in range(i, j-1):
                   doc[k] = None
               break
     return (" ".join([d for d in doc if d]))
 
-  def save_pretrained(self, project_name):
-      pickle.dump(self, open(f"{project_name}.pickle", "wb"))
+  def save_pretrained(self, tokenizer_name):
+      pickle.dump(self, open(f"{tokenizer_name}.pickle", "wb"))
     
   @staticmethod
-  def from_pretrained(project_name):
-      self = pickle.load(open(f"{project_name}.pickle", "rb"))
+  def from_pretrained(tokenizer_name):
+      self = pickle.load(open(f"{tokenizer_name}.pickle", "rb"))
       return self
 
 #################################################################################
@@ -179,9 +181,9 @@ class RiverbedModel:
         doc_length += length
     return self._pp(doc_log_score, doc_length)
   
-  #NOTE: we use the '¶' in front of a word to designate a word is a parent in an ontology. 
+  #NOTE: we use the '¶' in front of a token to designate a token is a parent in an ontology. 
   #the level of the ontology is determined by the number of '¶'.
-  #More '¶' means higher up the ontology (closer to the root nodes/top_parents). Leaf words have no '¶'
+  #More '¶' means higher up the ontology (closer to the root nodes/top_parents). Leaf tokens have no '¶'
   def get_ontology(self, synonyms=None):
     ontology = {}
     if synonyms is None:
@@ -202,13 +204,13 @@ class RiverbedModel:
         top_parents.append(parent)
     return top_parents
 
-  # cluster one batch of words/vectors, assuming some words have already been clustered
-  def _cluster_one_batch(self, cluster_vecs, idxs, terms2, true_k, synonyms=None, stopword=None, word2weight=None, min_incremental_cluster_overlap=2 ):
+  # cluster one batch of tokens/vectors, assuming some tokens have already been clustered
+  def _cluster_one_batch(self, cluster_vecs, idxs, terms2, true_k, synonyms=None, stopwords=None, token2weight=None, min_incremental_cluster_overlap=2 ):
     global device
     print ('cluster_one_batch', len(idxs))
     if synonyms is None: synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
-    if word2weight is None: word2weight = {} if not hasattr(self, 'word2weight') else self.word2weight    
-    if stopword is None: stopword = {} if not hasattr(self, 'stopword') else self.stopword
+    if token2weight is None: token2weight = {} if not hasattr(self, 'token2weight') else self.token2weight    
+    if stopwords is None: stopwords = {} if not hasattr(self, 'stopwords') else self.stopwords
     if device == 'cuda':
       kmeans = KMeans(n_clusters=true_k, mode='cosine')
       km_labels = kmeans.fit_predict(torch.from_numpy(cluster_vecs[idxs]).to(device))
@@ -239,8 +241,8 @@ class RiverbedModel:
                     items_upper_case.append(v2)
               items_upper_case = list(set(items_upper_case))
               if len(items_upper_case) > 1:
-                for word in items_upper_case:
-                  synonyms[word] = syn_label
+                for token in items_upper_case:
+                  synonyms[token] = syn_label
               else:
                 old_syn_upper = None
             else:
@@ -251,8 +253,8 @@ class RiverbedModel:
               syn_label = old_syn_lower.most_common(1)[0][0]
               items = [v for v in items if synonyms.get(v) in (None, syn_label) and v not in items_upper_case]
               if len(items) > 1:
-                for word in items:
-                  synonyms[word] = syn_label
+                for token in items:
+                  synonyms[token] = syn_label
               else:
                 old_syn_lower = None
             else:
@@ -265,53 +267,53 @@ class RiverbedModel:
                   items_upper_case.append(v2)
             items_upper_case = list(set(items_upper_case))
             if len(items_upper_case)  > 1:
-              items_upper_case.sort(key=lambda a: word2weight.get(a, len(a)))
+              items_upper_case.sort(key=lambda a: token2weight.get(a, len(a)))
               syn_label = '¶'+items_upper_case[0]
-              for word in items_upper_case:
-                synonyms[word] = syn_label
+              for token in items_upper_case:
+                synonyms[token] = syn_label
               items = [v for v in items if v not in items_upper_case]
             if len(items) > 1:
-              items.sort(key=lambda a: word2weight.get(a, len(a)))
+              items.sort(key=lambda a: token2weight.get(a, len(a)))
               syn_label = '¶'+[a for a in items if a[0].lower() == a[0]][0]
-              for word in items:
-                synonyms[word] = syn_label
+              for token in items:
+                synonyms[token] = syn_label
       items = [v for v in vals if v not in synonyms]
       if len(items) > 1:
-        items.sort(key=lambda a: word2weight.get(a, len(a)))
+        items.sort(key=lambda a: token2weight.get(a, len(a)))
         parents_only = [a for a in items if a.startswith('¶')]
         if parents_only: 
           label = '¶'+parents_only[0]
-          for word in parents_only:
-              synonyms[word] = label        
-        stopwords_only = [a for a in items if a.lower() in stopword or a in stopwords_set]
+          for token in parents_only:
+              synonyms[token] = label        
+        stopwords_only = [a for a in items if a.lower() in stopwords or a in stopwords_set]
         if stopwords_only: 
           label = '¶'+stopwords_only[0]
-          for word in stopwords_only:
-              synonyms[word] = label
-        not_stopwords = [a for a in items if a.lower() not in stopword and a not in stopwords_set]
+          for token in stopwords_only:
+              synonyms[token] = label
+        not_stopwords = [a for a in items if a.lower() not in stopwords and a not in stopwords_set]
         if not_stopwords: 
           label = '¶'+not_stopwords[0]
-          for word in not_stopwords:
-              synonyms[word] = label
+          for token in not_stopwords:
+              synonyms[token] = label
     return synonyms
 
   # create a hiearchical structure given leaves that have already been clustered
-  def _create_ontology(self, project_name, synonyms=None, stopword=None, word2weight=None, words_per_ontology_cluster = 10, \
+  def _create_ontology(self, model_name, synonyms=None, stopwords=None, token2weight=None, tokens_per_ontology_cluster = 10, \
                       kmeans_batch_size=50000, epoch = 10, embed_batch_size=7000, min_prev_ids=10000, embedder="minilm", \
                       max_ontology_depth=4, max_top_parents=10000, recluster_type="individual", min_incremental_cluster_overlap=2):
     if synonyms is None: synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
-    if word2weight is None: word2weight = {} if not hasattr(self, 'word2weight') else self.word2weight    
-    if stopword is None: stopword = {} if not hasattr(self, 'stopword') else self.stopword
-    # assumes word2weight is an ordered dict, ordered roughly by frequency
-    if not word2weight: return synonyms
+    if token2weight is None: token2weight = {} if not hasattr(self, 'token2weight') else self.token2weight    
+    if stopwords is None: stopwords = {} if not hasattr(self, 'stopwords') else self.stopwords
+    # assumes token2weight is an ordered dict, ordered roughly by frequency
+    if not token2weight: return synonyms
     if embedder == "clip":
       embed_dim = clip_model.config.text_config.hidden_size
     elif embedder == "minilm":
       embed_dim = minilm_model.config.hidden_size
     elif embedder == "labse":
       embed_dim = labse_model.config.hidden_size      
-    cluster_vecs = np_memmap(f"{project_name}.{embedder}_words", shape=[len(word2weight), embed_dim])
-    terms = list(word2weight.keys())
+    cluster_vecs = np_memmap(f"{model_name}.{embedder}_tokens", shape=[len(token2weight), embed_dim])
+    terms = list(token2weight.keys())
     terms2idx = dict([(term, idx) for idx, term in enumerate(terms)])
     for level in range(max_ontology_depth): 
       ontology = self.get_ontology(synonyms)
@@ -321,50 +323,50 @@ class RiverbedModel:
       for parent in parents:
         idxs.append(terms2idx[parent.lstrip('¶')])
       true_k = int(math.sqrt(len(parents)))
-      synonyms = self._cluster_one_batch(cluster_vecs, idxs, parents, true_k, synonyms=synonyms, stopword=stopword, word2weight=word2weight, )
-      idxs_words=[]
+      synonyms = self._cluster_one_batch(cluster_vecs, idxs, parents, true_k, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight, )
+      idxs_tokens=[]
       ontology = self.get_ontology(synonyms)
       for parent in parents: 
         cluster in ontology[parent]
         if len(cluster) > true_k:
             #print ('recluster larger to small clusters', parent)
             re_cluster = set(cluster)
-            for word in cluster:
-              del synonyms[word] 
+            for token in cluster:
+              del synonyms[token] 
             if recluster_type=="individual":
-              idxs_words = [(idx,word) for idx, word in enumerate(word2weight.keys()) if word in re_cluster]
-              words = [a[1] for a in idxs_words]
-              idxs = [a[0] for a in idxs_words]
-              true_k=int(max(2, (len(idxs))/words_per_ontology_cluster))
-              synonyms = self._cluster_one_batch(cluster_vecs, idxs, words, true_k, synonyms=synonyms, stopword=stopword, word2weight=word2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
-              idxs_words = []
+              idxs_tokens = [(idx,token) for idx, token in enumerate(token2weight.keys()) if token in re_cluster]
+              tokens = [a[1] for a in idxs_tokens]
+              idxs = [a[0] for a in idxs_tokens]
+              true_k=int(max(2, (len(idxs))/tokens_per_ontology_cluster))
+              synonyms = self._cluster_one_batch(cluster_vecs, idxs, tokens, true_k, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
+              idxs_tokens = []
             else:
-              idxs_words.extend([(idx,word) for idx, word in enumerate(word2weight.keys()) if word in re_cluster])
-              if len(idxs_words) > kmeans_batch_size:
-                words = [a[1] for a in idxs_words]
-                idxs = [a[0] for a in idxs_words]
-                true_k=int(max(2, (len(idxs))/words_per_ontology_cluster))
-                synonyms = self._cluster_one_batch(cluster_vecs, idxs, words, true_k, synonyms=synonyms, stopword=stopword, word2weight=word2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
-                idxs_words = []
-        if idxs_words: 
-                words = [a[1] for a in idxs_words]
-                idxs = [a[0] for a in idxs_words]
-                true_k=int(max(2, (len(idxs))/words_per_ontology_cluster))
-                synonyms = self._cluster_one_batch(cluster_vecs, idxs, words, true_k, synonyms=synonyms, stopword=stopword, word2weight=word2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
-                idxs_words = []
+              idxs_tokens.extend([(idx,token) for idx, token in enumerate(token2weight.keys()) if token in re_cluster])
+              if len(idxs_tokens) > kmeans_batch_size:
+                tokens = [a[1] for a in idxs_tokens]
+                idxs = [a[0] for a in idxs_tokens]
+                true_k=int(max(2, (len(idxs))/tokens_per_ontology_cluster))
+                synonyms = self._cluster_one_batch(cluster_vecs, idxs, tokens, true_k, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
+                idxs_tokens = []
+        if idxs_tokens: 
+                tokens = [a[1] for a in idxs_tokens]
+                idxs = [a[0] for a in idxs_tokens]
+                true_k=int(max(2, (len(idxs))/tokens_per_ontology_cluster))
+                synonyms = self._cluster_one_batch(cluster_vecs, idxs, tokens, true_k, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
+                idxs_tokens = []
                 
     return synonyms
   
-  def _create_word_embeds_and_synonyms(self, project_name, synonyms=None, stopword=None, word2weight=None, words_per_ontology_cluster = 10, \
+  def _create_token_embeds_and_synonyms(self, model_name, synonyms=None, stopwords=None, token2weight=None, tokens_per_ontology_cluster = 10, \
                                       kmeans_batch_size=50000, epoch = 10, embed_batch_size=7000, min_prev_ids=10000, embedder="minilm", \
                                       max_ontology_depth=4, max_top_parents=10000, do_ontology=True, recluster_type="batch", \
                                       min_incremental_cluster_overlap=2):
     global clip_model, minilm_model, labse_model
     if synonyms is None: synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
-    if word2weight is None: word2weight = {} if not hasattr(self, 'word2weight') else self.word2weight    
-    if stopword is None: stopword = {} if not hasattr(self, 'stopword') else self.stopword
-    # assumes word2weight is an ordered dict, ordered roughly by frequency
-    terms = list(word2weight.keys())
+    if token2weight is None: token2weight = {} if not hasattr(self, 'token2weight') else self.token2weight    
+    if stopwords is None: stopwords = {} if not hasattr(self, 'stopwords') else self.stopwords
+    # assumes token2weight is an ordered dict, ordered roughly by frequency
+    terms = list(token2weight.keys())
     if not terms: return synonyms
     if embedder == "clip":
       embed_dim = clip_model.config.text_config.hidden_size
@@ -372,11 +374,11 @@ class RiverbedModel:
       embed_dim = minilm_model.config.hidden_size
     elif embedder == "labse":
       embed_dim = labse_model.config.hidden_size
-    cluster_vecs = np_memmap(f"{project_name}.{embedder}_words", shape=[len(word2weight), embed_dim])
+    cluster_vecs = np_memmap(f"{model_name}.{embedder}_tokens", shape=[len(token2weight), embed_dim])
     terms_idx = [idx for idx, term in enumerate(terms) if term not in synonyms and term[0] != '¶' ]
     terms_idx_in_synonyms = [idx for idx, term in enumerate(terms) if term in synonyms and term[0] != '¶']
     len_terms_idx = len(terms_idx)
-    #increase the terms_idx list to include non-parent words that have empty embeddings
+    #increase the terms_idx list to include non-parent tokens that have empty embeddings
     for rng in range(0, len(terms_idx), embed_batch_size):
       max_rng = min(len(terms_idx), rng+embed_batch_size)
       if embedder == "clip":
@@ -392,7 +394,7 @@ class RiverbedModel:
         toks = labse_tokenizer([terms[idx].replace("_", " ") for idx in terms_idx[rng:max_rng]], padding=True, truncation=True, return_tensors="pt").to(device)
         with torch.no_grad():
           cluster_vecs = labse_model(**toks).pooler_output.cpu().numpy()          
-      cluster_vecs = np_memmap(f"{project_name}.{embedder}_words", shape=[len(terms), cluster_vecs.shape[1]], dat=cluster_vecs, idxs=terms_idx[rng:max_rng])  
+      cluster_vecs = np_memmap(f"{model_name}.{embedder}_tokens", shape=[len(terms), cluster_vecs.shape[1]], dat=cluster_vecs, idxs=terms_idx[rng:max_rng])  
     len_terms_idx = len(terms_idx)
     times = -1
     times_start_recluster = max(0, (int(len(terms_idx)/int(kmeans_batch_size*.7))-3))
@@ -413,62 +415,62 @@ class RiverbedModel:
           prev_ids.extend(terms_idx_in_synonyms)
       idxs = prev_ids + terms_idx[rng:max_rng]
       #print ('clustering', len(idxs))
-      true_k=int(max(2, (len(idxs))/words_per_ontology_cluster))
+      true_k=int(max(2, (len(idxs))/tokens_per_ontology_cluster))
       terms2 = [terms[idx] for idx in idxs]
-      synonyms = self._cluster_one_batch(cluster_vecs, idxs, terms2, true_k, synonyms=synonyms, stopword=stopword, word2weight=word2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)
+      synonyms = self._cluster_one_batch(cluster_vecs, idxs, terms2, true_k, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)
       if times >= times_start_recluster:
-        idxs_words=[]
+        idxs_tokens=[]
         ontology = self.get_ontology(synonyms)
         max_cluster_size = int(math.sqrt(max_top_parents))
         for key, cluster in ontology.items():
-          if max_rng != len_terms_idx and len(cluster) < words_per_ontology_cluster*.5:
-            for word in cluster:
-              del synonyms[word]
+          if max_rng != len_terms_idx and len(cluster) < tokens_per_ontology_cluster*.5:
+            for token in cluster:
+              del synonyms[token]
           elif len(cluster) > max_cluster_size:
             #print ('recluster larger to small clusters', key)
             re_cluster = set(cluster)
-            for word in cluster:
-              del synonyms[word] 
+            for token in cluster:
+              del synonyms[token] 
             if recluster_type=="individual":
-              idxs_words = [(idx,word) for idx, word in enumerate(word2weight.keys()) if word in re_cluster]
-              words = [a[1] for a in idxs_words]
-              idxs = [a[0] for a in idxs_words]
-              true_k=int(max(2, (len(idxs))/words_per_ontology_cluster))
-              synonyms = self._cluster_one_batch(cluster_vecs, idxs, words, true_k, synonyms=synonyms, stopword=stopword, word2weight=word2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
-              idxs_words = []
+              idxs_tokens = [(idx,token) for idx, token in enumerate(token2weight.keys()) if token in re_cluster]
+              tokens = [a[1] for a in idxs_tokens]
+              idxs = [a[0] for a in idxs_tokens]
+              true_k=int(max(2, (len(idxs))/tokens_per_ontology_cluster))
+              synonyms = self._cluster_one_batch(cluster_vecs, idxs, tokens, true_k, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
+              idxs_tokens = []
             else:
-              idxs_words.extend([(idx,word) for idx, word in enumerate(word2weight.keys()) if word in re_cluster])
-              if len(idxs_words) > kmeans_batch_size:
-                words = [a[1] for a in idxs_words]
-                idxs = [a[0] for a in idxs_words]
-                true_k=int(max(2, (len(idxs))/words_per_ontology_cluster))
-                synonyms = self._cluster_one_batch(cluster_vecs, idxs, words, true_k, synonyms=synonyms, stopword=stopword, word2weight=word2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
-                idxs_words = []
-        if idxs_words: 
-                words = [a[1] for a in idxs_words]
-                idxs = [a[0] for a in idxs_words]
-                true_k=int(max(2, (len(idxs))/words_per_ontology_cluster))
-                synonyms = self._cluster_one_batch(cluster_vecs, idxs, words, true_k, synonyms=synonyms, stopword=stopword, word2weight=word2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
-                idxs_words = []
-    if do_ontology: synonyms = self._create_ontology(project_name, synonyms=synonyms, stopword=stopword, word2weight=word2weight, words_per_ontology_cluster = words_per_ontology_cluster, kmeans_batch_size=50000, epoch = 10, \
+              idxs_tokens.extend([(idx,token) for idx, token in enumerate(token2weight.keys()) if token in re_cluster])
+              if len(idxs_tokens) > kmeans_batch_size:
+                tokens = [a[1] for a in idxs_tokens]
+                idxs = [a[0] for a in idxs_tokens]
+                true_k=int(max(2, (len(idxs))/tokens_per_ontology_cluster))
+                synonyms = self._cluster_one_batch(cluster_vecs, idxs, tokens, true_k, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
+                idxs_tokens = []
+        if idxs_tokens: 
+                tokens = [a[1] for a in idxs_tokens]
+                idxs = [a[0] for a in idxs_tokens]
+                true_k=int(max(2, (len(idxs))/tokens_per_ontology_cluster))
+                synonyms = self._cluster_one_batch(cluster_vecs, idxs, tokens, true_k, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
+                idxs_tokens = []
+    if do_ontology: synonyms = self._create_ontology(model_name, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight, tokens_per_ontology_cluster = tokens_per_ontology_cluster, kmeans_batch_size=50000, epoch = 10, \
                                                     embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, embedder=embedder, max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents, recluster_type=recluster_type, min_incremental_cluster_overlap=min_incremental_cluster_overlap)
     return synonyms
 
   
   # creating tokenizer and a model. 
-  #TODO, strip non_words
+  #TODO, strip non_tokens
   @staticmethod
-  def create_tokenizer_and_model(project_name, files, lmplz_loc="./riverbed/bin/lmplz", stopword_max_len=10, \
-                                 num_stopwords=75, min_compound_word_size=25, max_ontology_depth=4, max_top_parents=10000, \
-                                 min_incremental_cluster_overlap=2, lstrip_stopword=False, rstrip_stopword=False, \
-                                 non_words = "،♪↓↑→←━\₨₡€¥£¢¤™®©¶§←«»⊥∀⇒⇔√­­♣️♥️♠️♦️‘’¿*’-ツ¯‿─★┌┴└┐▒∎µ•●°。¦¬≥≤±≠¡×÷¨´:।`~�_“”/|!~@#$%^&*•()【】[]{}-_+–=<>·;…?:.,\'\"", \
-                                 kmeans_batch_size=50000, dedup_compound_words_larger_than=None, \
+  def create_tokenizer_and_model(model_name, files, lmplz_loc="./riverbed/bin/lmplz", stopwords_max_len=10, \
+                                 num_stopwords=75, min_compound_token_size=25, max_ontology_depth=4, max_top_parents=10000, \
+                                 min_incremental_cluster_overlap=2, lstrip_stopwords=False, rstrip_stopwords=False, \
+                                 non_tokens = "،♪↓↑→←━\₨₡€¥£¢¤™®©¶§←«»⊥∀⇒⇔√­­♣️♥️♠️♦️‘’¿*’-ツ¯‿─★┌┴└┐▒∎µ•●°。¦¬≥≤±≠¡×÷¨´:।`~�_“”/|!~@#$%^&*•()【】[]{}-_+–=<>·;…?:.,\'\"", \
+                                 kmeans_batch_size=50000, dedup_compound_tokens_larger_than=None, \
                                  embed_batch_size=7000, min_prev_ids=10000, min_compound_weight=1.0, \
-                                 stopword=None, min_num_words=5, do_collapse_values=True, use_synonym_replacement=False, \
+                                 stopwords=None, min_num_tokens=5, do_collapse_values=True, use_synonym_replacement=False, \
                                  embedder="minilm", do_ontology=True, recluster_type="batch", model=None):
       global device, clip_model, minilm_model, labse_model
       
-      assert min_compound_word_size <= dedup_compound_words_larger_than, "can't have a minimum compound word greter than what is removed"
+      assert min_compound_token_size <= dedup_compound_tokens_larger_than, "can't have a minimum compound token greter than what is removed"
       if embedder == "clip":
         clip_model = clip_model.to(device)
         minilm_model =  minilm_model.cpu()
@@ -490,14 +492,14 @@ class RiverbedModel:
         self = RiverbedModel()
         self.tokenizer = tokenizer
         
-      word2weight = self.tokenizer.word2weight = OrderedDict() if not hasattr(self, 'word2weight') else self.tokenizer.word2weight
+      token2weight = self.tokenizer.token2weight = OrderedDict() if not hasattr(self, 'token2weight') else self.tokenizer.token2weight
       compound = self.tokenizer.compound = {} if not hasattr(self, 'compound') else self.tokenizer.compound
       synonyms = self.tokenizer.synonyms = {} if not hasattr(self, 'synonyms') else self.tokenizer.synonyms
-      stopword = self.tokenizer.stopword = {} if not hasattr(self, 'stopword') else self.tokenizer.stopword
+      stopwords = self.tokenizer.stopwords = {} if not hasattr(self, 'stopwords') else self.tokenizer.stopwords
       self.synonyms = self.tokenizer.synonyms
-      for word in stopwords_set:
-        word = word.lower()
-        stopword[word] = stopword.get(word, 1.0)
+      for token in stopwords_set:
+        token = token.lower()
+        stopwords[token] = stopwords.get(token, 1.0)
       if lmplz_loc != "./riverbed/bin/lmplz" and not os.path.exists("./lmplz"):
         os.system(f"cp {lmplz_loc} ./lmplz")
         lmplz = "./lmplz"
@@ -506,11 +508,11 @@ class RiverbedModel:
       os.system(f"chmod u+x {lmplz}")
       unigram = {}
       arpa = {}
-      if word2weight:
-        for word in word2weight.keys():
-          if "_" not in word: unigram[word] = min(unigram.get(word,0), word2weight[word])
-      if os.path.exists(f"{project_name}.arpa"):
-        with open(f"{project_name}.arpa", "rb") as af:
+      if token2weight:
+        for token in token2weight.keys():
+          if "_" not in token: unigram[token] = min(unigram.get(token,0), token2weight[token])
+      if os.path.exists(f"{model_name}.arpa"):
+        with open(f"{model_name}.arpa", "rb") as af:
           n = 0
           do_ngram = False
           for line in af:
@@ -536,85 +538,85 @@ class RiverbedModel:
                 arpa[(n, line[1])] = min(float(line[0]), arpa.get((n, line[1]), 100))
       #TODO, we should try to create consolidated files of around 1GB to get enough information in the arpa files
       for doc_id, file_name in enumerate(files):
-        if dedup_compound_words_larger_than:
-          dedup_compound_words_num_iter = max(0, math.ceil(dedup_compound_words_larger_than/(5 *(doc_id+1))))
-          self.tokenizer.word2weight, self.tokenizer.compound, self.tokenizer.synonyms, self.tokenizer.stopword = word2weight, compound, synonyms, stopword 
+        if dedup_compound_tokens_larger_than:
+          dedup_compound_tokens_num_iter = max(0, math.ceil(dedup_compound_tokens_larger_than/(5 *(doc_id+1))))
+          self.tokenizer.token2weight, self.tokenizer.compound, self.tokenizer.synonyms, self.tokenizer.stopwords = token2weight, compound, synonyms, stopwords 
           self.synonyms = self.tokenizer.synonyms
           # if we are first computing ngrams to do dedup, make a temporary copy of the tokenizer data structures
           compound = copy.deepcopy(compound)
           synonyms = copy.deepcopy(synonyms)
-          stopword = copy.deepcopy(stopword)
-          word2weight = copy.deepcopy(word2weight)
+          stopwords = copy.deepcopy(stopwords)
+          token2weight = copy.deepcopy(token2weight)
         else:
-          dedup_compound_words_num_iter = 0
-        num_iter = max(1,math.ceil(min_compound_word_size/(5 *(doc_id+1))))
+          dedup_compound_tokens_num_iter = 0
+        num_iter = max(1,math.ceil(min_compound_token_size/(5 *(doc_id+1))))
         #we can repeatedly run the below to get long ngrams
-        #after we tokenize for ngram and replace with words with underscores (the_projected_revenue) at each step, we redo the ngram count
+        #after we tokenize for ngram and replace with tokens with underscores (the_projected_revenue) at each step, we redo the ngram count
         curr_arpa = {}
-        print ('num iter', num_iter, dedup_compound_words_num_iter)
-        for times in range(num_iter+dedup_compound_words_num_iter):
+        print ('num iter', num_iter, dedup_compound_tokens_num_iter)
+        for times in range(num_iter+dedup_compound_tokens_num_iter):
             print (f"iter {file_name}", times)
             if times == 0:
               os.system(f"cp {file_name} __tmp__{file_name}")
-            elif dedup_compound_words_larger_than is not None and times == dedup_compound_words_num_iter:
+            elif dedup_compound_tokens_larger_than is not None and times == dedup_compound_tokens_num_iter:
               # sometimes we want to do some pre-processing b/c n-grams larger than a certain amount are just duplicates
-              # and can mess up our word counts
-              print ('deduping compound words larger than',dedup_compound_words_larger_than)
+              # and can mess up our token counts
+              print ('deduping compound tokens larger than',dedup_compound_tokens_larger_than)
               os.system(f"cp {file_name} __tmp__{file_name}")
               with open(f"__tmp__2_{file_name}", "w", encoding="utf8") as tmp2:
                 with open(f"__tmp__{file_name}", "r") as f:
-                  deduped_num_words = 0
-                  seen_dedup_compound_words = {}
+                  deduped_num_tokens = 0
+                  seen_dedup_compound_tokens = {}
                   for l in f:
                     orig_l = l.replace("_", " ").replace("  ", " ").strip()
-                    l = tokenizer.tokenize(l.strip(), min_compound_weight=0, compound=compound, word2weight=word2weight,  synonyms=synonyms, use_synonym_replacement=False)
+                    l = tokenizer.tokenize(l.strip(), min_compound_weight=0, compound=compound, token2weight=token2weight,  synonyms=synonyms, use_synonym_replacement=False)
                     l = l.split()
-                    dedup_compound_word = [w for w in l if "_" in w and w.count("_") + 1 > dedup_compound_words_larger_than]
-                    if not dedup_compound_word:
+                    dedup_compound_token = [w for w in l if "_" in w and w.count("_") + 1 > dedup_compound_tokens_larger_than]
+                    if not dedup_compound_token:
                       l2 = " ".join(l).replace("_", " ").strip()
                       tmp2.write(l2+"\n")
                       continue
-                    l = [w if ("_" not in w or w.count("_") + 1 <= dedup_compound_words_larger_than or w not in seen_dedup_compound_words) else '...' for w in l]
+                    l = [w if ("_" not in w or w.count("_") + 1 <= dedup_compound_tokens_larger_than or w not in seen_dedup_compound_tokens) else '...' for w in l]
                     l2 = " ".join(l).replace("_", " ").replace(' ... ...', ' ...').strip()
                     if l2.endswith(" ..."): l2 = l2[:-len(" ...")]
-                    if dedup_compound_word and l2 != orig_l:
-                      deduped_num_words += 1
-                    #  print ('dedup ngram', dedup_compound_word, l2)
-                    for w in dedup_compound_word:
-                      seen_dedup_compound_words[w] = 1
+                    if dedup_compound_token and l2 != orig_l:
+                      deduped_num_tokens += 1
+                    #  print ('dedup ngram', dedup_compound_token, l2)
+                    for w in dedup_compound_token:
+                      seen_dedup_compound_tokens[w] = 1
                     tmp2.write(l2+"\n")
-                  seen_dedup_compound_words = None
-                  print ('finished deduping', deduped_num_words)
+                  seen_dedup_compound_tokens = None
+                  print ('finished deduping', deduped_num_tokens)
               os.system(f"cp __tmp__2_{file_name} {file_name}.dedup")  
               os.system(f"mv __tmp__2_{file_name} __tmp__{file_name}")   
-              word2weight = self.tokenizer.word2weight = OrderedDict() if not hasattr(self, 'word2weight') else self.tokenizer.word2weight
+              token2weight = self.tokenizer.token2weight = OrderedDict() if not hasattr(self, 'token2weight') else self.tokenizer.token2weight
               compound = self.tokenizer.compound = {} if not hasattr(self.tokenizer, 'compound') else self.tokenizer.compound
               synonyms = self.tokenizer.synonyms = {} if not hasattr(self.tokenizer, 'synonyms') else self.tokenizer.synonyms
               self.synonyms = self.tokenizer.synonyms
-              stopword = self.tokenizer.stopword = {} if not hasattr(self.tokenizer, 'stopword') else self.tokenizer.stopword              
+              stopwords = self.tokenizer.stopwords = {} if not hasattr(self.tokenizer, 'stopwords') else self.tokenizer.stopwords              
               curr_arpa = {}
             # we only do synonym and embedding creation as the second to last or last step of each file processed 
             # b/c this is very expensive. we can do this right before the last counting if we
             # do synonym replacement so we have a chance to create syonyms for the replacement.
             # otherwise, we do it after the last count. See below.
             synonyms_created=  False          
-            if use_synonym_replacement and times == num_iter+dedup_compound_words_num_iter-1 and word2weight:
+            if use_synonym_replacement and times == num_iter+dedup_compound_tokens_num_iter-1 and token2weight:
                 synonyms_created = True
-                self.synonyms = self.tokenizer.synonyms = synonyms = self._create_word_embeds_and_synonyms(project_name, stopword=stopword, word2weight=word2weight, synonyms=synonyms, kmeans_batch_size=kmeans_batch_size, min_incremental_cluster_overlap=min_incremental_cluster_overlap, \
+                self.synonyms = self.tokenizer.synonyms = synonyms = self._create_token_embeds_and_synonyms(model_name, stopwords=stopwords, token2weight=token2weight, synonyms=synonyms, kmeans_batch_size=kmeans_batch_size, min_incremental_cluster_overlap=min_incremental_cluster_overlap, \
                   embedder=embedder, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents, do_ontology=do_ontology, recluster_type=recluster_type)   
-            if word2weight:
+            if token2weight:
               with open(f"__tmp__2_{file_name}", "w", encoding="utf8") as tmp2:
                 with open(f"__tmp__{file_name}", "r") as f:
                   for l in f:
-                    l = tokenizer.tokenize(l.strip(),  min_compound_weight=min_compound_weight, compound=compound, word2weight=word2weight, synonyms=synonyms, use_synonym_replacement=use_synonym_replacement)
+                    l = tokenizer.tokenize(l.strip(),  min_compound_weight=min_compound_weight, compound=compound, token2weight=token2weight, synonyms=synonyms, use_synonym_replacement=use_synonym_replacement)
                     if times == num_iter-1:
-                      l = tokenizer.tokenize(l.strip(), min_compound_weight=0, compound=compound, word2weight=word2weight,  synonyms=synonyms, use_synonym_replacement=use_synonym_replacement)
+                      l = tokenizer.tokenize(l.strip(), min_compound_weight=0, compound=compound, token2weight=token2weight,  synonyms=synonyms, use_synonym_replacement=use_synonym_replacement)
                     tmp2.write(l+"\n")  
               os.system(f"mv __tmp__2_{file_name} __tmp__{file_name}")  
             if do_collapse_values:
-              os.system(f"./{lmplz} --collapse_values  --discount_fallback  --skip_symbols -o 5 --prune {min_num_words}  --arpa {file_name}.arpa <  __tmp__{file_name}") ##
+              os.system(f"./{lmplz} --collapse_values  --discount_fallback  --skip_symbols -o 5 --prune {min_num_tokens}  --arpa {file_name}.arpa <  __tmp__{file_name}") ##
             else:
-              os.system(f"./{lmplz}  --discount_fallback  --skip_symbols -o 5 --prune {min_num_words}  --arpa {file_name}.arpa <  __tmp__{file_name}") ##
+              os.system(f"./{lmplz}  --discount_fallback  --skip_symbols -o 5 --prune {min_num_tokens}  --arpa {file_name}.arpa <  __tmp__{file_name}") ##
             do_ngram = False
             n = 0
             with open(f"{file_name}.arpa", "rb") as f:    
@@ -651,56 +653,56 @@ class RiverbedModel:
                   line = line[1]
                   if not line: continue
                   line = line.split()
-                  if [l for l in line if l in non_words or l in ('<unk>', '<s>', '</s>')]: continue
-                  if not(len(line) == 1 and line[0] in stopword):
-                    if lstrip_stopword:
+                  if [l for l in line if l in non_tokens or l in ('<unk>', '<s>', '</s>')]: continue
+                  if not(len(line) == 1 and line[0] in stopwords):
+                    if lstrip_stopwords:
                       while line:
-                        if line[0].lower() in stopword:
+                        if line[0].lower() in stopwords:
                           line = line[1:]
                         else:
                           break
-                    if rstrip_stopword:
+                    if rstrip_stopwords:
                       while line:
-                        if line[-1].lower() in stopword:
+                        if line[-1].lower() in stopwords:
                           line = line[:-1]
                         else:
                           break
-                  word = "_".join(line)
-                  if word.startswith('¶') and word not in word2weight: #unless this word is a parent synonym, we will strip our special prefix
-                    word = word.lstrip('¶')
-                  wordArr = word.split("_")
-                  if wordArr[0]  in ('<unk>', '<s>', '</s>', ''):
-                    wordArr = wordArr[1:]
-                  if wordArr[-1]  in ('<unk>', '<s>', '</s>', ''):
-                    wordArr = wordArr[:-1]
-                  if wordArr:
+                  token = "_".join(line)
+                  if token.startswith('¶') and token not in token2weight: #unless this token is a parent synonym, we will strip our special prefix
+                    token = token.lstrip('¶')
+                  tokenArr = token.split("_")
+                  if tokenArr[0]  in ('<unk>', '<s>', '</s>', ''):
+                    tokenArr = tokenArr[1:]
+                  if tokenArr[-1]  in ('<unk>', '<s>', '</s>', ''):
+                    tokenArr = tokenArr[:-1]
+                  if tokenArr:
                     # we are prefering stopwords that starts an n-gram. 
-                    if (not lstrip_stopword or len(wordArr) == 1) and len(wordArr[0]) <= stopword_max_len:
-                      sw = wordArr[0].lower()
+                    if (not lstrip_stopwords or len(tokenArr) == 1) and len(tokenArr[0]) <= stopwords_max_len:
+                      sw = tokenArr[0].lower()
                       unigram[sw] = min(unigram.get(sw,100), weight)
                       
-                    #create the compound words length data structure
+                    #create the compound tokens length data structure
                     if weight >= min_compound_weight:
-                      compound[wordArr[0]] = max(len(wordArr), compound.get(wordArr[0],0))
-                    weight = weight * len(wordArr)            
-                    word2weight[word] = min(word2weight.get(word, 100), weight) 
-            top_stopword={} 
+                      compound[tokenArr[0]] = max(len(tokenArr), compound.get(tokenArr[0],0))
+                    weight = weight * len(tokenArr)            
+                    token2weight[token] = min(token2weight.get(token, 100), weight) 
+            top_stopwords={} 
             if unigram:
-                stopword_list = [l for l in unigram.items() if len(l[0]) > 0]
-                stopword_list.sort(key=lambda a: a[1])
-                len_stopword_list = len(stopword_list)
-                top_stopword = stopword_list[:min(len_stopword_list, num_stopwords)]
-            for word, weight in top_stopword:
-              stopword[word] = min(stopword.get(word, 100), weight)
+                stopwords_list = [l for l in unigram.items() if len(l[0]) > 0]
+                stopwords_list.sort(key=lambda a: a[1])
+                len_stopwords_list = len(stopwords_list)
+                top_stopwords = stopwords_list[:min(len_stopwords_list, num_stopwords)]
+            for token, weight in top_stopwords:
+              stopwords[token] = min(stopwords.get(token, 100), weight)
             os.system(f"rm {file_name}.arpa")
-            if times == num_iter+dedup_compound_words_num_iter-1  and not synonyms_created:
-                self.synonyms = self.tokenizer.synonyms = synonyms = self._create_word_embeds_and_synonyms(project_name, stopword=stopword, word2weight=word2weight, synonyms=synonyms, kmeans_batch_size=kmeans_batch_size, min_incremental_cluster_overlap=min_incremental_cluster_overlap, \
+            if times == num_iter+dedup_compound_tokens_num_iter-1  and not synonyms_created:
+                self.synonyms = self.tokenizer.synonyms = synonyms = self._create_token_embeds_and_synonyms(model_name, stopwords=stopwords, token2weight=token2weight, synonyms=synonyms, kmeans_batch_size=kmeans_batch_size, min_incremental_cluster_overlap=min_incremental_cluster_overlap, \
                   embedder=embedder, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents, do_ontology=do_ontology, recluster_type=recluster_type)   
         for key, weight in curr_arpa.items():
             arpa[key] = min(float(weight), arpa.get(key, 100))
         curr_arpa = {}
       print ('len syn', len(synonyms))
-      self.tokenizer.word2weight, self.tokenizer.compound, self.tokenizer.synonyms, self.tokenizer.stopword = word2weight, compound, synonyms, stopword
+      self.tokenizer.token2weight, self.tokenizer.compound, self.tokenizer.synonyms, self.tokenizer.stopwords = token2weight, compound, synonyms, stopwords
       self.synonyms = self.tokenizer.synonyms
       print ('counting arpa')
       ngram_cnt = [0]*5
@@ -727,18 +729,18 @@ class RiverbedModel:
               val =  0
             tmp_arpa.write(f"{val}\t{dat}\t0\n")
         tmp_arpa.write("\n\\end\\\n\n")
-      os.system(f"mv __tmp__.arpa {project_name}.arpa")
+      os.system(f"mv __tmp__.arpa {model_name}.arpa")
       print ('creating kenlm model')
-      self.kenlm_model = kenlm.LanguageModel(f"{project_name}.arpa") 
+      self.kenlm_model = kenlm.LanguageModel(f"{model_name}.arpa") 
       os.system("rm -rf __tmp__*")
       return tokenizer, self
 
-  def save_pretrained(self, project_name):
-      pickle.dump(self, open(f"{project_name}.pickle", "wb"))
+  def save_pretrained(self, model_name):
+      pickle.dump(self, open(f"{model_name}.pickle", "wb"))
     
   @staticmethod
-  def from_pretrained(project_name):
-      self = pickle.load(open(f"{project_name}.pickle", "rb"))
+  def from_pretrained(model_name):
+      self = pickle.load(open(f"{model_name}.pickle", "rb"))
       return self
 
     
@@ -822,7 +824,7 @@ class RiverbedDocumentProcessor:
   # the relative level label as well.
   #
   #TODO: other potential features include similarity of embedding from its cluster centroid
-  #compound words %
+  #compound tokens %
   #stopwords %
   #tf-idf weight
   
@@ -837,8 +839,8 @@ class RiverbedDocumentProcessor:
 
   # the similarity models sometimes put too much weight on proper names, etc. but we might want to cluster by general concepts
   # such as change of control, regulatory actions, etc. The proper names themselves can be collapsed to one canonical form (The Person). 
-  # Similarly, we want similar concepts (e.g., compound words) to cluster to one canonical form.
-  # we do this by collapsing to an NER label and/or creating a synonym map from compound words to known words. See _create_ontology
+  # Similarly, we want similar concepts (e.g., compound tokens) to cluster to one canonical form.
+  # we do this by collapsing to an NER label and/or creating a synonym map from compound tokens to known tokens. See _create_ontology
   # and we use that data to simplify the sentence here.  
   # TODO: have an option NOT to simplify the prefix. 
   def _simplify_text(self, text, ents, ner_to_simplify=(), use_synonym_replacement=False):
@@ -904,7 +906,7 @@ class RiverbedDocumentProcessor:
         file_name, curr_lineno, ents, text  = span['file_name'], span['lineno'], span['ents'], span['text']
         for idx, ent in enumerate(ents):
           text = text.replace(ent[0], f' @#@{idx}@#@ ')
-        # we do placeholder replacement tokenize to make ngram words underlined, so that we don't split a span in the middle of an ner word or ngram.
+        # we do placeholder replacement tokenize to make ngram tokens underlined, so that we don't split a span in the middle of an ner token or ngram.
         text  = self.tokenize(text, use_synonym_replacement=False) 
         len_text = len(text)
         prefix = ""
@@ -1050,12 +1052,12 @@ class RiverbedDocumentProcessor:
     return batch
 
   def _create_informative_label_and_tfidf(self, batch, batch_id_prefix, tmp_clusters, span2idx, tmp_span2batch, span2cluster_label, \
-                                          label2tf=None, df=None, domain_stopword_set=stopwords_set,):
+                                          label2tf=None, df=None, domain_stopwords_set=stopwords_set,):
     # code to compute tfidf and more informative labels for the span clusters
     if label2tf is None: label2tf = {}
     if df is None: df = {}
     label2label = {}
-    #we gather info for tf-idf with respect to each word in each clusters
+    #we gather info for tf-idf with respect to each token in each clusters
     for label, values in tmp_clusters.items(): 
       if label.startswith(batch_id_prefix):
         for item in values:
@@ -1083,31 +1085,31 @@ class RiverbedDocumentProcessor:
             else:
               text = text.split("||",1)[-1].strip().split() + ents
             len_text = len(text)
-            text = [a for a in text if len(a) > 1 and ("_" not in a or (a.count("_")+1 != len([b for b in a.lower().split("_") if  b in domain_stopword_set])))  and a.lower() not in domain_stopword_set and a[0].lower() in "abcdefghijklmnopqrstuvwxyz"]
+            text = [a for a in text if len(a) > 1 and ("_" not in a or (a.count("_")+1 != len([b for b in a.lower().split("_") if  b in domain_stopwords_set])))  and a.lower() not in domain_stopwords_set and a[0].lower() in "abcdefghijklmnopqrstuvwxyz"]
             cnts = Counter(text)
             aHash = label2tf[label] =  label2tf.get(label, {})
-            for word, cnt in cnts.items():
-              aHash[word] = cnt/len_text
-            for word in cnts.keys():
-              df[word] = df.get(word,0) + 1
+            for token, cnt in cnts.items():
+              aHash[token] = cnt/len_text
+            for token in cnts.keys():
+              df[token] = df.get(token,0) + 1
       
-    #Now, acually create a new label from the tfidf of the words in this cluster
+    #Now, acually create a new label from the tfidf of the tokens in this cluster
     #TODO, see how we might save away the tf-idf info as features, then we would need to recompute the tfidf if new items are added to cluster
     label2label = {}
     for label, tf in label2tf.items():
       if label.startswith(batch_id_prefix):
         tfidf = copy.copy(tf)    
-        for word in list(tfidf.keys()):
-          tfidf[word]  = tfidf[word] * min(1.5, self.tokenizer.word2weight.get(word, 1)) * math.log(1.0/(1+df[word]))
-        top_words2 = [a[0].lower().strip("~!@#$%^&*()<>,.:;")  for a in Counter(tfidf).most_common(min(len(tfidf), 40))]
-        top_words2 = [a for a in top_words2 if a not in domain_stopword_set and ("_" not in a or (a.count("_")+1 != len([b for b in a.split("_") if  b in domain_stopword_set])))]
-        top_words = []
-        for t in top_words2:
-          if t not in top_words:
-            top_words.append(t)
-        if top_words:
-          if len(top_words) > 5: top_words = top_words[:5]
-          label2 = ", ".join(top_words) 
+        for token in list(tfidf.keys()):
+          tfidf[token]  = tfidf[token] * min(1.5, self.tokenizer.token2weight.get(token, 1)) * math.log(1.0/(1+df[token]))
+        top_tokens2 = [a[0].lower().strip("~!@#$%^&*()<>,.:;")  for a in Counter(tfidf).most_common(min(len(tfidf), 40))]
+        top_tokens2 = [a for a in top_tokens2 if a not in domain_stopwords_set and ("_" not in a or (a.count("_")+1 != len([b for b in a.split("_") if  b in domain_stopwords_set])))]
+        top_tokens = []
+        for t in top_tokens2:
+          if t not in top_tokens:
+            top_tokens.append(t)
+        if top_tokens:
+          if len(top_tokens) > 5: top_tokens = top_tokens[:5]
+          label2 = ", ".join(top_tokens) 
           label2label[label] = label2
           
     #swap out the labels
@@ -1134,19 +1136,19 @@ class RiverbedDocumentProcessor:
       
     return batch, label2tf, df
   
-  # similar to _create_word_embeds_and_synonyms, except for spans     
+  # similar to _create_token_embeds_and_synonyms, except for spans     
   #(1) compute features and embeddings in one batch for tokenized text.
   #(2) create clusters in an incremental fashion from batch
   #all leaf nodes are spans
   #spanf2idx is a mapping from the span to the actual underlying storage idx (e.g., a jsonl file or database)
-  #span2cluster_label is like the synonym data-structure for words.
+  #span2cluster_label is like the synonym data-structure for tokens.
   def _create_span_embeds_and_span2cluster_label(self, project_name, curr_file_size, jsonl_file_idx, span2idx, batch, retained_batch, \
                                                       jsonl_file, batch_id_prefix, span_lfs,  span2cluster_label, \
                                                       text_span_size=1000, kmeans_batch_size=50000, epoch = 10, \
                                                       embed_batch_size=7000, min_prev_ids=10000, embedder="minilm", \
                                                       max_ontology_depth=4, max_top_parents=10000, do_ontology=True, \
                                                       running_features_per_label={}, ner_to_simplify=(), span_level_feature_extractors=default_span_level_feature_extractors, \
-                                                      running_features_size=100, label2tf=None, df=None, domain_stopword_set=stopwords_set,\
+                                                      running_features_size=100, label2tf=None, df=None, domain_stopwords_set=stopwords_set,\
                                                       verbose_snrokel=False,  span_per_cluster=10, use_synonym_replacement=False, ):
     
     #transform a doc batch into a span batch, breaking up doc into spans
@@ -1214,7 +1216,7 @@ class RiverbedDocumentProcessor:
         print (len(idxs))
         true_k=int((len(idxs)/span_per_cluster))
         spans2 = [tmp_idx2span[idx] or idx in idxs]
-        tmp_clusters, span2cluster_label = self._create_cluster_for_spans(true_k, batch_id_prefix, spans2, cluster_vecs, tmp_clusters, idxs, span2cluster_label, span_per_cluster=span_per_cluster, domain_stopword_set=domain_stopword_set)
+        tmp_clusters, span2cluster_label = self._create_cluster_for_spans(true_k, batch_id_prefix, spans2, cluster_vecs, tmp_clusters, idxs, span2cluster_label, span_per_cluster=span_per_cluster, domain_stopwords_set=domain_stopwords_set)
         # TODO: recluster
     
     # TODO: create_span_ontology
@@ -1288,7 +1290,7 @@ class RiverbedDocumentProcessor:
     running_features_per_label = {}
     file_name = files.pop()
     f = open(file_name) 
-    domain_stopword_set = set(list(stopwords_set) + list(stopword.keys()))
+    domain_stopwords_set = set(list(stopwords_set) + list(stopwords.keys()))
     prior_line = ""
     batch = []
     retained_batch = []
@@ -1381,7 +1383,7 @@ class RiverbedDocumentProcessor:
                                                       kmeans_batch_size=kmeans_batch_size, epoch = epoch, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, \
                                                       max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents, do_ontology=True, embedder=embedder, \
                                                       running_features_per_label=running_features_per_label, ner_to_simplify=ner_to_simplify, span_level_feature_extractors=span_level_feature_extractors, \
-                                                      running_features_size=running_features_size, label2tf=label2tf, df=df, domain_stopword_set=domain_stopword_set, \
+                                                      running_features_size=running_features_size, label2tf=label2tf, df=df, domain_stopwords_set=domain_stopwords_set, \
                                                       verbose_snrokel=verbose_snrokel,  span_per_cluster=span_per_cluster, use_synonym_replacement=use_synonym_replacement, )  
           batch = []
       
@@ -1405,7 +1407,7 @@ class RiverbedDocumentProcessor:
                                                       kmeans_batch_size=kmeans_batch_size, epoch = epoch, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids,  \
                                                       max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents, do_ontology=True, embedder=embedder,\
                                                       running_features_per_label=running_features_per_label, ner_to_simplify=ner_to_simplify, span_level_feature_extractors=span_level_feature_extractors, \
-                                                      running_features_size=running_features_size, label2tf=label2tf, df=df, domain_stopword_set=domain_stopword_set, \
+                                                      running_features_size=running_features_size, label2tf=label2tf, df=df, domain_stopwords_set=domain_stopwords_set, \
                                                       verbose_snrokel=verbose_snrokel)  
           batch = []
       
