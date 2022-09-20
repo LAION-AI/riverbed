@@ -322,13 +322,13 @@ class RiverbedModel:
       idxs = []
       for parent in parents:
         idxs.append(terms2idx[parent.lstrip('¶')])
-      true_k = int(math.sqrt(len(parents)))
+      true_k = max_cluster_size = int(math.sqrt(len(parents)))
       synonyms = self._cluster_one_batch(cluster_vecs, idxs, parents, true_k, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight, )
       idxs_tokens=[]
       ontology = self.get_ontology(synonyms)
       for parent in parents: 
-        cluster in ontology[parent]
-        if len(cluster) > true_k:
+        cluster = ontology[parent]
+        if len(cluster) > max_cluster_size:
             #print ('recluster larger to small clusters', parent)
             re_cluster = set(cluster)
             for token in cluster:
