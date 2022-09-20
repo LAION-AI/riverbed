@@ -382,7 +382,7 @@ class Riverbed:
             re_cluster = set(cluster)
             for word in cluster:
               del synonyms[word] 
-            if recluster_type="individual":
+            if recluster_type=="individual":
               idxs_words = [(idx,word) for idx, word in enumerate(ngram2weight.keys()) if word in re_cluster]
               words = [a[1] for a in idxs_words]
               idxs = [a[0] for a in idxs_words]
