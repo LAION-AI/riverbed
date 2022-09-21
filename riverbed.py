@@ -124,7 +124,7 @@ class RiverbedTokenizer:
   def token2idx(self):
     return OrderedDict([(term, idx) for idx, term in enumerate(self.tokenweight.items())])
     
-  def tokenize(self, doc, min_compound_weight=0,  max_compound_word_size=100, compound=None, token2weight=None, synonyms=None, use_synonym_replacement=False):
+  def tokenize(self, doc, min_compound_weight=0,  max_compound_word_size=10000, compound=None, token2weight=None, synonyms=None, use_synonym_replacement=False):
     if synonyms is None: synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
     if token2weight is None: token2weight = {} if not hasattr(self, 'token2weight') else self.token2weight    
     if compound is None: compound = {} if not hasattr(self, 'compound') else self.compound
@@ -300,7 +300,7 @@ class RiverbedModel:
     return synonyms
 
   # create a hiearchical structure given leaves that have already been clustered
-  def _create_ontology(self, model_name, synonyms=None, stopwords=None, token2weight=None, \
+  def _create_ontology(self, model_name, synonyms=None, stopwords=None, token2weight=None, token2idx=None, \
                       kmeans_batch_size=50000, epoch = 10, embed_batch_size=7000, min_prev_ids=10000, embedder="minilm", \
                       max_ontology_depth=4, max_cluster_size=100, recluster_type="individual", min_incremental_cluster_overlap=2):
     if synonyms is None: synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
@@ -315,47 +315,43 @@ class RiverbedModel:
     elif embedder == "labse":
       embed_dim = labse_model.config.hidden_size      
     cluster_vecs = np_memmap(f"{model_name}/{model_name}.{embedder}_tokens", shape=[len(token2weight), embed_dim])
-    terms = list(token2weight.keys())
-    terms2idx = dict([(term, idx) for idx, term in enumerate(terms)])
-    for level in range(max_ontology_depth): 
+    tokens = list(token2weight.keys())
+    if token2idx is None:
+      token2idx = dict([(token, idx) for idx, token in enumerate(tokens)])
+    print ('creating ontology')
+    for level in tqdm.tqdm(range(max_ontology_depth)): 
       ontology = self.get_ontology(synonyms)
       parents = [parent for parent in ontology.keys() if len(parent) - len(parent.lstrip('¶')) == level + 1]
       if len(parents) < max_cluster_size: break
-      idxs = []
-      for parent in parents:
-        idxs.append(terms2idx[parent.lstrip('¶')])
+      idxs = [token2idx[parent.lstrip('¶') for parent in parents]
       true_k = int(max(2, int(len(parents)/max_cluster_size)))
       synonyms = self._cluster_one_batch(cluster_vecs, idxs, parents, true_k, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight, )
-      idxs_tokens=[]
       ontology = self.get_ontology(synonyms)
-      for parent in parents: 
+      cluster_batch=[]
+      parents_parent = [parent for parent in ontology.keys() if len(parent) - len(parent.lstrip('¶')) == level + 2]
+      for parent in parents_parent: 
         cluster = ontology[parent]
         if len(cluster) > max_cluster_size:
             #print ('recluster larger to small clusters', parent)
-            re_cluster = set(cluster)
             for token in cluster:
               del synonyms[token] 
             if recluster_type=="individual":
-              idxs_tokens = [(idx,token) for idx, token in enumerate(token2weight.keys()) if token in re_cluster]
-              tokens = [a[1] for a in idxs_tokens]
-              idxs = [a[0] for a in idxs_tokens]
+              idxs = [token2idx[token.lstrip('¶')] for token in  cluster]
               true_k=int(max(2, (len(idxs))/max_cluster_size))
-              synonyms = self._cluster_one_batch(cluster_vecs, idxs, tokens, true_k, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
-              idxs_tokens = []
+              synonyms = self._cluster_one_batch(cluster_vecs, idxs, cluster, true_k, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
+              cluster_batch = []
             else:
-              idxs_tokens.extend([(idx,token) for idx, token in enumerate(token2weight.keys()) if token in re_cluster])
-              if len(idxs_tokens) > kmeans_batch_size:
-                tokens = [a[1] for a in idxs_tokens]
-                idxs = [a[0] for a in idxs_tokens]
+              cluster_batch.extend(cluster)
+              if len(cluster_batch) > kmeans_batch_size:
+                idxs = [token2idx[token.lstrip('¶')] for token in  cluster_batch]
                 true_k=int(max(2, (len(idxs))/max_cluster_size))
-                synonyms = self._cluster_one_batch(cluster_vecs, idxs, tokens, true_k, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
-                idxs_tokens = []
-        if idxs_tokens: 
-                tokens = [a[1] for a in idxs_tokens]
-                idxs = [a[0] for a in idxs_tokens]
-                true_k=int(max(2, (len(idxs))/max_cluster_size))
-                synonyms = self._cluster_one_batch(cluster_vecs, idxs, tokens, true_k, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
-                idxs_tokens = []
+                synonyms = self._cluster_one_batch(cluster_vecs, idxs, cluster_batch, true_k, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
+                cluster_batch = []
+      if cluster_batch: 
+        idxs = [token2idx[token.lstrip('¶')] for token in  cluster_batch]
+        true_k=int(max(2, (len(idxs))/max_cluster_size))
+        synonyms = self._cluster_one_batch(cluster_vecs, idxs, cluster_batch, true_k, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
+        cluster_batch = []
                 
     return synonyms
   
@@ -368,8 +364,10 @@ class RiverbedModel:
     if token2weight is None: token2weight = {} if not hasattr(self, 'token2weight') else self.token2weight    
     if stopwords is None: stopwords = {} if not hasattr(self, 'stopwords') else self.stopwords
     # assumes token2weight is an ordered dict, ordered roughly by frequency
-    terms = list(token2weight.keys())
-    if not terms: return synonyms
+    tokens = list(token2weight.keys())
+    if not tokens: return synonyms
+    if token2idx is None:
+      token2idx = dict([(token, idx) for idx, token in enumerate(tokens)])
     if embedder == "clip":
       embed_dim = clip_model.config.text_config.hidden_size
     elif embedder == "minilm":
@@ -377,27 +375,27 @@ class RiverbedModel:
     elif embedder == "labse":
       embed_dim = labse_model.config.hidden_size
     cluster_vecs = np_memmap(f"{model_name}/{model_name}.{embedder}_tokens", shape=[len(token2weight), embed_dim])
-    terms_idx = [idx for idx, term in enumerate(terms) if term not in synonyms and term[0] != '¶' ]
+    terms_idx = [idx for idx, term in enumerate(tokens) if term not in synonyms and term[0] != '¶' ]
     print ('creating embeds', len(terms_idx))
-    terms_idx_in_synonyms = [idx for idx, term in enumerate(terms) if term in synonyms and term[0] != '¶']
+    terms_idx_in_synonyms = [idx for idx, term in enumerate(tokens) if term in synonyms and term[0] != '¶']
     len_terms_idx = len(terms_idx)
     #increase the terms_idx list to include non-parent tokens that have empty embeddings
     for rng in tqdm.tqdm(range(0, len(terms_idx), embed_batch_size)):
       max_rng = min(len(terms_idx), rng+embed_batch_size)
       if embedder == "clip":
-        toks = clip_processor([terms[idx].replace("_", " ") for idx in terms_idx[rng:max_rng]], padding=True, truncation=True, return_tensors="pt").to(device)
+        toks = clip_processor([tokens[idx].replace("_", " ") for idx in terms_idx[rng:max_rng]], padding=True, truncation=True, return_tensors="pt").to(device)
         with torch.no_grad():
           cluster_vecs = clip_model.get_text_features(**toks).cpu().numpy()
       elif embedder == "minilm":
-        toks = minilm_tokenizer([terms[idx].replace("_", " ") for idx in terms_idx[rng:max_rng]], padding=True, truncation=True, return_tensors="pt").to(device)
+        toks = minilm_tokenizer([tokens[idx].replace("_", " ") for idx in terms_idx[rng:max_rng]], padding=True, truncation=True, return_tensors="pt").to(device)
         with torch.no_grad():
           cluster_vecs = minilm_model(**toks)
           cluster_vecs = mean_pooling(cluster_vecs, toks.attention_mask).cpu().numpy()
       elif embedder == "labse":
-        toks = labse_tokenizer([terms[idx].replace("_", " ") for idx in terms_idx[rng:max_rng]], padding=True, truncation=True, return_tensors="pt").to(device)
+        toks = labse_tokenizer([tokens[idx].replace("_", " ") for idx in terms_idx[rng:max_rng]], padding=True, truncation=True, return_tensors="pt").to(device)
         with torch.no_grad():
           cluster_vecs = labse_model(**toks).pooler_output.cpu().numpy()          
-      cluster_vecs = np_memmap(f"{model_name}/{model_name}.{embedder}_tokens", shape=[len(terms), cluster_vecs.shape[1]], dat=cluster_vecs, idxs=terms_idx[rng:max_rng])  
+      cluster_vecs = np_memmap(f"{model_name}/{model_name}.{embedder}_tokens", shape=[len(tokens), cluster_vecs.shape[1]], dat=cluster_vecs, idxs=terms_idx[rng:max_rng])  
     len_terms_idx = len(terms_idx)
     times = -1
     times_start_recluster = max(0, (int(len(terms_idx)/int(kmeans_batch_size*.7))-3))
@@ -405,10 +403,10 @@ class RiverbedModel:
     for rng in tqdm.tqdm(range(0,len_terms_idx, int(kmeans_batch_size*.7))):
       times += 1
       max_rng = min(len_terms_idx, rng+int(kmeans_batch_size*.7))
-      prev_ids = [idx for idx in terms_idx[:rng] if terms[idx] not in synonyms]
-      terms_idx_in_synonyms.extend([idx for idx in terms_idx[:rng] if terms[idx] in synonyms])
+      prev_ids = [idx for idx in terms_idx[:rng] if tokens[idx] not in synonyms]
+      terms_idx_in_synonyms.extend([idx for idx in terms_idx[:rng] if tokens[idx] in synonyms])
       terms_idx_in_synonyms = list(set(terms_idx_in_synonyms))
-      terms_idx_in_synonyms = [idx for idx in terms_idx_in_synonyms if terms[idx] in synonyms]
+      terms_idx_in_synonyms = [idx for idx in terms_idx_in_synonyms if tokens[idx] in synonyms]
       max_prev_ids = max(int(kmeans_batch_size*.15), int(.5*min_prev_ids))
       if len(prev_ids) > max_prev_ids:
         prev_ids = random.sample(prev_ids, max_prev_ids)
@@ -420,41 +418,38 @@ class RiverbedModel:
       idxs = prev_ids + terms_idx[rng:max_rng]
       #print ('clustering', len(idxs))
       true_k=int(max(2, (len(idxs))/prefered_cluster_size))
-      terms2 = [terms[idx] for idx in idxs]
+      terms2 = [tokens[idx] for idx in idxs]
       synonyms = self._cluster_one_batch(cluster_vecs, idxs, terms2, true_k, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)
       if times >= times_start_recluster:
-        idxs_tokens=[]
+        cluster_batch=[]
         ontology = self.get_ontology(synonyms)
-        for key, cluster in ontology.items():
+        for parent, cluster in ontology.items(): 
+          if len(parent) - len(parent.lstrip('¶')) != 1: continue 
           if max_rng != len_terms_idx and len(cluster) < prefered_cluster_size*.5:
             for token in cluster:
               del synonyms[token]
           elif len(cluster) > max_cluster_size:
-            #print ('recluster larger to small clusters', key)
-            re_cluster = set(cluster)
-            for token in cluster:
-              del synonyms[token] 
-            if recluster_type=="individual":
-              idxs_tokens = [(idx,token) for idx, token in enumerate(token2weight.keys()) if token in re_cluster]
-              tokens = [a[1] for a in idxs_tokens]
-              idxs = [a[0] for a in idxs_tokens]
-              true_k=int(max(2, (len(idxs))/prefered_cluster_size))
-              synonyms = self._cluster_one_batch(cluster_vecs, idxs, tokens, true_k, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
-              idxs_tokens = []
-            else:
-              idxs_tokens.extend([(idx,token) for idx, token in enumerate(token2weight.keys()) if token in re_cluster])
-              if len(idxs_tokens) > kmeans_batch_size:
-                tokens = [a[1] for a in idxs_tokens]
-                idxs = [a[0] for a in idxs_tokens]
+              #print ('recluster larger to small clusters', parent)
+              for token in cluster:
+                del synonyms[token] 
+              if recluster_type=="individual":
+                idxs = [token2idx[token] for token in  cluster]
                 true_k=int(max(2, (len(idxs))/prefered_cluster_size))
-                synonyms = self._cluster_one_batch(cluster_vecs, idxs, tokens, true_k, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
-                idxs_tokens = []
-        if idxs_tokens: 
-                tokens = [a[1] for a in idxs_tokens]
-                idxs = [a[0] for a in idxs_tokens]
-                true_k=int(max(2, (len(idxs))/prefered_cluster_size))
-                synonyms = self._cluster_one_batch(cluster_vecs, idxs, tokens, true_k, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
-                idxs_tokens = []
+                synonyms = self._cluster_one_batch(cluster_vecs, idxs, cluster, true_k, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
+                cluster_batch = []
+              else:
+                cluster_batch.extend(cluster)
+                if len(cluster_batch) > kmeans_batch_size:
+                  idxs = [token2idx[token] for token in  cluster_batch]
+                  true_k=int(max(2, (len(idxs))/prefered_cluster_size))
+                  synonyms = self._cluster_one_batch(cluster_vecs, idxs, cluster_batch, true_k, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
+                  cluster_batch = []
+        if cluster_batch: 
+          idxs = [token2idx[token] for token in  cluster_batch]
+          true_k=int(max(2, (len(idxs))/prefered_cluster_size))
+          synonyms = self._cluster_one_batch(cluster_vecs, idxs, cluster_batch, true_k, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
+          cluster_batch = []
+
     if do_ontology: synonyms = self._create_ontology(model_name, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight,  kmeans_batch_size=50000, epoch = 10, \
                                                     embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, embedder=embedder, max_ontology_depth=max_ontology_depth, max_cluster_size=max_cluster_size, \
                                                      recluster_type=recluster_type, min_incremental_cluster_overlap=min_incremental_cluster_overlap)
