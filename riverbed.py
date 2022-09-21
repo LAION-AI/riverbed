@@ -124,7 +124,7 @@ class RiverbedTokenizer:
   def token2idx(self):
     return OrderedDict([(term, idx) for idx, term in enumerate(self.tokenweight.items())])
     
-  def tokenize(self, doc, min_compound_weight=0,  compound=None, token2weight=None, synonyms=None, use_synonym_replacement=False):
+  def tokenize(self, doc, min_compound_weight=0,  max_compound_word_size=100, compound=None, token2weight=None, synonyms=None, use_synonym_replacement=False):
     if synonyms is None: synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
     if token2weight is None: token2weight = {} if not hasattr(self, 'token2weight') else self.token2weight    
     if compound is None: compound = {} if not hasattr(self, 'compound') else self.compound
@@ -136,7 +136,7 @@ class RiverbedTokenizer:
                 
         tokenArr = doc[i].strip("_").replace("__", "_").split("_")
         if tokenArr[0] in compound:
-          max_compound_len = compound[tokenArr[0]]
+          max_compound_len = min(max_compound_word_size, compound[tokenArr[0]])
           for j in range(min(len_doc, i+max_compound_len), i+1, -1):
             token = ("_".join(doc[i:j])).strip("_").replace("__", "_")
             tokenArr = token.split("_")
@@ -378,6 +378,7 @@ class RiverbedModel:
       embed_dim = labse_model.config.hidden_size
     cluster_vecs = np_memmap(f"{model_name}/{model_name}.{embedder}_tokens", shape=[len(token2weight), embed_dim])
     terms_idx = [idx for idx, term in enumerate(terms) if term not in synonyms and term[0] != '¶' ]
+    print ('creating embeds', len(terms_idx))
     terms_idx_in_synonyms = [idx for idx, term in enumerate(terms) if term in synonyms and term[0] != '¶']
     len_terms_idx = len(terms_idx)
     #increase the terms_idx list to include non-parent tokens that have empty embeddings
@@ -400,6 +401,7 @@ class RiverbedModel:
     len_terms_idx = len(terms_idx)
     times = -1
     times_start_recluster = max(0, (int(len(terms_idx)/int(kmeans_batch_size*.7))-3))
+    print ('clusering embeds', len(terms_idx))
     for rng in tqdm.tqdm(range(0,len_terms_idx, int(kmeans_batch_size*.7))):
       times += 1
       max_rng = min(len_terms_idx, rng+int(kmeans_batch_size*.7))
@@ -544,20 +546,13 @@ class RiverbedModel:
       for doc_id, file_name in enumerate(files):
         if dedup_compound_words_larger_than:
           dedup_compound_words_num_iter = max(0, math.ceil(dedup_compound_words_larger_than/(5 *(doc_id+1))))
-          self.tokenizer.token2weight, self.tokenizer.compound, self.tokenizer.synonyms, self.tokenizer.stopwords = token2weight, compound, synonyms, stopwords 
-          self.synonyms = self.tokenizer.synonyms
-          # if we are first computing ngrams to do dedup, make a temporary copy of the tokenizer data structures
-          compound = copy.deepcopy(compound)
-          synonyms = copy.deepcopy(synonyms)
-          stopwords = copy.deepcopy(stopwords)
-          token2weight = copy.deepcopy(token2weight)
         else:
           dedup_compound_words_num_iter = 0
         num_iter = max(1,math.ceil(min_compound_word_size/(5 *(doc_id+1))))
         #we can repeatedly run the below to get long ngrams
         #after we tokenize for ngram and replace with tokens with underscores (the_projected_revenue) at each step, we redo the ngram count
         curr_arpa = {}
-        print ('num iter', num_iter, dedup_compound_words_num_iter)
+        print ('num iter', num_iter, "+", dedup_compound_words_num_iter)
         prev_file = file_name
         for times in range(num_iter+dedup_compound_words_num_iter):
             print (f"iter {file_name}", times)
@@ -573,10 +568,7 @@ class RiverbedModel:
                 else:
                   f = open(file_name, "rb")
                 while True:
-                  try:
-                    l = f.readline()
-                  except:
-                    break
+                  l = f.readline()
                   if not l: break 
                   l = l.decode().strip()  
                   orig_l = l.replace("_", " ").replace("  ", " ").strip()
@@ -596,17 +588,12 @@ class RiverbedModel:
                   for w in dedup_compound_word:
                     seen_dedup_compound_words[w] = 1
                   tmp2.write(l2+"\n")
-                  seen_dedup_compound_words = None
-                  print ('finished deduping', deduped_num_tokens)
-              os.system(f"cp {model_name}/__tmp__{file_name} {model_name}/{file_name}.dedup")  
-              os.system(f"gzip {model_name}/{file_name}.dedup")
-              prev_file = f"{model_name}/{file_name}.dedup.gz"
-              token2weight = self.tokenizer.token2weight = OrderedDict() if not hasattr(self, 'token2weight') else self.tokenizer.token2weight
-              compound = self.tokenizer.compound = {} if not hasattr(self.tokenizer, 'compound') else self.tokenizer.compound
-              synonyms = self.tokenizer.synonyms = {} if not hasattr(self.tokenizer, 'synonyms') else self.tokenizer.synonyms
-              self.synonyms = self.tokenizer.synonyms
-              stopwords = self.tokenizer.stopwords = {} if not hasattr(self.tokenizer, 'stopwords') else self.tokenizer.stopwords              
-              curr_arpa = {}
+                seen_dedup_compound_words = None
+                print ('finished deduping', deduped_num_tokens)
+                os.system(f"cp {model_name}/__tmp__{file_name} {model_name}/{file_name}.dedup")  
+                os.system(f"gzip {model_name}/{file_name}.dedup")
+                prev_file = f"{model_name}/{file_name}.dedup.gz"       
+                curr_arpa = {}
             # we only do synonym and embedding creation as the second to last or last step of each file processed 
             # b/c this is very expensive. we can do this right before the last counting if we
             # do synonym replacement so we have a chance to create syonyms for the replacement.
