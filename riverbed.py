@@ -578,9 +578,9 @@ class RiverbedModel:
                   except:
                     break
                   if not l: break 
-                  l = l.decode()  
+                  l = l.decode().strip()  
                   orig_l = l.replace("_", " ").replace("  ", " ").strip()
-                  l = tokenizer.tokenize(l.strip(), min_compound_weight=0, compound=compound, token2weight=token2weight,  synonyms=synonyms, use_synonym_replacement=False)
+                  l = tokenizer.tokenize(l, min_compound_weight=0, compound=compound, token2weight=token2weight,  synonyms=synonyms, use_synonym_replacement=False)
                   l = l.split()
                   dedup_compound_word = [w for w in l if "_" in w and w.count("_") + 1 > dedup_compound_words_larger_than]
                   if not dedup_compound_word:
