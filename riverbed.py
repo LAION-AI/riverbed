@@ -319,7 +319,7 @@ class RiverbedModel:
     if token2idx is None:
       token2idx = dict([(token, idx) for idx, token in enumerate(tokens)])
     print ('creating ontology')
-    for level in tqdm.tqdm(range(max_ontology_depth)): 
+    for level in range(max_ontology_depth): 
       ontology = self.get_ontology(synonyms)
       parents = [parent for parent in ontology.keys() if len(parent) - len(parent.lstrip('¶')) == level + 1]
       if len(parents) < max_cluster_size: break
@@ -546,7 +546,7 @@ class RiverbedModel:
         #we can repeatedly run the below to get long ngrams
         #after we tokenize for ngram and replace with tokens with underscores (the_projected_revenue) at each step, we redo the ngram count
         curr_arpa = {}
-        print ('num iter', num_iter, "+", dedup_compound_words_num_iter)
+        print ('doing ', file_name, 'num iter', num_iter, "+", dedup_compound_words_num_iter)
         prev_file = file_name
         for times in range(num_iter+dedup_compound_words_num_iter):
             print (f"iter {file_name}", times)
@@ -599,7 +599,9 @@ class RiverbedModel:
                   prefered_cluster_size=prefered_cluster_size, embedder=embedder, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, max_ontology_depth=max_ontology_depth, max_cluster_size=max_cluster_size, do_ontology=do_ontology, recluster_type=recluster_type)   
             if token2weight:
               # if we want to make this faster, we can parrallelize this in a pool
-              with open(f"{model_name}/__tmp__{file_name}", "w", encoding="utf8") as tmp2:
+              tmp_file_name = f"{model_name}/__tmp__{file_name}"
+              if tmp_file_name.endswith(".gz"): tmp_file_name = tmp_file_name[:-len(".gz")]
+              with open(tmp_file_name, "w", encoding="utf8") as tmp2:
                 if prev_file.endswith(".gz"):
                   f = gzip.open(prev_file)
                 else:
@@ -616,8 +618,8 @@ class RiverbedModel:
                     if times == num_iter-1:
                       l = tokenizer.tokenize(l, min_compound_weight=0, compound=compound, token2weight=token2weight,  synonyms=synonyms, use_synonym_replacement=use_synonym_replacement)
                   tmp2.write(l+"\n")  
-              os.system(f"gzip {model_name}/__tmp__{file_name}")
-              prev_file = f"{model_name}/__tmp__{file_name}.gz" 
+              os.system(f"gzip {tmp_file_name}")
+              prev_file = f"{tmp_file_name}.gz" 
             if do_collapse_values:
               os.system(f"./{lmplz} --collapse_values  --discount_fallback  --skip_symbols -o 5 --prune {min_num_tokens}  --arpa {model_name}/{file_name}.arpa <  {prev_file}") ##
             else:
