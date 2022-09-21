@@ -577,7 +577,8 @@ class RiverbedModel:
                     l = f.readline()
                   except:
                     break
-                  if not l: break   
+                  if not l: break 
+                  l = l.decode()  
                   orig_l = l.replace("_", " ").replace("  ", " ").strip()
                   l = tokenizer.tokenize(l.strip(), min_compound_weight=0, compound=compound, token2weight=token2weight,  synonyms=synonyms, use_synonym_replacement=False)
                   l = l.split()
