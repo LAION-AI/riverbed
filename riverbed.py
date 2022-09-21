@@ -554,7 +554,9 @@ class RiverbedModel:
               # sometimes we want to do some pre-processing b/c n-grams larger than a certain amount are just duplicates
               # and can mess up our token counts
               print ('deduping compound words larger than',dedup_compound_words_larger_than)
-              with open(f"{model_name}/__tmp__{file_name}", "w", encoding="utf8") as tmp2:
+              tmp_file_name = f"{model_name}/__tmp__{file_name}"
+              if tmp_file_name.endswith(".gz"): tmp_file_name = tmp_file_name[:-len(".gz")]
+              with open(f"{tmp_file_name}", "w", encoding="utf8") as tmp2:
                 deduped_num_tokens = 0
                 seen_dedup_compound_words = {}
                 if file_name.endswith(".gz"):
@@ -584,9 +586,12 @@ class RiverbedModel:
                   tmp2.write(l2+"\n")
                 seen_dedup_compound_words = None
                 print ('finished deduping', deduped_num_tokens)
-                os.system(f"cp {model_name}/__tmp__{file_name} {model_name}/{file_name}.dedup")  
-                os.system(f"gzip {model_name}/{file_name}.dedup")
-                prev_file = f"{model_name}/{file_name}.dedup.gz"       
+                dedup_name = f"{model_name}/{file_name}.dedup"
+                if dedup_name.endswith(".gz"): dedup_name = dedup_name[:-len(".gz")]
+              
+                os.system(f"cp {tmp_file_name} {dedup_name}")  
+                os.system(f"gzip {dedup_name}")
+                prev_file = f"{dedup_name}.gz"       
                 curr_arpa = {}
             # we only do synonym and embedding creation as the second to last or last step of each file processed 
             # b/c this is very expensive. we can do this right before the last counting if we
