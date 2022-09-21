@@ -366,8 +366,7 @@ class RiverbedModel:
     # assumes token2weight is an ordered dict, ordered roughly by frequency
     tokens = list(token2weight.keys())
     if not tokens: return synonyms
-    if token2idx is None:
-      token2idx = dict([(token, idx) for idx, token in enumerate(tokens)])
+    token2idx = dict([(token, idx) for idx, token in enumerate(tokens)])
     if embedder == "clip":
       embed_dim = clip_model.config.text_config.hidden_size
     elif embedder == "minilm":
@@ -450,7 +449,7 @@ class RiverbedModel:
           synonyms = self._cluster_one_batch(cluster_vecs, idxs, cluster_batch, true_k, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
           cluster_batch = []
 
-    if do_ontology: synonyms = self._create_ontology(model_name, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight,  kmeans_batch_size=50000, epoch = 10, \
+    if do_ontology: synonyms = self._create_ontology(model_name, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight,  token2idx=token2idx, kmeans_batch_size=50000, epoch = 10, \
                                                     embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, embedder=embedder, max_ontology_depth=max_ontology_depth, max_cluster_size=max_cluster_size, \
                                                      recluster_type=recluster_type, min_incremental_cluster_overlap=min_incremental_cluster_overlap)
     return synonyms
