@@ -546,7 +546,7 @@ class RiverbedModel:
         #we can repeatedly run the below to get long ngrams
         #after we tokenize for ngram and replace with tokens with underscores (the_projected_revenue) at each step, we redo the ngram count
         curr_arpa = {}
-        print ('doing ', file_name, 'num iter', num_iter, "+", dedup_compound_words_num_iter)
+        print ('doing', file_name, 'num iter', num_iter, "+", dedup_compound_words_num_iter)
         prev_file = file_name
         for times in range(num_iter+dedup_compound_words_num_iter):
             print (f"iter {file_name}", times)
