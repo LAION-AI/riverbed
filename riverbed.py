@@ -721,7 +721,7 @@ class RiverbedModel:
             os.system(f"rm {file_name}.arpa")
             if times == num_iter+dedup_compound_words_num_iter-1  and not synonyms_created:
                 self.synonyms = self.tokenizer.synonyms = synonyms = self._create_token_embeds_and_synonyms(model_name, stopwords=stopwords, token2weight=token2weight, synonyms=synonyms, kmeans_batch_size=kmeans_batch_size, min_incremental_cluster_overlap=min_incremental_cluster_overlap, \
-                  prefered_cluster_size=prefered_cluster_size, embedder=embedder, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents, do_ontology=do_ontology, recluster_type=recluster_type)   
+                  prefered_cluster_size=prefered_cluster_size, embedder=embedder, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, max_ontology_depth=max_ontology_depth, max_cluster_size=max_cluster_size, do_ontology=do_ontology, recluster_type=recluster_type)   
         for key, weight in curr_arpa.items():
             arpa[key] = min(float(weight), arpa.get(key, 100))
         curr_arpa = {}
