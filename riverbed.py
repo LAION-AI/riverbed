@@ -52,6 +52,7 @@ from collections import OrderedDict
 from fast_pytorch_kmeans import KMeans
 import torch
 import tqdm
+import gzip
 if torch.cuda.is_available():
   device = 'cuda'
 else:
@@ -472,6 +473,8 @@ class RiverbedModel:
       global device, clip_model, minilm_model, labse_model
       os.system(f"mkdir -p {model_name}")
       assert min_compound_word_size <= dedup_compound_words_larger_than, "can't have a minimum compound words greater than what is removed"
+      for file_name in files:
+        assert os.path.getsize(file_name) < 5000000000, f"{file_name} size should be less than 5GB. Break up the file into 5GB shards."
       if embedder == "clip":
         clip_model = clip_model.to(device)
         minilm_model =  minilm_model.cpu()
@@ -555,41 +558,48 @@ class RiverbedModel:
         #after we tokenize for ngram and replace with tokens with underscores (the_projected_revenue) at each step, we redo the ngram count
         curr_arpa = {}
         print ('num iter', num_iter, dedup_compound_words_num_iter)
+        prev_file = file_name
         for times in range(num_iter+dedup_compound_words_num_iter):
             print (f"iter {file_name}", times)
-            if times == 0:
-              os.system(f"cp {file_name} {model_name}/__tmp__{file_name}")
-            elif dedup_compound_words_larger_than is not None and times == dedup_compound_words_num_iter:
+            if dedup_compound_words_larger_than is not None and times == dedup_compound_words_num_iter:
               # sometimes we want to do some pre-processing b/c n-grams larger than a certain amount are just duplicates
               # and can mess up our token counts
               print ('deduping compound words larger than',dedup_compound_words_larger_than)
-              os.system(f"cp {file_name} {model_name}/__tmp__{file_name}")
-              with open(f"{model_name}/__tmp__2_{file_name}", "w", encoding="utf8") as tmp2:
-                with open(f"{model_name}/__tmp__{file_name}", "r") as f:
-                  deduped_num_tokens = 0
-                  seen_dedup_compound_words = {}
-                  for l in f:
-                    orig_l = l.replace("_", " ").replace("  ", " ").strip()
-                    l = tokenizer.tokenize(l.strip(), min_compound_weight=0, compound=compound, token2weight=token2weight,  synonyms=synonyms, use_synonym_replacement=False)
-                    l = l.split()
-                    dedup_compound_word = [w for w in l if "_" in w and w.count("_") + 1 > dedup_compound_words_larger_than]
-                    if not dedup_compound_word:
-                      l2 = " ".join(l).replace("_", " ").strip()
-                      tmp2.write(l2+"\n")
-                      continue
-                    l = [w if ("_" not in w or w.count("_") + 1 <= dedup_compound_words_larger_than or w not in seen_dedup_compound_words) else '...' for w in l]
-                    l2 = " ".join(l).replace("_", " ").replace(' ... ...', ' ...').strip()
-                    if l2.endswith(" ..."): l2 = l2[:-len(" ...")]
-                    if dedup_compound_word and l2 != orig_l:
-                      deduped_num_tokens += 1
-                    #  print ('dedup ngram', dedup_compound_word, l2)
-                    for w in dedup_compound_word:
-                      seen_dedup_compound_words[w] = 1
+              with open(f"{model_name}/__tmp__{file_name}", "w", encoding="utf8") as tmp2:
+                deduped_num_tokens = 0
+                seen_dedup_compound_words = {}
+                if file_name.endswith(".gz"):
+                  f = gzip.open(file_name)
+                else:
+                  f = open(file_name, "rb")
+                while True:
+                  try:
+                    l = f.readline()
+                  except:
+                    break
+                  if not l: break   
+                  orig_l = l.replace("_", " ").replace("  ", " ").strip()
+                  l = tokenizer.tokenize(l.strip(), min_compound_weight=0, compound=compound, token2weight=token2weight,  synonyms=synonyms, use_synonym_replacement=False)
+                  l = l.split()
+                  dedup_compound_word = [w for w in l if "_" in w and w.count("_") + 1 > dedup_compound_words_larger_than]
+                  if not dedup_compound_word:
+                    l2 = " ".join(l).replace("_", " ").strip()
                     tmp2.write(l2+"\n")
+                    continue
+                  l = [w if ("_" not in w or w.count("_") + 1 <= dedup_compound_words_larger_than or w not in seen_dedup_compound_words) else '...' for w in l]
+                  l2 = " ".join(l).replace("_", " ").replace(' ... ...', ' ...').strip()
+                  if l2.endswith(" ..."): l2 = l2[:-len(" ...")]
+                  if dedup_compound_word and l2 != orig_l:
+                    deduped_num_tokens += 1
+                  #  print ('dedup ngram', dedup_compound_word, l2)
+                  for w in dedup_compound_word:
+                    seen_dedup_compound_words[w] = 1
+                  tmp2.write(l2+"\n")
                   seen_dedup_compound_words = None
                   print ('finished deduping', deduped_num_tokens)
-              os.system(f"cp {model_name}/__tmp__2_{file_name} {model_name}/{file_name}.dedup")  
-              os.system(f"mv {model_name}/__tmp__2_{file_name} {model_name}/__tmp__{file_name}")   
+              os.system(f"cp {model_name}/__tmp__{file_name} {model_name}/{file_name}.dedup")  
+              os.system(f"gzip {model_name}/{file_name}.dedup")
+              prev_file = f"{model_name}/{file_name}.dedup.gz"
               token2weight = self.tokenizer.token2weight = OrderedDict() if not hasattr(self, 'token2weight') else self.tokenizer.token2weight
               compound = self.tokenizer.compound = {} if not hasattr(self.tokenizer, 'compound') else self.tokenizer.compound
               synonyms = self.tokenizer.synonyms = {} if not hasattr(self.tokenizer, 'synonyms') else self.tokenizer.synonyms
@@ -606,18 +616,30 @@ class RiverbedModel:
                 self.synonyms = self.tokenizer.synonyms = synonyms = self._create_token_embeds_and_synonyms(model_name, stopwords=stopwords, token2weight=token2weight, synonyms=synonyms, kmeans_batch_size=kmeans_batch_size, min_incremental_cluster_overlap=min_incremental_cluster_overlap, \
                   prefered_cluster_size=prefered_cluster_size, embedder=embedder, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, max_ontology_depth=max_ontology_depth, max_cluster_size=max_cluster_size, do_ontology=do_ontology, recluster_type=recluster_type)   
             if token2weight:
-              with open(f"{model_name}/__tmp__2_{file_name}", "w", encoding="utf8") as tmp2:
-                with open(f"{model_name}/__tmp__{file_name}", "r") as f:
-                  for l in f:
-                    l = tokenizer.tokenize(l.strip(),  min_compound_weight=min_compound_weight, compound=compound, token2weight=token2weight, synonyms=synonyms, use_synonym_replacement=use_synonym_replacement)
+              # if we want to make this faster, we can parrallelize this in a pool
+              with open(f"{model_name}/__tmp__{file_name}", "w", encoding="utf8") as tmp2:
+                if prev_file.endswith(".gz"):
+                  f = gzip.open(prev_file)
+                else:
+                  f = open(prev_file, "rb")
+                while True:
+                  try:
+                    l = f.readline()
+                  except:
+                    break
+                  if not l: break   
+                  l = l.decode().strip()
+                  if l:               
+                    l = tokenizer.tokenize(l,  min_compound_weight=min_compound_weight, compound=compound, token2weight=token2weight, synonyms=synonyms, use_synonym_replacement=use_synonym_replacement)
                     if times == num_iter-1:
-                      l = tokenizer.tokenize(l.strip(), min_compound_weight=0, compound=compound, token2weight=token2weight,  synonyms=synonyms, use_synonym_replacement=use_synonym_replacement)
-                    tmp2.write(l+"\n")  
-              os.system(f"mv {model_name}/__tmp__2_{file_name} {model_name}/__tmp__{file_name}")  
+                      l = tokenizer.tokenize(l, min_compound_weight=0, compound=compound, token2weight=token2weight,  synonyms=synonyms, use_synonym_replacement=use_synonym_replacement)
+                  tmp2.write(l+"\n")  
+              os.system(f"gzip {model_name}/__tmp__{file_name}")
+              prev_file = f"{model_name}/__tmp__{file_name}.gz" 
             if do_collapse_values:
-              os.system(f"./{lmplz} --collapse_values  --discount_fallback  --skip_symbols -o 5 --prune {min_num_tokens}  --arpa {model_name}/{file_name}.arpa <  {model_name}/__tmp__{file_name}") ##
+              os.system(f"./{lmplz} --collapse_values  --discount_fallback  --skip_symbols -o 5 --prune {min_num_tokens}  --arpa {model_name}/{file_name}.arpa <  {prev_file}") ##
             else:
-              os.system(f"./{lmplz}  --discount_fallback  --skip_symbols -o 5 --prune {min_num_tokens}  --arpa {model_name}/{file_name}.arpa <  {model_name}/__tmp__{file_name}") ##
+              os.system(f"./{lmplz}  --discount_fallback  --skip_symbols -o 5 --prune {min_num_tokens}  --arpa {model_name}/{file_name}.arpa <  {prev_file}") ##
             do_ngram = False
             n = 0
             with open(f"{model_name}/{file_name}.arpa", "rb") as f:    
