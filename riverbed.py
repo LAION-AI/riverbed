@@ -320,7 +320,7 @@ class RiverbedModel:
     for level in range(max_ontology_depth): 
       ontology = self.get_ontology(synonyms)
       parents = [parent for parent in ontology.keys() if len(parent) - len(parent.lstrip('¶')) == level + 1]
-      if len(parents) < max_top_parents: break
+      if len(parents) < max_cluster_size: break
       idxs = []
       for parent in parents:
         idxs.append(terms2idx[parent.lstrip('¶')])
