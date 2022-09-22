@@ -133,11 +133,12 @@ class RiverbedTokenizer:
     len_doc = len(doc)
     for i in range(len_doc-1):
         if doc[i] is None: continue
-                
         tokenArr = doc[i].strip("_").replace("__", "_").split("_")
         if tokenArr[0] in compound:
-          max_compound_len = min(max_compound_word_size, compound[tokenArr[0]])
+          min_compound_len = compound[tokenArr[0]][0]
+          max_compound_len = min(max_compound_word_size, compound[tokenArr[0]][-1])
           for j in range(min(len_doc, i+max_compound_len), i+1, -1):
+            if j <= i+min_compound_len-1: break
             token = ("_".join(doc[i:j])).strip("_").replace("__", "_")
             tokenArr = token.split("_")
             if len(tokenArr) <= max_compound_len and token in token2weight and token2weight.get(token, 0) >= min_compound_weight:
@@ -695,8 +696,7 @@ class RiverbedModel:
                       
                     #create the compound words length data structure
                     if weight >= min_compound_weight:
-                      aHash = compound[tokenArr[0]] = compound.get(tokenArr[0], {})
-                      compound[tokenArr[0]] = max(len(tokenArr), compound.get(tokenArr[0],0))
+                      compound[tokenArr[0]] = [min(len(tokenArr),  compound.get(tokenArr[0],[100,0])[0]), max(len(tokenArr), compound.get(tokenArr[0],[100,0])[-1])
                     weight = weight * len(tokenArr)            
                     token2weight[token] = min(token2weight.get(token, 100), weight) 
             top_stopwords={} 
