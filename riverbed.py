@@ -54,7 +54,7 @@ import torch
 import tqdm
 import gzip
 import multiprocessing
-
+from functools import partial
 if torch.cuda.is_available():
   device = 'cuda'
 else:
