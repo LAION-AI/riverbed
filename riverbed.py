@@ -127,34 +127,31 @@ class RiverbedTokenizer:
     return OrderedDict([(term, idx) for idx, term in enumerate(self.tokenweight.items())])
   
   @staticmethod
-  def _tokenize(doc_batch, min_compound_weight=0,  max_compound_word_size=10000, compound=None, token2weight=None, synonyms=None, use_synonym_replacement=False, return_str=True):
+  def _tokenize(doc, min_compound_weight=0,  max_compound_word_size=10000, compound=None, token2weight=None, synonyms=None, use_synonym_replacement=False, return_str=True):
     if not use_synonym_replacement: synonyms = {} 
-    ret = []
-    for doc in doc_batch:
-      doc = [synonyms.get(d,d) for d in doc.split(" ") if d.strip()]
-      len_doc = len(doc)
-      for i in range(len_doc-1):
-          if doc[i] is None: continue
-          tokenArr = doc[i].strip("_").replace("__", "_").split("_")
-          if tokenArr[0] in compound:
-            min_compound_len = compound[tokenArr[0]][0]
-            max_compound_len = min(max_compound_word_size, compound[tokenArr[0]][-1])
-            for j in range(min(len_doc, i+max_compound_len), i+1, -1):
-              if j <= i+min_compound_len-1: break
-              token = ("_".join(doc[i:j])).strip("_").replace("__", "_")
-              tokenArr = token.split("_")
-              if len(tokenArr) <= max_compound_len and token in token2weight and token2weight.get(token, 0) >= min_compound_weight:
-                old_token = token
-                doc[j-1] = synonyms.get(token, token).strip("_").replace("__", "_")
-                #if old_token != doc[j-1]: print (old_token, doc[j-1])
-                for k in range(i, j-1):
-                    doc[k] = None
-                break
-      if return_str: 
-        ret.append(" ".join([d for d in doc if d]))
-      else: 
-        ret.append([d for d in doc if d])
-    return ret
+    doc = [synonyms.get(d,d) for d in doc.split(" ") if d.strip()]
+    len_doc = len(doc)
+    for i in range(len_doc-1):
+        if doc[i] is None: continue
+        tokenArr = doc[i].strip("_").replace("__", "_").split("_")
+        if tokenArr[0] in compound:
+          min_compound_len = compound[tokenArr[0]][0]
+          max_compound_len = min(max_compound_word_size, compound[tokenArr[0]][-1])
+          for j in range(min(len_doc, i+max_compound_len), i+1, -1):
+            if j <= i+min_compound_len-1: break
+            token = ("_".join(doc[i:j])).strip("_").replace("__", "_")
+            tokenArr = token.split("_")
+            if len(tokenArr) <= max_compound_len and token in token2weight and token2weight.get(token, 0) >= min_compound_weight:
+              old_token = token
+              doc[j-1] = synonyms.get(token, token).strip("_").replace("__", "_")
+              #if old_token != doc[j-1]: print (old_token, doc[j-1])
+              for k in range(i, j-1):
+                  doc[k] = None
+              break
+    if return_str: 
+      return " ".join([d for d in doc if d])
+    else: 
+      return [d for d in doc if d]
   
   def tokenize(self, doc_batch, min_compound_weight=0,  max_compound_word_size=10000, compound=None, token2weight=None, synonyms=None, use_synonym_replacement=False, return_str=True):
     if synonyms is None: synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
@@ -163,21 +160,22 @@ class RiverbedTokenizer:
     if type(doc_batch) is str:
       doc_batch = [doc_batch]
     if len(doc_batch) < 1000:
-     ret = RiverbedTokenizer._tokenize(doc_batch, min_compound_weight=min_compound_weight,  max_compound_word_size=max_compound_word_size, \
+     ret = [RiverbedTokenizer._tokenize(doc, min_compound_weight=min_compound_weight,  max_compound_word_size=max_compound_word_size, \
                      compound=compound, token2weight=token2weight, synonyms=synonyms, use_synonym_replacement=use_synonym_replacement, \
-                     return_str=return_str)
+                     return_str=return_str) for doc in doc_batch]
      if len(ret) == 1:
       return ret[0]
      else:
       return ret
     else:
+      ret = []
       chunk_size = int(len(doc_batch)/multiprocessing.cpu_count())
       pool = multiprocessing.Pool(processes=multiprocessing.cpu_count()) 
-      ret = pool.imap(partial(RiverbedTokenizer._tokenize, min_compound_weight=min_compound_weight,  max_compound_word_size=max_compound_word_size, \
+      ret2 = pool.imap(partial(RiverbedTokenizer._tokenize, min_compound_weight=min_compound_weight,  max_compound_word_size=max_compound_word_size, \
                                   compound=compound, token2weight=token2weight, synonyms=synonyms, use_synonym_replacement=use_synonym_replacement, \
                                   return_str=return_str),
                                   doc_batch, chunk_size)
-      return list(ret)
+      return list(ret2)
     
       
       
@@ -606,6 +604,7 @@ class RiverbedModel:
                   if not l: finished=True  
                   l_batch = tokenizer.tokenize(l_batch, min_compound_weight=0, compound=compound, token2weight=token2weight,  synonyms=synonyms, use_synonym_replacement=False)
                   for l in l_batch:
+                    orig_l = l
                     l = l.split()
                     dedup_compound_word = [w for w in l if "_" in w and w.count("_") + 1 > dedup_compound_words_larger_than]
                     if not dedup_compound_word:
@@ -615,12 +614,13 @@ class RiverbedModel:
                     l = [w if ("_" not in w or w.count("_") + 1 <= dedup_compound_words_larger_than or w not in seen_dedup_compound_words) else '...' for w in l]
                     l2 = " ".join(l).replace("_", " ").replace(' ... ...', ' ...').strip()
                     if l2.endswith(" ..."): l2 = l2[:-len(" ...")]
-                    if dedup_compound_word and l2 in seen:
+                    if dedup_compound_word and l2 != orig_l:
                       deduped_num_tokens += 1
                     #  print ('dedup ngram', dedup_compound_word, l2)
                     for w in dedup_compound_word:
                       seen_dedup_compound_words[w] = 1
                     tmp2.write(l2+"\n")
+                  l_batch = []
                   if finished: break
                 seen_dedup_compound_words = None
                 print ('finished deduping', deduped_num_tokens)
@@ -661,7 +661,8 @@ class RiverbedModel:
                   l_batch = tokenizer.tokenize(l_batch,  min_compound_weight=min_compound_weight, compound=compound, token2weight=token2weight, synonyms=synonyms, use_synonym_replacement=use_synonym_replacement)
                   if times == num_iter-1:
                       l_batch = tokenizer.tokenize(l_batch, min_compound_weight=0, compound=compound, token2weight=token2weight,  synonyms=synonyms, use_synonym_replacement=use_synonym_replacement)
-                  tmp2.write("\n".join(l_batch)+"\n")  
+                  tmp2.write("\n".join(l_batch)+"\n") 
+                  l_batch = [] 
                   if finished: break
               os.system(f"gzip {tmp_file_name}")
               prev_file = f"{tmp_file_name}.gz" 
