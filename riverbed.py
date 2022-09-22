@@ -54,6 +54,8 @@ import torch
 import tqdm
 import gzip
 import multiprocessing
+import bisect
+
 if torch.cuda.is_available():
   device = 'cuda'
 else:
@@ -98,6 +100,111 @@ if minilm_model is None:
 
   spacy_nlp = spacy.load('en_core_web_md')
   stopwords_set = set(nltk_stopwords.words('english') + ['...', 'could', 'should', 'shall', 'can', 'might', 'may', 'include', 'including'])
+
+#A more memory efficient ordered dictionary with keys that are str. 
+# stores the keys by its prefix, and creates buckets that are binary searched. 
+class PrefixOrderedDict(OrderedDict):
+  def __init__(self, *args, **kwargs):
+    if 'prefix_len' in kwargs:
+      prefix_len = kwargs['prefix_len']
+      del kwargs['prefix_len']
+    else:
+      prefix_len = 4
+    super().__init(*args, **kwargs)
+    self.items_arr = []
+
+  def keys(self):
+    for key_val in self.items_arr:
+      yield key_val[0]
+  
+  def values(self):
+    for key_val in self.items_arr:
+      yield key_val[1]
+  
+  def items(self):
+    for key_val in self.items_arr:
+      yield tuple(key_val)
+
+  def has_key(self, idx):
+    if len(idx) <= self.prefix_len:
+      return super().has_key(idx)
+    else:
+      idx2 = idx[:self.prefix_len]
+      if super().has_key(idx2):
+        arr = super().__getitem__(idx2)
+      else:
+        return False
+      search_key = [idx, None]
+      i = bisect.bisect_left(arr, search_key, key=lambda a: a[0])
+      len_arr = len(arr)
+      if i != len_arr and arr[i][0] == idx: return True
+      return False
+
+  def get(self, idx, default=None):
+    if len(idx) <= self.prefix_len:
+      if super().has_key(idx):
+        super().__get__item(idx)[1]
+      else:
+        return default
+    else:
+      idx2 = idx[:self.prefix_len]
+      if super().has_key(idx2):
+        arr = super().__getitem__(idx2)
+      else:
+        return default
+      search_key = [idx, None]
+      i = bisect.bisect_left(arr, search_key, key=lambda a: a[0])
+      len_arr = len(arr)
+      if i != len_arr and arr[i][0] == idx: return arr[i][1] 
+      return default
+
+  def __getitem__(self, idx):
+    if len(idx) <= self.prefix_len:
+      return super().__getitem__(idx)[1]
+    else:
+      idx2 = idx[:self.prefix_len]
+      if super().has_key(idx2):
+        arr = super().__getitem__(idx2)
+      else:
+        raise ValueError
+      search_key = [idx, None]
+      i = bisect.bisect_left(arr, search_key, key=lambda a: a[0])
+      len_arr = len(arr)
+      if i != len_arr and arr[i][0] == idx:
+        return arr[i][1]
+      raise ValueError
+  
+  def __len__(self):
+      return len(self.items_arr)
+
+  def __setitem__(self, idx, val):
+    if len(idx) <= self.prefix_len:
+      if idx in self:
+        key_val = super().__getitem__(idx)
+        key_val[1] = val
+      else:  
+        key_val = [idx, val]
+        super().__setitem__(idx, key_val)
+        self.items_arr.append(key_val)
+    else:
+      idx2 = idx[:self.prefix_len]
+      if super().has_key(idx2):
+        arr = super().__getitem__(idx2)
+      else:
+        arr = []
+        super().__setitem__(idx2, arr)
+      key_val = [idx, val]
+      i = bisect.bisect_left(arr, key_val, key=lambda a: a[0])
+      len_arr = len(arr)
+      if i != len_arr and arr[i][0] == idx:
+        arr[i][1] = val
+        key_val = arr[i]
+      if i==len_arr:
+        arr.append(key_val)
+        self.items_arr.append(key_val)
+      else:
+        bisect.insort_left(arr, key_val, key=lambda a: a[0])
+        self.items_arr.append(key_val)
 
 #Mean Pooling - Take attention mask into account for correct averaging
 #TODO, mask out the prefix for data that isn't the first portion of a prefixed text.
