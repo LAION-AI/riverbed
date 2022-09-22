@@ -522,7 +522,7 @@ class RiverbedModel:
           do_ngram = False
           for line in af:
             line = line.decode().strip()
-            f line.startswith("\\1-grams:"):              
+            if line.startswith("\\1-grams:"):              
               n = 1
               do_ngram = True
             elif line.startswith("\\2-grams:"):
