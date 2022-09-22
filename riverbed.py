@@ -662,7 +662,7 @@ class RiverbedModel:
                     if len(line) > 1 and (not dedup_compound_words_larger_than  or  times >= dedup_compound_words_num_iter):
                       weight2 = weight
                       if weight2 > 0: weight2 = 0
-                      tmp_arpa.write(f"{n}\t{line[1]}]\t{weight2}\n")
+                      tmp_arpa.write(f"{n}\t{line[1]}\t{weight2}\n")
                     #print (line
                     weight = math.exp(weight)
                     line = line[1]
