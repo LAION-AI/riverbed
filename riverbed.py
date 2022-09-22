@@ -696,7 +696,7 @@ class RiverbedModel:
                       
                     #create the compound words length data structure
                     if weight >= min_compound_weight:
-                      compound[tokenArr[0]] = [min(len(tokenArr),  compound.get(tokenArr[0],[100,0])[0]), max(len(tokenArr), compound.get(tokenArr[0],[100,0])[-1])
+                      compound[tokenArr[0]] = [min(len(tokenArr),  compound.get(tokenArr[0],[100,0])[0]), max(len(tokenArr), compound.get(tokenArr[0],[100,0])[-1])]
                     weight = weight * len(tokenArr)            
                     token2weight[token] = min(token2weight.get(token, 100), weight) 
             top_stopwords={} 
