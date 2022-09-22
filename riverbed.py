@@ -472,7 +472,7 @@ class RiverbedModel:
                                  embedder="minilm", do_ontology=True, recluster_type="batch", model=None):
       global device, clip_model, minilm_model, labse_model
       os.system(f"mkdir -p {model_name}")
-      assert min_compound_word_size <= dedup_compound_words_larger_than, "can't have a minimum compound words greater than what is removed"
+      assert dedup_compound_words_larger_than is None or min_compound_word_size <= dedup_compound_words_larger_than, "can't have a minimum compound words greater than what is removed"
       for file_name in files:
         assert os.path.getsize(file_name) < 5000000000, f"{file_name} size should be less than 5GB. Break up the file into 5GB shards."
       if embedder == "clip":
