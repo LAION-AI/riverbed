@@ -163,7 +163,7 @@ class RiverbedTokenizer:
     if type(doc_batch) is str:
       doc_batch = [doc_batch]
     if len(doc_batch) < 1000:
-     ret = Riverbed._tokenize(doc_batch, min_compound_weight=min_compound_weight,  max_compound_word_size=max_compound_word_size, \
+     ret = RiverbedTokenizer._tokenize(doc_batch, min_compound_weight=min_compound_weight,  max_compound_word_size=max_compound_word_size, \
                      compound=compound, token2weight=token2weight, synonyms=synonyms, use_synonym_replacement=use_synonym_replacement, \
                      return_str=return_str)
      if len(ret) == 1:
@@ -173,7 +173,7 @@ class RiverbedTokenizer:
     else:
       chunk_size = int(len(doc_batch)/multiprocessing.cpu_count())
       pool = multiprocessing.Pool(processes=multiprocessing.cpu_count()) 
-      ret = pool.imap(partial(Riverbed._tokenize, min_compound_weight=min_compound_weight,  max_compound_word_size=max_compound_word_size, \
+      ret = pool.imap(partial(RiverbedTokenizer._tokenize, min_compound_weight=min_compound_weight,  max_compound_word_size=max_compound_word_size, \
                                   compound=compound, token2weight=token2weight, synonyms=synonyms, use_synonym_replacement=use_synonym_replacement, \
                                   return_str=return_str),
                                   doc_batch, chunk_size)
