@@ -53,6 +53,7 @@ from fast_pytorch_kmeans import KMeans
 import torch
 import tqdm
 import gzip
+import multiprocessing
 if torch.cuda.is_available():
   device = 'cuda'
 else:
@@ -513,12 +514,13 @@ class RiverbedModel:
         for token in token2weight.keys():
           if "_" not in token: unigram[token] = min(unigram.get(token,0), token2weight[token])
       if os.path.exists(f"{model_name}/{model_name}.arpa"):
+        os.system(f"cp {model_name}/{model_name}.arpa {model_name}/__tmp__{model_name}.arpa")
         with open(f"{model_name}/{model_name}.arpa", "rb") as af:
           n = 0
           do_ngram = False
           for line in af:
             line = line.decode().strip()
-            if line.startswith("\\1-grams:"):
+            f line.startswith("\\1-grams:"):              
               n = 1
               do_ngram = True
             elif line.startswith("\\2-grams:"):
@@ -533,10 +535,6 @@ class RiverbedModel:
             elif line.startswith("\\5-grams:"):
               n = 5
               do_ngram = True
-            elif do_ngram:
-              line = line.split("\t")
-              if len(line) > 1:
-                arpa[(n, line[1])] = min(float(line[0]), arpa.get((n, line[1]), 100))
       #TODO, we should try to create consolidated files of around 1GB to get enough information in the arpa files
       for doc_id, file_name in enumerate(files):
         if dedup_compound_words_larger_than:
@@ -632,73 +630,75 @@ class RiverbedModel:
               os.system(f"./{lmplz}  --discount_fallback  --skip_symbols -o 5 --prune {min_num_tokens}  --arpa {model_name}/{file_name}.arpa <  {prev_file}") ##
             do_ngram = False
             n = 0
-            with open(f"{model_name}/{file_name}.arpa", "rb") as f:    
-              for line in  f: 
-                line = line.decode().strip()
-                if not line: 
-                  continue
-                if line.startswith("\\1-grams:"):
-                  n = 1
-                  do_ngram = True
-                elif line.startswith("\\2-grams:"):
-                  n = 2
-                  do_ngram = True
-                elif line.startswith("\\3-grams:"):
-                  n = 3
-                  do_ngram = True
-                elif line.startswith("\\4-grams:"):
-                  n = 4
-                  do_ngram = True
-                elif line.startswith("\\5-grams:"):
-                  n = 5
-                  do_ngram = True
-                elif do_ngram:
-                  line = line.split("\t")
-                  try:
-                    weight = float(line[0])
-                  except:
-                    continue                  
-                  if len(line) > 1:
-                    key = (n, line[1])
-                    curr_arpa[key] = min(curr_arpa.get(key,100), weight)
-                  #print (line
-                  weight = math.exp(weight)
-                  line = line[1]
-                  if not line: continue
-                  line = line.split()
-                  if [l for l in line if l in non_tokens or l in ('<unk>', '<s>', '</s>')]: continue
-                  if not(len(line) == 1 and line[0] in stopwords):
-                    if lstrip_stopwords:
-                      while line:
-                        if line[0].lower() in stopwords:
-                          line = line[1:]
-                        else:
-                          break
-                    if rstrip_stopwords:
-                      while line:
-                        if line[-1].lower() in stopwords:
-                          line = line[:-1]
-                        else:
-                          break
-                  token = "_".join(line)
-                  if token.startswith('¶') and token not in token2weight: #unless this token is a parent synonym, we will strip our special prefix
-                    token = token.lstrip('¶')
-                  tokenArr = token.split("_")
-                  if tokenArr[0]  in ('<unk>', '<s>', '</s>', ''):
-                    tokenArr = tokenArr[1:]
-                  if tokenArr[-1]  in ('<unk>', '<s>', '</s>', ''):
-                    tokenArr = tokenArr[:-1]
-                  if tokenArr:
-                    # we are prefering stopwords that starts an n-gram. 
-                    if (not lstrip_stopwords or len(tokenArr) == 1) and len(tokenArr[0]) <= stopwords_max_len:
-                      sw = tokenArr[0].lower()
-                      unigram[sw] = min(unigram.get(sw,100), weight)
-                      
-                    #create the compound words length data structure
-                    if weight >= min_compound_weight:
-                      compound[tokenArr[0]] = [min(len(tokenArr),  compound.get(tokenArr[0],[100,0])[0]), max(len(tokenArr), compound.get(tokenArr[0],[100,0])[-1])]
-                    weight = weight * len(tokenArr)            
-                    token2weight[token] = min(token2weight.get(token, 100), weight) 
+            with open(f"{model_name}/{file_name}.{times}.arpa", "w", encoding="utf8") as tmp_arpa:
+              with open(f"{model_name}/{file_name}.arpa", "rb") as f:    
+                for line in  f: 
+                  line = line.decode().strip()
+                  if not line: 
+                    continue
+                  if line.startswith("\\1-grams:"):
+                    n = 1
+                    do_ngram = True
+                  elif line.startswith("\\2-grams:"):
+                    n = 2
+                    do_ngram = True
+                  elif line.startswith("\\3-grams:"):
+                    n = 3
+                    do_ngram = True
+                  elif line.startswith("\\4-grams:"):
+                    n = 4
+                    do_ngram = True
+                  elif line.startswith("\\5-grams:"):
+                    n = 5
+                    do_ngram = True
+                  elif do_ngram:
+                    line = line.split("\t")
+                    try:
+                      weight = float(line[0])
+                    except:
+                      continue                  
+                    if len(line) > 1 and (not dedup_compound_words_larger_than  or  times >= dedup_compound_words_num_iter):
+                      weight2 = weight
+                      if weight2 > 0: weight2 = 0
+                      tmp_arpa.write(f"{n}\t{line[1]}]\t{weight2}\n")
+                    #print (line
+                    weight = math.exp(weight)
+                    line = line[1]
+                    if not line: continue
+                    line = line.split()
+                    if [l for l in line if l in non_tokens or l in ('<unk>', '<s>', '</s>')]: continue
+                    if not(len(line) == 1 and line[0] in stopwords):
+                      if lstrip_stopwords:
+                        while line:
+                          if line[0].lower() in stopwords:
+                            line = line[1:]
+                          else:
+                            break
+                      if rstrip_stopwords:
+                        while line:
+                          if line[-1].lower() in stopwords:
+                            line = line[:-1]
+                          else:
+                            break
+                    token = "_".join(line)
+                    if token.startswith('¶') and token not in token2weight: #unless this token is a parent synonym, we will strip our special prefix
+                      token = token.lstrip('¶')
+                    tokenArr = token.split("_")
+                    if tokenArr[0]  in ('<unk>', '<s>', '</s>', ''):
+                      tokenArr = tokenArr[1:]
+                    if tokenArr[-1]  in ('<unk>', '<s>', '</s>', ''):
+                      tokenArr = tokenArr[:-1]
+                    if tokenArr:
+                      # we are prefering stopwords that starts an n-gram. 
+                      if (not lstrip_stopwords or len(tokenArr) == 1) and len(tokenArr[0]) <= stopwords_max_len:
+                        sw = tokenArr[0].lower()
+                        unigram[sw] = min(unigram.get(sw,100), weight)
+
+                      #create the compound words length data structure
+                      if weight >= min_compound_weight:
+                        compound[tokenArr[0]] = [min(len(tokenArr),  compound.get(tokenArr[0],[100,0])[0]), max(len(tokenArr), compound.get(tokenArr[0],[100,0])[-1])]
+                      weight = weight * len(tokenArr)            
+                      token2weight[token] = min(token2weight.get(token, 100), weight) 
             top_stopwords={} 
             if unigram:
                 stopwords_list = [l for l in unigram.items() if len(l[0]) > 0]
@@ -707,44 +707,56 @@ class RiverbedModel:
                 top_stopwords = stopwords_list[:min(len_stopwords_list, num_stopwords)]
             for token, weight in top_stopwords:
               stopwords[token] = min(stopwords.get(token, 100), weight)
-            os.system(f"rm {file_name}.arpa")
+            if os.path.exists(f"{model_name}/__tmp__{model_name}.arpa):
+              os.system(f"cat {model_name}/__tmp__{model_name}.arpa {model_name}/{file_name}.{times}.arpa > {model_name}/__tmp__{model_name}.arpa")
+              os.system(f"rm {model_name}/{file_name}.{times}.arpa")
+            else:
+              os.system(f"mv {model_name}/{file_name}.{times}.arpa {model_name}/__tmp__{model_name}.arpa")
             if times == num_iter+dedup_compound_words_num_iter-1  and not synonyms_created:
                 self.synonyms = self.tokenizer.synonyms = synonyms = self._create_token_embeds_and_synonyms(model_name, stopwords=stopwords, token2weight=token2weight, synonyms=synonyms, kmeans_batch_size=kmeans_batch_size, min_incremental_cluster_overlap=min_incremental_cluster_overlap, \
                   prefered_cluster_size=prefered_cluster_size, embedder=embedder, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, max_ontology_depth=max_ontology_depth, max_cluster_size=max_cluster_size, do_ontology=do_ontology, recluster_type=recluster_type)   
-        for key, weight in curr_arpa.items():
-            arpa[key] = min(float(weight), arpa.get(key, 100))
-        curr_arpa = {}
+        
       print ('len syn', len(synonyms))
       self.tokenizer.token2weight, self.tokenizer.compound, self.tokenizer.synonyms, self.tokenizer.stopwords = token2weight, compound, synonyms, stopwords
       self.synonyms = self.tokenizer.synonyms
-      print ('counting arpa')
+      
+      #create the final kenlm .arpa file for calculating the perplexity. we do this in files in order to keep main memory low.
+      print ('consolidating arpa')
+      process_count = 5*(multiprocessing.cpu_count())
+      os.system(f"sort {model_name}/__tmp__{model_name}.arpa -p {process_count} -o {model_name}/__tmp__{model_name}.arpa")
       ngram_cnt = [0]*5
-      for key in arpa.keys():
-        n = key[0]-1
-        ngram_cnt[n] += 1
-      print ('printing arpa')
-      #output the final kenlm .arpa file for calculating the perplexity
-      with open(f"{model_name}/__tmp__.arpa", "w", encoding="utf8") as tmp_arpa:
-        tmp_arpa.write("\\data\\\n")
-        tmp_arpa.write(f"ngram 1={ngram_cnt[0]}\n")
-        tmp_arpa.write(f"ngram 2={ngram_cnt[1]}\n")
-        tmp_arpa.write(f"ngram 3={ngram_cnt[2]}\n")
-        tmp_arpa.write(f"ngram 4={ngram_cnt[3]}\n")
-        tmp_arpa.write(f"ngram 5={ngram_cnt[4]}\n")
-        for i in range(5):
-          tmp_arpa.write("\n")
-          j =i+1
-          tmp_arpa.write(f"\\{j}-grams:\n")
-          for key, val in arpa.items():
-            n, dat = key
-            if n != j: continue
+      with open(f"{model_name}/__tmp__{model_name}.arpa", "rb") as f:  
+        with open(f"{model_name}/__tmp__consolidated_{model_name}.arpa", "w", encoding="utf8") as tmp_arpa:
+          prev_n = None
+          prev_dat = None
+          prev_val = 0
+          for l in f:
+            n, dat, val = key.strip().split("\t")
+            val = float(val)
             if val > 0:
               val =  0
-            tmp_arpa.write(f"{val}\t{dat}\t0\n")
-        tmp_arpa.write("\n\\end\\\n\n")
-      os.system(f"mv {model_name}/__tmp__.arpa {model_name}/{model_name}.arpa")
+            if prev_n != n:
+              tmp_arpa.write(f"\\{n}-grams:\n")
+            prev_n = n
+            if prev_dat is not None and prev_dat != dat:
+              ngram_cnt[n-1] += 1
+              tmp_arpa.write(f"{prev_val}\t{prev_dat}\t0\n")
+              prev_val = val
+            else:
+              prev_val = min(val, prev_val)
+            prev_dat = dat
+          tmp_arpa.write("\n\\end\\\n\n")
+        with open(f"{model_name}/__tmp__2_consolidated_{model_name}.arpa", "w", encoding="utf8") as tmp_arpa2:
+          tmp_arpa2.write("\\data\\\n")
+          tmp_arpa2.write(f"ngram 1={ngram_cnt[0]}\n")
+          tmp_arpa2.write(f"ngram 2={ngram_cnt[1]}\n")
+          tmp_arpa2.write(f"ngram 3={ngram_cnt[2]}\n")
+          tmp_arpa2.write(f"ngram 4={ngram_cnt[3]}\n")
+          tmp_arpa2.write(f"ngram 5={ngram_cnt[4]}\n")
+        os.system(f"{model_name}/__tmp__2_consolidated_{model_name}.arpa {model_name}/__tmp__consolidated_{model_name}.arpa > {model_name}/__tmp__consolidated_{model_name}.arpa")
       print ('creating kenlm model')
-      self.kenlm_model = kenlm.LanguageModel(f"{model_name}/{model_name}.arpa") 
+      self.kenlm_model = kenlm.LanguageModel(f"{model_name}/__tmp__consolidated_{model_name}.arpa") 
+      os.system(f"mv {model_name}/__tmp__consolidated_{model_name}.arpa {model_name}/{model_name}.arpa")
       os.system(f"rm -rf {model_name}/__tmp__*")
       return tokenizer, self
 
