@@ -151,10 +151,10 @@ class RiverbedTokenizer:
                     doc[k] = None
                 break
       if return_str: 
-        ret.append (" ".join([d for d in doc if d]))
-     else: 
-      ret.append([d for d in doc if d])
-     return ret
+        ret.append(" ".join([d for d in doc if d]))
+      else: 
+        ret.append([d for d in doc if d])
+    return ret
   
   def tokenize(self, doc_batch, min_compound_weight=0,  max_compound_word_size=10000, compound=None, token2weight=None, synonyms=None, use_synonym_replacement=False, return_str=True):
     if synonyms is None: synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
