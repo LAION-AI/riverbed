@@ -163,7 +163,7 @@ class RiverbedTokenizer:
     if type(doc_batch) is str:
       doc_batch = [doc_batch]
     if len(doc_batch) < 1000:
-     ret = tokenize(doc_batch, min_compound_weight=min_compound_weight,  max_compound_word_size=max_compound_word_size, \
+     ret = Riverbed._tokenize(doc_batch, min_compound_weight=min_compound_weight,  max_compound_word_size=max_compound_word_size, \
                      compound=compound, token2weight=token2weight, synonyms=synonyms, use_synonym_replacement=use_synonym_replacement, \
                      return_str=return_str)
      if len(ret) == 1:
@@ -595,27 +595,33 @@ class RiverbedModel:
                   f = gzip.open(file_name)
                 else:
                   f = open(file_name, "rb")
-                while True:
+                l_batch = []
+                finished = False
+                while not finished:
                   l = f.readline()
-                  if not l: break 
-                  l = l.decode().strip()  
-                  orig_l = l.replace("_", " ").replace("  ", " ").strip()
-                  l = tokenizer.tokenize(l, min_compound_weight=0, compound=compound, token2weight=token2weight,  synonyms=synonyms, use_synonym_replacement=False)
-                  l = l.split()
-                  dedup_compound_word = [w for w in l if "_" in w and w.count("_") + 1 > dedup_compound_words_larger_than]
-                  if not dedup_compound_word:
-                    l2 = " ".join(l).replace("_", " ").strip()
-                    tmp2.write(l2+"\n")
+                  if not (len(l_batch) >= 1000 or not l): 
+                    l_batch.append(l.decode().strip()) 
                     continue
-                  l = [w if ("_" not in w or w.count("_") + 1 <= dedup_compound_words_larger_than or w not in seen_dedup_compound_words) else '...' for w in l]
-                  l2 = " ".join(l).replace("_", " ").replace(' ... ...', ' ...').strip()
-                  if l2.endswith(" ..."): l2 = l2[:-len(" ...")]
-                  if dedup_compound_word and l2 != orig_l:
-                    deduped_num_tokens += 1
-                  #  print ('dedup ngram', dedup_compound_word, l2)
-                  for w in dedup_compound_word:
-                    seen_dedup_compound_words[w] = 1
-                  tmp2.write(l2+"\n")
+                  finished=False
+                  if not l: finished=True  
+                  l_batch = tokenizer.tokenize(l_batch, min_compound_weight=0, compound=compound, token2weight=token2weight,  synonyms=synonyms, use_synonym_replacement=False)
+                  for l in l_batch:
+                    l = l.split()
+                    dedup_compound_word = [w for w in l if "_" in w and w.count("_") + 1 > dedup_compound_words_larger_than]
+                    if not dedup_compound_word:
+                      l2 = " ".join(l).replace("_", " ").strip()
+                      tmp2.write(l2+"\n")
+                      continue
+                    l = [w if ("_" not in w or w.count("_") + 1 <= dedup_compound_words_larger_than or w not in seen_dedup_compound_words) else '...' for w in l]
+                    l2 = " ".join(l).replace("_", " ").replace(' ... ...', ' ...').strip()
+                    if l2.endswith(" ..."): l2 = l2[:-len(" ...")]
+                    if dedup_compound_word and l2 in seen:
+                      deduped_num_tokens += 1
+                    #  print ('dedup ngram', dedup_compound_word, l2)
+                    for w in dedup_compound_word:
+                      seen_dedup_compound_words[w] = 1
+                    tmp2.write(l2+"\n")
+                  if finished: break
                 seen_dedup_compound_words = None
                 print ('finished deduping', deduped_num_tokens)
                 dedup_name = f"{model_name}/{file_name}.dedup"
@@ -643,18 +649,20 @@ class RiverbedModel:
                   f = gzip.open(prev_file)
                 else:
                   f = open(prev_file, "rb")
-                while True:
-                  try:
-                    l = f.readline()
-                  except:
-                    break
-                  if not l: break   
-                  l = l.decode().strip()
-                  if l:               
-                    l = tokenizer.tokenize(l,  min_compound_weight=min_compound_weight, compound=compound, token2weight=token2weight, synonyms=synonyms, use_synonym_replacement=use_synonym_replacement)
-                    if times == num_iter-1:
-                      l = tokenizer.tokenize(l, min_compound_weight=0, compound=compound, token2weight=token2weight,  synonyms=synonyms, use_synonym_replacement=use_synonym_replacement)
-                  tmp2.write(l+"\n")  
+                l_batch=[]
+                finished = False
+                while not finished:
+                  l = f.readline()
+                  if not (len(l_batch) >= 1000 or not l): 
+                      l_batch.append(l.decode().strip()) 
+                      continue
+                  finished=False
+                  if not l: finished=True  
+                  l_batch = tokenizer.tokenize(l_batch,  min_compound_weight=min_compound_weight, compound=compound, token2weight=token2weight, synonyms=synonyms, use_synonym_replacement=use_synonym_replacement)
+                  if times == num_iter-1:
+                      l_batch = tokenizer.tokenize(l_batch, min_compound_weight=0, compound=compound, token2weight=token2weight,  synonyms=synonyms, use_synonym_replacement=use_synonym_replacement)
+                  tmp2.write("\n".join(l_batch)+"\n")  
+                  if finished: break
               os.system(f"gzip {tmp_file_name}")
               prev_file = f"{tmp_file_name}.gz" 
             if do_collapse_values:
