@@ -709,7 +709,7 @@ class RiverbedModel:
                 top_stopwords = stopwords_list[:min(len_stopwords_list, num_stopwords)]
             for token, weight in top_stopwords:
               stopwords[token] = min(stopwords.get(token, 100), weight)
-            if os.path.exists(f"{model_name}/__tmp__{model_name}.arpa):
+            if os.path.exists(f"{model_name}/__tmp__{model_name}.arpa"):
               os.system(f"cat {model_name}/__tmp__{model_name}.arpa {model_name}/{file_name}.{times}.arpa > {model_name}/__tmp__{model_name}.arpa")
               os.system(f"rm {model_name}/{file_name}.{times}.arpa")
             else:
