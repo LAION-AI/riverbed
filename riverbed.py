@@ -627,13 +627,13 @@ class RiverbedModel:
               os.system(f"gzip {tmp_file_name}")
               prev_file = f"{tmp_file_name}.gz" 
             if do_collapse_values:
-              os.system(f"./{lmplz} --collapse_values  --discount_fallback  --skip_symbols -o 5 --prune {min_num_tokens}  --arpa {model_name}/{file_name}.arpa <  {prev_file}") ##
+              os.system(f"./{lmplz} --collapse_values  --discount_fallback  --skip_symbols -o 5 --prune {min_num_tokens}  --arpa {model_name}/__tmp__{file_name}.arpa <  {prev_file}") ##
             else:
-              os.system(f"./{lmplz}  --discount_fallback  --skip_symbols -o 5 --prune {min_num_tokens}  --arpa {model_name}/{file_name}.arpa <  {prev_file}") ##
+              os.system(f"./{lmplz}  --discount_fallback  --skip_symbols -o 5 --prune {min_num_tokens}  --arpa {model_name}/__tmp__{file_name}.arpa <  {prev_file}") ##
             do_ngram = False
             n = 0
             with open(f"{model_name}/{file_name}.{times}.arpa", "w", encoding="utf8") as tmp_arpa:
-              with open(f"{model_name}/{file_name}.arpa", "rb") as f:    
+              with open(f"{model_name}/__tmp__{file_name}.arpa", "rb") as f:    
                 for line in  f: 
                   line = line.decode().strip()
                   if not line: 
@@ -701,6 +701,7 @@ class RiverbedModel:
                         compound[tokenArr[0]] = [min(len(tokenArr),  compound.get(tokenArr[0],[100,0])[0]), max(len(tokenArr), compound.get(tokenArr[0],[100,0])[-1])]
                       weight = weight * len(tokenArr)            
                       token2weight[token] = min(token2weight.get(token, 100), weight) 
+            os.system(f"rm {model_name}/__tmp__{file_name}.arpa")
             top_stopwords={} 
             if unigram:
                 stopwords_list = [l for l in unigram.items() if len(l[0]) > 0]
@@ -721,7 +722,7 @@ class RiverbedModel:
       print ('len syn', len(synonyms))
       self.tokenizer.token2weight, self.tokenizer.compound, self.tokenizer.synonyms, self.tokenizer.stopwords = token2weight, compound, synonyms, stopwords
       self.synonyms = self.tokenizer.synonyms
-      
+      #TODO: Clean up tmp files as we go along.
       #create the final kenlm .arpa file for calculating the perplexity. we do this in files in order to keep main memory low.
       print ('consolidating arpa')
       process_count = 5*(multiprocessing.cpu_count())
