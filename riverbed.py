@@ -728,7 +728,7 @@ class RiverbedModel:
       os.system(f"sort {model_name}/__tmp__{model_name}.arpa -p {process_count} -o {model_name}/__tmp__{model_name}.arpa")
       ngram_cnt = [0]*5
       with open(f"{model_name}/__tmp__{model_name}.arpa", "rb") as f:  
-        with open(f"{model_name}/__tmp__consolidated_{model_name}.arpa", "w", encoding="utf8") as tmp_arpa:
+        with open(f"{model_name}/__tmp__1_consolidated_{model_name}.arpa", "w", encoding="utf8") as tmp_arpa:
           prev_n = None
           prev_dat = None
           prev_val = 0
@@ -742,13 +742,18 @@ class RiverbedModel:
             if prev_n != n:
               tmp_arpa.write(f"\\{n}-grams:\n")
             prev_n = n
+            print (prev_dat, '**', dat)
             if prev_dat is not None and prev_dat != dat:
               ngram_cnt[n-1] += 1
+              print ("got here", f"{prev_val}\t{prev_dat}\t0")
               tmp_arpa.write(f"{prev_val}\t{prev_dat}\t0\n")
               prev_val = val
             else:
               prev_val = min(val, prev_val)
             prev_dat = dat
+          if prev_dat is not None:
+            ngram_cnt[n-1] += 1
+            tmp_arpa.write(f"{prev_val}\t{prev_dat}\t0\n")
           tmp_arpa.write("\n\\end\\\n\n")
         with open(f"{model_name}/__tmp__2_consolidated_{model_name}.arpa", "w", encoding="utf8") as tmp_arpa2:
           tmp_arpa2.write("\\data\\\n")
@@ -757,7 +762,7 @@ class RiverbedModel:
           tmp_arpa2.write(f"ngram 3={ngram_cnt[2]}\n")
           tmp_arpa2.write(f"ngram 4={ngram_cnt[3]}\n")
           tmp_arpa2.write(f"ngram 5={ngram_cnt[4]}\n")
-        os.system(f"{model_name}/__tmp__2_consolidated_{model_name}.arpa {model_name}/__tmp__consolidated_{model_name}.arpa > {model_name}/__tmp__consolidated_{model_name}.arpa")
+        os.system(f"cat {model_name}/__tmp__2_consolidated_{model_name}.arpa {model_name}/__tmp__1_consolidated_{model_name}.arpa > {model_name}/__tmp__consolidated_{model_name}.arpa")
       print ('creating kenlm model')
       self.kenlm_model = kenlm.LanguageModel(f"{model_name}/__tmp__consolidated_{model_name}.arpa") 
       os.system(f"mv {model_name}/__tmp__consolidated_{model_name}.arpa {model_name}/{model_name}.arpa")
