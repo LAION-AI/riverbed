@@ -537,6 +537,7 @@ class RiverbedModel:
             elif line.startswith("\\5-grams:"):
               n = 5
               do_ngram = True
+      #TODO, check if a dedup file has already been created. If so, use that instead and don't do any dedup.
       #TODO, we should try to create consolidated files of around 1GB to get enough information in the arpa files
       for doc_id, file_name in enumerate(files):
         if dedup_compound_words_larger_than:
@@ -595,9 +596,9 @@ class RiverbedModel:
                 prev_file = f"{dedup_name}.gz"       
                 curr_arpa = {}
             # we only do synonym and embedding creation as the second to last or last step of each file processed 
-            # b/c this is very expensive. we can do this right before the last counting if we
+            # b/c this is very expensive. we should do this right before the last counting if we
             # do synonym replacement so we have a chance to create syonyms for the replacement.
-            # otherwise, we do it after the last count. See below.
+            # otherwise, we should do it after the last count. See below.
             synonyms_created=  False          
             if use_synonym_replacement and times == num_iter+dedup_compound_words_num_iter-1 and token2weight:
                 synonyms_created = True
