@@ -203,8 +203,8 @@ class RiverbedTokenizer:
           ret.append(" ".join([d for d in doc if d]))
         else: 
           ret.append([d for d in doc if d])
-      if is_str: return ret[0]
-      return ret
+    if is_str: return ret[0]
+    return ret
 
   # doc_batch is a list of str, or a list of list of str.
   def tokenize_batch(self, doc_batch, min_compound_weight=0,  max_compound_word_size=10000, compound=None, token2weight=None, synonyms=None, use_synonym_replacement=False, return_str=True):
