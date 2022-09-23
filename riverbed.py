@@ -60,7 +60,7 @@ import tqdm
 import gzip
 import multiprocessing
 import bisect
-
+from functools import partial 
 if torch.cuda.is_available():
   device = 'cuda'
 else:
@@ -122,7 +122,7 @@ def batchify_from_fileobj(f, max_chunks=10^2, chunk_size=None, chunk_lines=10^5,
   curr_line = 0
   batch = []
   chunk = []
-  if chunk_size is None:
+  if chunk_size is not None:
     for l in f:
       if decode:
         l = l.decode()
@@ -131,11 +131,11 @@ def batchify_from_fileobj(f, max_chunks=10^2, chunk_size=None, chunk_lines=10^5,
       chunk.append(l)      
       curr_size += len(l)
       if curr_size >= chunk_size:
-        batch.append(ret)
+        batch.append(batch)
         n_chunk += 1
         curr_size = 0
         chunk = []
-      if b_chunk >= max_chunks:
+      if n_chunk >= max_chunks:
         return batch
     if chunk: batch.append(chunk)
     return batch
@@ -152,9 +152,9 @@ def batchify_from_fileobj(f, max_chunks=10^2, chunk_size=None, chunk_lines=10^5,
         n_chunk += 1
         curr_line = 0
         chunk = []
-      if b_chunk >= max_chunks:
+      if n_chunk >= max_chunks:
         return batch
-    if ret: batch.append(chunk)
+    if chunk: batch.append(chunk)
     return batch
       
     
@@ -173,34 +173,35 @@ class RiverbedTokenizer:
   def _tokenize(doc_batch, min_compound_weight=0,  max_compound_word_size=10000, compound=None, token2weight=None, synonyms=None, use_synonym_replacement=False, return_str=True):
     if not use_synonym_replacement: synonyms = {} 
     is_str = False
-    if type(doc) is str:
+    if type(doc_batch) is str:
       is_str = True
-      doc_batch = [doc_batch]
+      doc_batch = [[doc_batch]]
     ret = []
-    for doc in doc_batch:
-      doc = [synonyms.get(d,d) for d in doc.split(" ") if d.strip()]
-      len_doc = len(doc)
-      for i in range(len_doc-1):
-          if doc[i] is None: continue
-          tokenArr = doc[i].strip("_").replace("__", "_").split("_")
-          if tokenArr[0] in compound:
-            min_compound_len = compound[tokenArr[0]][0]
-            max_compound_len = min(max_compound_word_size, compound[tokenArr[0]][-1])
-            for j in range(min(len_doc, i+max_compound_len), i+1, -1):
-              if j <= i+min_compound_len-1: break
-              token = ("_".join(doc[i:j])).strip("_").replace("__", "_")
-              tokenArr = token.split("_")
-              if len(tokenArr) <= max_compound_len and token in token2weight and token2weight.get(token, 0) >= min_compound_weight:
-                old_token = token
-                doc[j-1] = synonyms.get(token, token).strip("_").replace("__", "_")
-                #if old_token != doc[j-1]: print (old_token, doc[j-1])
-                for k in range(i, j-1):
-                    doc[k] = None
-                break
-      if return_str: 
-        ret.append(" ".join([d for d in doc if d]))
-      else: 
-        ret.append([d for d in doc if d])
+    for chunk in doc_batch:
+      for doc in chunk:
+        doc = [synonyms.get(d,d) for d in doc.split(" ") if d.strip()]
+        len_doc = len(doc)
+        for i in range(len_doc-1):
+            if doc[i] is None: continue
+            tokenArr = doc[i].strip("_").replace("__", "_").split("_")
+            if tokenArr[0] in compound:
+              min_compound_len = compound[tokenArr[0]][0]
+              max_compound_len = min(max_compound_word_size, compound[tokenArr[0]][-1])
+              for j in range(min(len_doc, i+max_compound_len), i+1, -1):
+                if j <= i+min_compound_len-1: break
+                token = ("_".join(doc[i:j])).strip("_").replace("__", "_")
+                tokenArr = token.split("_")
+                if len(tokenArr) <= max_compound_len and token in token2weight and token2weight.get(token, 0) >= min_compound_weight:
+                  old_token = token
+                  doc[j-1] = synonyms.get(token, token).strip("_").replace("__", "_")
+                  #if old_token != doc[j-1]: print (old_token, doc[j-1])
+                  for k in range(i, j-1):
+                      doc[k] = None
+                  break
+        if return_str: 
+          ret.append(" ".join([d for d in doc if d]))
+        else: 
+          ret.append([d for d in doc if d])
       if is_str: return ret[0]
       return ret
   
