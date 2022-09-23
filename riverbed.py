@@ -58,7 +58,7 @@ from fast_pytorch_kmeans import KMeans
 import torch
 import tqdm
 import gzip
-import multiprocessing
+from torch import multiprocessing
 import bisect
 from functools import partial 
 if torch.cuda.is_available():
@@ -216,13 +216,12 @@ class RiverbedTokenizer:
       return [self._tokenize(doc_batch[0], min_compound_weight=min_compound_weight,  max_compound_word_size=max_compound_word_size, \
                               compound=compound, token2weight=token2weight, synonyms=synonyms, use_synonym_replacement=use_synonym_replacement, \
                               return_str=return_str)]
-    
-    chunk_size = int(len(doc_batch)/multiprocessing.cpu_count())
+    chunk_size = max(len(doc_batch), int(len(doc_batch)/multiprocessing.cpu_count()))
     pool = multiprocessing.Pool(processes=multiprocessing.cpu_count()) 
     ret = pool.imap(partial(RiverbedTokenizer._tokenize, min_compound_weight=min_compound_weight,  max_compound_word_size=max_compound_word_size, \
-                                  compound=compound, token2weight=token2weight, synonyms=synonyms, use_synonym_replacement=use_synonym_replacement, \
-                                  return_str=return_str),
-                                  doc_batch, chunk_size)
+                                    compound=compound, token2weight=token2weight, synonyms=synonyms, use_synonym_replacement=use_synonym_replacement, \
+                                    return_str=return_str),
+                                    doc_batch, chunk_size)
     return list(ret)
     
       
