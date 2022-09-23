@@ -579,6 +579,7 @@ class RiverbedModel:
                     continue
                   l = [w if ("_" not in w or w.count("_") + 1 <= dedup_compound_words_larger_than or w not in seen_dedup_compound_words) else '...' for w in l]
                   l2 = " ".join(l).replace("_", " ").replace(' ... ...', ' ...').strip()
+                  l2 = l2.replace("\\n", "\n")
                   if l2.endswith(" ..."): l2 = l2[:-len(" ...")]
                   if dedup_compound_word and l2 != orig_l:
                     deduped_num_tokens += 1
@@ -619,7 +620,7 @@ class RiverbedModel:
                   except:
                     break
                   if not l: break   
-                  l = l.decode().strip()
+                  l = l.decode().strip().replace("\\n", "\n")
                   if l:               
                     l = tokenizer.tokenize(l,  min_compound_weight=min_compound_weight, compound=compound, token2weight=token2weight, synonyms=synonyms, use_synonym_replacement=use_synonym_replacement)
                     if times == num_iter-1:
