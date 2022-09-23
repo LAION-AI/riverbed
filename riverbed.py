@@ -541,7 +541,7 @@ class RiverbedModel:
       #TODO, we should try to create consolidated files of around 1GB to get enough information in the arpa files
       for doc_id, file_name in enumerate(files):
         if dedup_compound_words_larger_than:
-          dedup_compound_words_num_iter = max(0, math.ceil(dedup_compound_words_larger_than/(5 *(doc_id+1))))
+          dedup_compound_words_num_iter = max(0, 1+math.ceil(dedup_compound_words_larger_than/(5 *(doc_id+1))))
         else:
           dedup_compound_words_num_iter = 0
         num_iter = max(1,math.ceil(min_compound_word_size/(5 *(doc_id+1))))
@@ -576,9 +576,10 @@ class RiverbedModel:
                 while True:
                   l = f.readline()
                   if not l: break   
-                  l = l.decode().strip().replace("\\n", "\n")
+                  l = l.decode().replace("\\n", "\n")
+                  l = l.replace("_", " ").replace("  ", " ").strip()
                   if l:   
-                    orig_l = l.replace("_", " ").replace("  ", " ").strip()
+                    orig_l = l
                     l = tokenizer.tokenize(l,  min_compound_weight=min_compound_weight, compound=compound, token2weight=token2weight, synonyms=synonyms, use_synonym_replacement=use_synonym_replacement)
                     if times == num_iter-1:
                       l = tokenizer.tokenize(l, min_compound_weight=0, compound=compound, token2weight=token2weight,  synonyms=synonyms, use_synonym_replacement=use_synonym_replacement)
@@ -587,8 +588,7 @@ class RiverbedModel:
                       dedup_compound_word = [w for w in l if "_" in w and w.count("_") + 1 > dedup_compound_words_larger_than]
                       if dedup_compound_word:
                         l = [w if ("_" not in w or w.count("_") + 1 <= dedup_compound_words_larger_than or w not in seen_dedup_compound_words) else '...' for w in l]
-                        l2 = " ".join(l).replace("_", " ").replace(' ... ...', ' ...').strip()
-                        l2 = l2.replace("\\n", "\n")
+                        l2 = " ".join(l).replace(' ... ...', ' ...').strip()
                         if l2.endswith(" ..."): l2 = l2[:-len(" ...")]
                         if dedup_compound_word and l2.replace("_", " ") != orig_l:
                           deduped_num_tokens += 1
