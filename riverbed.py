@@ -172,15 +172,14 @@ class RiverbedTokenizer:
 
   
   @staticmethod
-  def _tokenize(doc_batch, min_compound_weight=0,  max_compound_word_size=10000, compound=None, token2weight=None, synonyms=None, use_synonym_replacement=False, return_str=True):
+  def _tokenize(chunk, min_compound_weight=0,  max_compound_word_size=10000, compound=None, token2weight=None, synonyms=None, use_synonym_replacement=False, return_str=True):
     if not use_synonym_replacement: synonyms = {} 
     is_str = False
-    if type(doc_batch) is str:
+    if type(chunk) is str:
       is_str = True
-      doc_batch = [[doc_batch]]
+      chunk = [chunk]
     ret = []
-    for chunk in doc_batch:
-      for doc in chunk:
+    for doc in chunk:
         doc = [synonyms.get(d,d) for d in doc.split(" ") if d.strip()]
         len_doc = len(doc)
         for i in range(len_doc-1):
@@ -206,9 +205,19 @@ class RiverbedTokenizer:
           ret.append([d for d in doc if d])
       if is_str: return ret[0]
       return ret
-  
+
   # doc_batch is a list of str, or a list of list of str.
   def tokenize_batch(self, doc_batch, min_compound_weight=0,  max_compound_word_size=10000, compound=None, token2weight=None, synonyms=None, use_synonym_replacement=False, return_str=True):
+    if synonyms is None: synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
+    if token2weight is None: token2weight = {} if not hasattr(self, 'token2weight') else self.token2weight    
+    if compound is None: compound = {} if not hasattr(self, 'compound') else self.compound
+    assert type(doc_batch[0]) is list
+    return [self._tokenize(chunk, min_compound_weight=min_compound_weight,  max_compound_word_size=max_compound_word_size, \
+                              compound=compound, token2weight=token2weight, synonyms=synonyms, use_synonym_replacement=use_synonym_replacement, \
+                              return_str=return_str) for chunk in doc_batch]
+    
+  # doc_batch is a list of str, or a list of list of str.
+  def tokenize_batch_todo(self, doc_batch, min_compound_weight=0,  max_compound_word_size=10000, compound=None, token2weight=None, synonyms=None, use_synonym_replacement=False, return_str=True):
     if synonyms is None: synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
     if token2weight is None: token2weight = {} if not hasattr(self, 'token2weight') else self.token2weight    
     if compound is None: compound = {} if not hasattr(self, 'compound') else self.compound
