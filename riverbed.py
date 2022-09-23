@@ -547,10 +547,9 @@ class RiverbedModel:
         num_iter = max(1,math.ceil(min_compound_word_size/(5 *(doc_id+1))))
         #we can repeatedly run the below to get long ngrams
         #after we tokenize for ngram and replace with tokens with underscores (the_projected_revenue) at each step, we redo the ngram count
-        curr_arpa = {}
-        print ('doing', file_name, 'num iter', num_iter, "+", dedup_compound_words_num_iter)
-        prev_file = file_name
         num_iter = max(num_iter,dedup_compound_words_num_iter)
+        print ('doing', file_name, 'num iter', num_iter, "dedup at", dedup_compound_words_num_iter)
+        prev_file = file_name
         for times in range(num_iter):
             print (f"iter {file_name}", times)
             # we only do synonym and embedding creation as the second to last or last step of each file processed 
@@ -572,6 +571,8 @@ class RiverbedModel:
                   f = gzip.open(prev_file)
                 else:
                   f = open(prev_file, "rb")
+                seen_dedup_compound_words={}  
+                deduped_num_tokens=0
                 while True:
                   l = f.readline()
                   if not l: break   
@@ -594,12 +595,15 @@ class RiverbedModel:
                         #  print ('dedup ngram', dedup_compound_word, l2)
                         for w in dedup_compound_word:
                           seen_dedup_compound_words[w] = 1
-                        l = l2                
+                        l = l2 
+                      else:
+                        l = " ".join(l)               
                     tmp2.write(l+"\n")  
                 seen_dedup_compound_words = None
               os.system(f"gzip {tmp_file_name}")
               prev_file = f"{tmp_file_name}.gz" 
               if do_dedup:
+                print ('deduped', deduped_num_tokens)
                 dedup_file_name = f"{model_name}/{file_name}"
                 if dedup_file_name.endswith(".gz"): dedup_file_name = dedup_file_name[:-len(".gz")]
                 dedup_file_name +=".dedup.gz"
@@ -637,11 +641,11 @@ class RiverbedModel:
                       weight = float(line[0])
                     except:
                       continue                  
-                    if len(line) > 1 and (not dedup_compound_words_larger_than  or  times >= dedup_compound_words_num_iter):
+                    if len(line) > 1 and (times >= dedup_compound_words_num_iter-1):
                       weight2 = weight
                       if weight2 > 0: weight2 = 0
                       tmp_arpa.write(f"{n}\t{line[1]}\t{weight2}\n")
-                    #print (line
+                      #print ("got here")
                     weight = math.exp(weight)
                     line = line[1]
                     if not line: continue
