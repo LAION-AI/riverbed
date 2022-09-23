@@ -740,7 +740,7 @@ class RiverbedModel:
             if val > 0:
               val =  0
             if prev_dat is not None and prev_dat != dat:
-              ngram_cnt[n-1] += 1
+              ngram_cnt[prev_n-1] += 1
               tmp_arpa.write(f"{prev_val}\t{prev_dat}\t0\n")
               prev_val = val
             else:
@@ -750,7 +750,7 @@ class RiverbedModel:
               tmp_arpa.write(f"\\{n}-grams:\n")
             prev_n = n
           if prev_dat is not None:
-            ngram_cnt[n-1] += 1
+            ngram_cnt[prev_n-1] += 1
             tmp_arpa.write(f"{prev_val}\t{prev_dat}\t0\n")
           tmp_arpa.write("\n\\end\\\n\n")
         with open(f"{model_name}/__tmp__2_consolidated_{model_name}.arpa", "w", encoding="utf8") as tmp_arpa2:
