@@ -632,7 +632,7 @@ class RiverbedModel:
               os.system(f"./{lmplz}  --discount_fallback  --skip_symbols -o 5 --prune {min_num_tokens}  --arpa {model_name}/__tmp__{file_name}.arpa <  {prev_file}") ##
             do_ngram = False
             n = 0
-            with open(f"{model_name}/{file_name}.{times}.arpa", "w", encoding="utf8") as tmp_arpa:
+            with open(f"{model_name}/__tmp__{file_name}.{times}.arpa", "w", encoding="utf8") as tmp_arpa:
               with open(f"{model_name}/__tmp__{file_name}.arpa", "rb") as f:    
                 for line in  f: 
                   line = line.decode().strip()
@@ -711,10 +711,10 @@ class RiverbedModel:
             for token, weight in top_stopwords:
               stopwords[token] = min(stopwords.get(token, 100), weight)
             if os.path.exists(f"{model_name}/__tmp__{model_name}.arpa"):
-              os.system(f"cat {model_name}/__tmp__{model_name}.arpa {model_name}/{file_name}.{times}.arpa > {model_name}/__tmp__{model_name}.arpa")
-              os.system(f"rm {model_name}/{file_name}.{times}.arpa")
+              os.system(f"cat {model_name}/__tmp__{model_name}.arpa {model_name}/__tmp__{file_name}.{times}.arpa > {model_name}/__tmp__{model_name}.arpa")
+              os.system(f"rm {model_name}/__tmp__{file_name}.{times}.arpa")
             else:
-              os.system(f"mv {model_name}/{file_name}.{times}.arpa {model_name}/__tmp__{model_name}.arpa")
+              os.system(f"mv {model_name}/__tmp__{file_name}.{times}.arpa {model_name}/__tmp__{model_name}.arpa")
             if times == num_iter+dedup_compound_words_num_iter-1  and not synonyms_created:
                 self.synonyms = self.tokenizer.synonyms = synonyms = self._create_token_embeds_and_synonyms(model_name, stopwords=stopwords, token2weight=token2weight, synonyms=synonyms, kmeans_batch_size=kmeans_batch_size, min_incremental_cluster_overlap=min_incremental_cluster_overlap, \
                   prefered_cluster_size=prefered_cluster_size, embedder=embedder, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, max_ontology_depth=max_ontology_depth, max_cluster_size=max_cluster_size, do_ontology=do_ontology, recluster_type=recluster_type)   
