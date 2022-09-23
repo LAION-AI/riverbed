@@ -712,9 +712,9 @@ class RiverbedModel:
                 while True:
                   batch = batchify_from_fileobj(f, apply_fn=lambda a: a.replace("\\n", "\n").strip())
                   if not batch: break
-                  batch = tokenizer.tokenize(batch,  min_compound_weight=min_compound_weight, compound=compound, token2weight=token2weight, synonyms=synonyms, use_synonym_replacement=use_synonym_replacement)
+                  batch = tokenizer.tokenize_batch(batch,  min_compound_weight=min_compound_weight, compound=compound, token2weight=token2weight, synonyms=synonyms, use_synonym_replacement=use_synonym_replacement)
                   if times == num_iter-1:
-                    batch = tokenizer.tokenize(batch, min_compound_weight=0, compound=compound, token2weight=token2weight,  synonyms=synonyms, use_synonym_replacement=use_synonym_replacement)
+                    batch = tokenizer.tokenize_batch(batch, min_compound_weight=0, compound=compound, token2weight=token2weight,  synonyms=synonyms, use_synonym_replacement=use_synonym_replacement)
                   for chunk in batch: 
                     tmp2.write("\n".join(chunk)+"\n")
               f.close()
