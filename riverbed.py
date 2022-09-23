@@ -89,22 +89,24 @@ def np_memmap(f, dat=None, idxs=None, shape=None, dtype=np.float32, ):
     memmap[idxs] = dat
   return memmap
 
-if minilm_model is None:
-  clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")   
-  minilm_tokenizer = AutoTokenizer.from_pretrained('sentence-transformers/all-MiniLM-L6-v2')
-  labse_tokenizer = BertTokenizerFast.from_pretrained("setu4993/smaller-LaBSE")
+def init_models():
+  global labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set 
+  if minilm_model is None:
+    clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")   
+    minilm_tokenizer = AutoTokenizer.from_pretrained('sentence-transformers/all-MiniLM-L6-v2')
+    labse_tokenizer = BertTokenizerFast.from_pretrained("setu4993/smaller-LaBSE")
 
-  if device == 'cuda':
-    clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").half().eval()
-    minilm_model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2').half().eval()
-    labse_model = BertModel.from_pretrained("setu4993/smaller-LaBSE").half().eval()
-  else:
-    clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").eval()
-    minilm_model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2').eval()
-    lbase_model = BertModel.from_pretrained("setu4993/smaller-LaBSE").eval()
+    if device == 'cuda':
+      clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").half().eval()
+      minilm_model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2').half().eval()
+      labse_model = BertModel.from_pretrained("setu4993/smaller-LaBSE").half().eval()
+    else:
+      clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").eval()
+      minilm_model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2').eval()
+      lbase_model = BertModel.from_pretrained("setu4993/smaller-LaBSE").eval()
 
-  spacy_nlp = spacy.load('en_core_web_md')
-  stopwords_set = set(nltk_stopwords.words('english') + ['...', 'could', 'should', 'shall', 'can', 'might', 'may', 'include', 'including'])
+    spacy_nlp = spacy.load('en_core_web_md')
+    stopwords_set = set(nltk_stopwords.words('english') + ['...', 'could', 'should', 'shall', 'can', 'might', 'may', 'include', 'including'])
 
 #Mean Pooling - Take attention mask into account for correct averaging
 #TODO, mask out the prefix for data that isn't the first portion of a prefixed text.
@@ -216,7 +218,7 @@ class RiverbedTokenizer:
       return [self._tokenize(doc_batch[0], min_compound_weight=min_compound_weight,  max_compound_word_size=max_compound_word_size, \
                               compound=compound, token2weight=token2weight, synonyms=synonyms, use_synonym_replacement=use_synonym_replacement, \
                               return_str=return_str)]
-    chunk_size = max(len(doc_batch), int(len(doc_batch)/multiprocessing.cpu_count()))
+    chunk_size = max(1, int(len(doc_batch)/multiprocessing.cpu_count()))
     pool = multiprocessing.Pool(processes=multiprocessing.cpu_count()) 
     ret = pool.imap(partial(RiverbedTokenizer._tokenize, min_compound_weight=min_compound_weight,  max_compound_word_size=max_compound_word_size, \
                                     compound=compound, token2weight=token2weight, synonyms=synonyms, use_synonym_replacement=use_synonym_replacement, \
@@ -249,6 +251,7 @@ class RiverbedTokenizer:
 class RiverbedModel:
 
   def __init__(self):
+    init_models()
     pass 
   
   @staticmethod
@@ -553,6 +556,7 @@ class RiverbedModel:
                                  stopwords=None, min_num_tokens=5, do_collapse_values=True, use_synonym_replacement=False, \
                                  embedder="minilm", do_ontology=True, recluster_type="batch", model=None):
       global device, clip_model, minilm_model, labse_model
+      init_models()
       os.system(f"mkdir -p {model_name}")
       assert dedup_compound_words_larger_than is None or min_compound_word_size <= dedup_compound_words_larger_than, "can't have a minimum compound words greater than what is removed"
       for file_name in files:
@@ -1375,6 +1379,7 @@ class RiverbedDocumentProcessor:
                                                 auto_create_tokenizer_and_model=True, \
                                                 ):
     global clip_model, minilm_model, labse_model
+    init_models()
     model = self.model
     tokenizer = self.tokenizer
     os.system(f"mkdir -p {project_name}")
