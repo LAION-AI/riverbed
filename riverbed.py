@@ -733,7 +733,8 @@ class RiverbedModel:
           prev_dat = None
           prev_val = 0
           for l in f:
-            n, dat, val = l.strip().split("\t")
+            l = l.decode().strip()
+            n, dat, val = l.split("\t")
             n = int(n)
             val = float(val)
             if val > 0:
