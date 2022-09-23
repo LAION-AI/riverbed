@@ -648,7 +648,7 @@ class RiverbedModel:
                 else:
                   f = open(file_name, "rb")
                 while True:
-                  orig_batch = batchify_from_fileobj(f, apply_fn=lambda a: a.replace("\\n", "\n").strip()):
+                  orig_batch = batchify_from_fileobj(f, apply_fn=lambda a: a.replace("\\n", "\n").strip())
                   if not orig_batch: break
                   batch = tokenizer.tokenize_batch(orig_batch, min_compound_weight=0, compound=compound, token2weight=token2weight,  synonyms=synonyms, use_synonym_replacement=False)
                   for orig_chunk, chunk in zip(orig_batch, batch):
@@ -697,7 +697,7 @@ class RiverbedModel:
                 else:
                   f = open(prev_file, "rb")
                 while True:
-                  batch = batchify_from_fileobj(f, apply_fn=lambda a: a.replace("\\n", "\n").strip()):
+                  batch = batchify_from_fileobj(f, apply_fn=lambda a: a.replace("\\n", "\n").strip())
                   if not batch: break
                   batch = tokenizer.tokenize(batch,  min_compound_weight=min_compound_weight, compound=compound, token2weight=token2weight, synonyms=synonyms, use_synonym_replacement=use_synonym_replacement)
                   if times == num_iter-1:
