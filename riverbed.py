@@ -550,63 +550,21 @@ class RiverbedModel:
         curr_arpa = {}
         print ('doing', file_name, 'num iter', num_iter, "+", dedup_compound_words_num_iter)
         prev_file = file_name
-        for times in range(num_iter+dedup_compound_words_num_iter):
+        num_iter = max(num_iter,dedup_compound_words_num_iter)
+        for times in range(num_iter):
             print (f"iter {file_name}", times)
-            if dedup_compound_words_larger_than is not None and times == dedup_compound_words_num_iter:
-              # sometimes we want to do some pre-processing b/c n-grams larger than a certain amount are just duplicates
-              # and can mess up our token counts
-              print ('deduping compound words larger than',dedup_compound_words_larger_than)
-              tmp_file_name = f"{model_name}/__tmp__{file_name}"
-              if tmp_file_name.endswith(".gz"): tmp_file_name = tmp_file_name[:-len(".gz")]
-              with open(f"{tmp_file_name}", "w", encoding="utf8") as tmp2:
-                deduped_num_tokens = 0
-                seen_dedup_compound_words = {}
-                if file_name.endswith(".gz"):
-                  f = gzip.open(file_name)
-                else:
-                  f = open(file_name, "rb")
-                while True:
-                  l = f.readline()
-                  if not l: break 
-                  l = l.decode().strip()  
-                  orig_l = l.replace("_", " ").replace("  ", " ").strip()
-                  l = tokenizer.tokenize(l, min_compound_weight=0, compound=compound, token2weight=token2weight,  synonyms=synonyms, use_synonym_replacement=False)
-                  l = l.split()
-                  dedup_compound_word = [w for w in l if "_" in w and w.count("_") + 1 > dedup_compound_words_larger_than]
-                  if not dedup_compound_word:
-                    l2 = " ".join(l).replace("_", " ").strip()
-                    tmp2.write(l2+"\n")
-                    continue
-                  l = [w if ("_" not in w or w.count("_") + 1 <= dedup_compound_words_larger_than or w not in seen_dedup_compound_words) else '...' for w in l]
-                  l2 = " ".join(l).replace("_", " ").replace(' ... ...', ' ...').strip()
-                  l2 = l2.replace("\\n", "\n")
-                  if l2.endswith(" ..."): l2 = l2[:-len(" ...")]
-                  if dedup_compound_word and l2 != orig_l:
-                    deduped_num_tokens += 1
-                  #  print ('dedup ngram', dedup_compound_word, l2)
-                  for w in dedup_compound_word:
-                    seen_dedup_compound_words[w] = 1
-                  tmp2.write(l2+"\n")
-                seen_dedup_compound_words = None
-                print ('finished deduping', deduped_num_tokens)
-                dedup_name = f"{model_name}/{file_name}.dedup"
-                if dedup_name.endswith(".gz"): dedup_name = dedup_name[:-len(".gz")]
-              
-                os.system(f"cp {tmp_file_name} {dedup_name}")  
-                os.system(f"gzip {dedup_name}")
-                prev_file = f"{dedup_name}.gz"       
-                curr_arpa = {}
             # we only do synonym and embedding creation as the second to last or last step of each file processed 
             # b/c this is very expensive. we should do this right before the last counting if we
             # do synonym replacement so we have a chance to create syonyms for the replacement.
             # otherwise, we should do it after the last count. See below.
             synonyms_created=  False          
-            if use_synonym_replacement and times == num_iter+dedup_compound_words_num_iter-1 and token2weight:
+            if use_synonym_replacement and times == num_iter-1 and token2weight:
                 synonyms_created = True
                 self.synonyms = self.tokenizer.synonyms = synonyms = self._create_token_embeds_and_synonyms(model_name, stopwords=stopwords, token2weight=token2weight, synonyms=synonyms, kmeans_batch_size=kmeans_batch_size, min_incremental_cluster_overlap=min_incremental_cluster_overlap, \
                   prefered_cluster_size=prefered_cluster_size, embedder=embedder, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, max_ontology_depth=max_ontology_depth, max_cluster_size=max_cluster_size, do_ontology=do_ontology, recluster_type=recluster_type)   
             if token2weight:
               # if we want to make this faster, we can parrallelize this in a pool
+              do_dedup = dedup_compound_words_larger_than is not None and times == dedup_compound_words_num_iter-1
               tmp_file_name = f"{model_name}/__tmp__{file_name}"
               if tmp_file_name.endswith(".gz"): tmp_file_name = tmp_file_name[:-len(".gz")]
               with open(tmp_file_name, "w", encoding="utf8") as tmp2:
@@ -615,19 +573,37 @@ class RiverbedModel:
                 else:
                   f = open(prev_file, "rb")
                 while True:
-                  try:
-                    l = f.readline()
-                  except:
-                    break
+                  l = f.readline()
                   if not l: break   
                   l = l.decode().strip().replace("\\n", "\n")
-                  if l:               
+                  if l:   
+                    orig_l = l.replace("_", " ").replace("  ", " ").strip()
                     l = tokenizer.tokenize(l,  min_compound_weight=min_compound_weight, compound=compound, token2weight=token2weight, synonyms=synonyms, use_synonym_replacement=use_synonym_replacement)
                     if times == num_iter-1:
                       l = tokenizer.tokenize(l, min_compound_weight=0, compound=compound, token2weight=token2weight,  synonyms=synonyms, use_synonym_replacement=use_synonym_replacement)
-                  tmp2.write(l+"\n")  
+                    if do_dedup:                       
+                      l = l.split()
+                      dedup_compound_word = [w for w in l if "_" in w and w.count("_") + 1 > dedup_compound_words_larger_than]
+                      if dedup_compound_word:
+                        l = [w if ("_" not in w or w.count("_") + 1 <= dedup_compound_words_larger_than or w not in seen_dedup_compound_words) else '...' for w in l]
+                        l2 = " ".join(l).replace("_", " ").replace(' ... ...', ' ...').strip()
+                        l2 = l2.replace("\\n", "\n")
+                        if l2.endswith(" ..."): l2 = l2[:-len(" ...")]
+                        if dedup_compound_word and l2.replace("_", " ") != orig_l:
+                          deduped_num_tokens += 1
+                        #  print ('dedup ngram', dedup_compound_word, l2)
+                        for w in dedup_compound_word:
+                          seen_dedup_compound_words[w] = 1
+                        l = l2                
+                    tmp2.write(l+"\n")  
+                seen_dedup_compound_words = None
               os.system(f"gzip {tmp_file_name}")
               prev_file = f"{tmp_file_name}.gz" 
+              if do_dedup:
+                dedup_file_name = f"{model_name}/{file_name}"
+                if dedup_file_name.endswith(".gz"): dedup_file_name = dedup_file_name[:-len(".gz")]
+                dedup_file_name +=".dedup.gz"
+                os.system(f"cp {prev_file} {dedup_file_name}")
             if do_collapse_values:
               os.system(f"./{lmplz} --collapse_values  --discount_fallback  --skip_symbols -o 5 --prune {min_num_tokens}  --arpa {model_name}/__tmp__{file_name}.arpa <  {prev_file}") ##
             else:
