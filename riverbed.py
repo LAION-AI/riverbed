@@ -13,7 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# NOTES:
+# The Riverbed system is used for information retrieval at scale.
+# The Riverbed code includes a RiverbedTokenizer, RiverbedModel and RiverbedDocumenProcessor for information retrieval processing. 
+# The tokenizer stores the stopwords, compound, token2weight and synonyms data structure.
+# the model stores a copy of synonyms and the kenlm data structures. the model will allow us to find an ontology
+# for tokens in the model, and the perplexity of a text.
+# the processor sores in the span_clusters, span2class_label, span2idx, label_models, label2tf, and df data structures. 
 # we want to create feature detectors to segment spans of text. One way is to do clustering of embeddings of text.
 # this will roughly correspond to area of similarities or interestingness. 
 # we could do changes in perplexity, changes in embedding similarity, and detection of patterns such as section headers.
@@ -110,13 +115,49 @@ def mean_pooling(model_output, attention_mask):
       return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
     
     
-# The Riverbed code includes a RiverbedTokenizer, RiverbedModel and RiverbedDocumenProcessor for information retrieval processing. 
-# The tokenizer stores the stopwords, compound, token2weight and synonyms data structure.
-# the model stores a copy of synonyms and the kenlm data structures. the model will allow us to find an ontology
-# for tokens in the model, and the perplexity of a text.
-# the processor sores in the span_clusters, span2class_label, span2idx, label_models, label2tf, and df data structures. 
-
-
+#default is to do 100K lines per chunk, for 100 chunks per batch (or about 10M lines altogether)
+def batchify_from_fileobj(f, max_chunks=10^2, chunk_size=None, chunk_lines=10^5, decode=True, apply_fn=None):
+  n_chunk = 0
+  curr_size = 0
+  curr_line = 0
+  batch = []
+  chunk = []
+  if chunk_size is None:
+    for l in f:
+      if decode:
+        l = l.decode()
+      if apply_fn is not None:
+        l = apply_fn(l)
+      chunk.append(l)      
+      curr_size += len(l)
+      if curr_size >= chunk_size:
+        batch.append(ret)
+        n_chunk += 1
+        curr_size = 0
+        chunk = []
+      if b_chunk >= max_chunks:
+        return batch
+    if chunk: batch.append(chunk)
+    return batch
+  else:
+    for l in f:
+      if decode:
+        l = l.decode()
+      if apply_fn is not None:
+        l = apply_fn(l)
+      chunk.append(l)      
+      curr_line += 1
+      if curr_line >= chunk_lines:
+        batch.append(chunk)
+        n_chunk += 1
+        curr_line = 0
+        chunk = []
+      if b_chunk >= max_chunks:
+        return batch
+    if ret: batch.append(chunk)
+    return batch
+      
+    
 #################################################################################
 # TOKENIZER CODE
 class RiverbedTokenizer:
@@ -126,32 +167,68 @@ class RiverbedTokenizer:
 
   def token2idx(self):
     return OrderedDict([(term, idx) for idx, term in enumerate(self.tokenweight.items())])
+
+  
+  @staticmethod
+  def _tokenize(doc_batch, min_compound_weight=0,  max_compound_word_size=10000, compound=None, token2weight=None, synonyms=None, use_synonym_replacement=False, return_str=True):
+    if not use_synonym_replacement: synonyms = {} 
+    is_str = False
+    if type(doc) is str:
+      is_str = True
+      doc_batch = [doc_batch]
+    ret = []
+    for doc in doc_batch:
+      doc = [synonyms.get(d,d) for d in doc.split(" ") if d.strip()]
+      len_doc = len(doc)
+      for i in range(len_doc-1):
+          if doc[i] is None: continue
+          tokenArr = doc[i].strip("_").replace("__", "_").split("_")
+          if tokenArr[0] in compound:
+            min_compound_len = compound[tokenArr[0]][0]
+            max_compound_len = min(max_compound_word_size, compound[tokenArr[0]][-1])
+            for j in range(min(len_doc, i+max_compound_len), i+1, -1):
+              if j <= i+min_compound_len-1: break
+              token = ("_".join(doc[i:j])).strip("_").replace("__", "_")
+              tokenArr = token.split("_")
+              if len(tokenArr) <= max_compound_len and token in token2weight and token2weight.get(token, 0) >= min_compound_weight:
+                old_token = token
+                doc[j-1] = synonyms.get(token, token).strip("_").replace("__", "_")
+                #if old_token != doc[j-1]: print (old_token, doc[j-1])
+                for k in range(i, j-1):
+                    doc[k] = None
+                break
+      if return_str: 
+        ret.append(" ".join([d for d in doc if d]))
+      else: 
+        ret.append([d for d in doc if d])
+      if is_str: return ret[0]
+      return ret
+  
+  # doc_batch is a list of str, or a list of list of str.
+  def tokenize_batch(self, doc_batch, min_compound_weight=0,  max_compound_word_size=10000, compound=None, token2weight=None, synonyms=None, use_synonym_replacement=False, return_str=True):
+    if synonyms is None: synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
+    if token2weight is None: token2weight = {} if not hasattr(self, 'token2weight') else self.token2weight    
+    if compound is None: compound = {} if not hasattr(self, 'compound') else self.compound
+    if type(doc_batch) is str:
+      doc_batch = [doc_batch]
+    chunk_size = int(len(doc_batch)/multiprocessing.cpu_count())
+    pool = multiprocessing.Pool(processes=multiprocessing.cpu_count()) 
+    ret = pool.imap(partial(RiverbedTokenizer._tokenize, min_compound_weight=min_compound_weight,  max_compound_word_size=max_compound_word_size, \
+                                  compound=compound, token2weight=token2weight, synonyms=synonyms, use_synonym_replacement=use_synonym_replacement, \
+                                  return_str=return_str),
+                                  doc_batch, chunk_size)
+    return list(ret)
     
-  def tokenize(self, doc, min_compound_weight=0,  max_compound_word_size=10000, compound=None, token2weight=None, synonyms=None, use_synonym_replacement=False):
+      
+      
+  def tokenize(self, doc, min_compound_weight=0,  max_compound_word_size=10000, compound=None, token2weight=None, synonyms=None, use_synonym_replacement=False, return_str=True):
     if synonyms is None: synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
     if token2weight is None: token2weight = {} if not hasattr(self, 'token2weight') else self.token2weight    
     if compound is None: compound = {} if not hasattr(self, 'compound') else self.compound
     if not use_synonym_replacement: synonyms = {} 
-    doc = [synonyms.get(d,d) for d in doc.split(" ") if d.strip()]
-    len_doc = len(doc)
-    for i in range(len_doc-1):
-        if doc[i] is None: continue
-        tokenArr = doc[i].strip("_").replace("__", "_").split("_")
-        if tokenArr[0] in compound:
-          min_compound_len = compound[tokenArr[0]][0]
-          max_compound_len = min(max_compound_word_size, compound[tokenArr[0]][-1])
-          for j in range(min(len_doc, i+max_compound_len), i+1, -1):
-            if j <= i+min_compound_len-1: break
-            token = ("_".join(doc[i:j])).strip("_").replace("__", "_")
-            tokenArr = token.split("_")
-            if len(tokenArr) <= max_compound_len and token in token2weight and token2weight.get(token, 0) >= min_compound_weight:
-              old_token = token
-              doc[j-1] = synonyms.get(token, token).strip("_").replace("__", "_")
-              #if old_token != doc[j-1]: print (old_token, doc[j-1])
-              for k in range(i, j-1):
-                  doc[k] = None
-              break
-    return (" ".join([d for d in doc if d]))
+    return self._tokenize(doc, min_compound_weight=min_compound_weight,  max_compound_word_size=max_compound_word_size, \
+                              compound=compound, token2weight=token2weight, synonyms=synonyms, use_synonym_replacement=use_synonym_replacement, \
+                              return_str=return_str)
 
   def save_pretrained(self, tokenizer_name):
       os.system(f"mkdir -p {tokenizer_name}")
@@ -566,36 +643,36 @@ class RiverbedModel:
                 else:
                   f = open(file_name, "rb")
                 while True:
-                  l = f.readline()
-                  if not l: break 
-                  l = l.decode().strip()  
-                  orig_l = l.replace("_", " ").replace("  ", " ").strip()
-                  l = tokenizer.tokenize(l, min_compound_weight=0, compound=compound, token2weight=token2weight,  synonyms=synonyms, use_synonym_replacement=False)
-                  l = l.split()
-                  dedup_compound_word = [w for w in l if "_" in w and w.count("_") + 1 > dedup_compound_words_larger_than]
-                  if not dedup_compound_word:
-                    l2 = " ".join(l).replace("_", " ").strip()
-                    tmp2.write(l2+"\n")
-                    continue
-                  l = [w if ("_" not in w or w.count("_") + 1 <= dedup_compound_words_larger_than or w not in seen_dedup_compound_words) else '...' for w in l]
-                  l2 = " ".join(l).replace("_", " ").replace(' ... ...', ' ...').strip()
-                  l2 = l2.replace("\\n", "\n")
-                  if l2.endswith(" ..."): l2 = l2[:-len(" ...")]
-                  if dedup_compound_word and l2 != orig_l:
-                    deduped_num_tokens += 1
-                  #  print ('dedup ngram', dedup_compound_word, l2)
-                  for w in dedup_compound_word:
-                    seen_dedup_compound_words[w] = 1
-                  tmp2.write(l2+"\n")
+                  orig_batch = batchify_from_fileobj(f, apply_fn=lambda a: a.replace("\\n", "\n").strip()):
+                  if not orig_batch: break
+                  batch = tokenizer.tokenize_batch(orig_batch, min_compound_weight=0, compound=compound, token2weight=token2weight,  synonyms=synonyms, use_synonym_replacement=False)
+                  for orig_chunk, chunk in zip(orig_batch, batch):
+                    for orig_l, l in zip(orig_chunk, chunk):
+                      l = l.split()
+                      dedup_compound_word = [w for w in l if "_" in w and w.count("_") + 1 > dedup_compound_words_larger_than]
+                      if not dedup_compound_word:
+                        l2 = " ".join(l).replace("_", " ").strip()
+                        tmp2.write(l2+"\n")
+                        continue
+                      l = [w if ("_" not in w or w.count("_") + 1 <= dedup_compound_words_larger_than or w not in seen_dedup_compound_words) else '...' for w in l]
+                      l2 = " ".join(l).replace(' ... ...', ' ...').strip()
+                      if dedup_compound_word and l2 != orig_l:
+                        deduped_num_tokens += 1
+                      l2 = l2.replace("_", " ")
+                      if l2.endswith(" ..."): l2 = l2[:-len(" ...")]
+                      for w in dedup_compound_word:
+                        seen_dedup_compound_words[w] = 1
+                      tmp2.write(l2+"\n")
                 seen_dedup_compound_words = None
+                f.close()
                 print ('finished deduping', deduped_num_tokens)
                 dedup_name = f"{model_name}/{file_name}.dedup"
                 if dedup_name.endswith(".gz"): dedup_name = dedup_name[:-len(".gz")]
-              
                 os.system(f"cp {tmp_file_name} {dedup_name}")  
                 os.system(f"gzip {dedup_name}")
                 prev_file = f"{dedup_name}.gz"       
                 curr_arpa = {}
+                
             # we only do synonym and embedding creation as the second to last or last step of each file processed 
             # b/c this is very expensive. we should do this right before the last counting if we
             # do synonym replacement so we have a chance to create syonyms for the replacement.
@@ -615,17 +692,14 @@ class RiverbedModel:
                 else:
                   f = open(prev_file, "rb")
                 while True:
-                  try:
-                    l = f.readline()
-                  except:
-                    break
-                  if not l: break   
-                  l = l.decode().strip().replace("\\n", "\n")
-                  if l:               
-                    l = tokenizer.tokenize(l,  min_compound_weight=min_compound_weight, compound=compound, token2weight=token2weight, synonyms=synonyms, use_synonym_replacement=use_synonym_replacement)
-                    if times == num_iter-1:
-                      l = tokenizer.tokenize(l, min_compound_weight=0, compound=compound, token2weight=token2weight,  synonyms=synonyms, use_synonym_replacement=use_synonym_replacement)
-                  tmp2.write(l+"\n")  
+                  batch = batchify_from_fileobj(f, apply_fn=lambda a: a.replace("\\n", "\n").strip()):
+                  if not batch: break
+                  batch = tokenizer.tokenize(batch,  min_compound_weight=min_compound_weight, compound=compound, token2weight=token2weight, synonyms=synonyms, use_synonym_replacement=use_synonym_replacement)
+                  if times == num_iter-1:
+                    batch = tokenizer.tokenize(batch, min_compound_weight=0, compound=compound, token2weight=token2weight,  synonyms=synonyms, use_synonym_replacement=use_synonym_replacement)
+                  for chunk in batch: 
+                    tmp2.write("\n".join(chunk)+"\n")
+              f.close()
               os.system(f"gzip {tmp_file_name}")
               prev_file = f"{tmp_file_name}.gz" 
             if do_collapse_values:
