@@ -28,7 +28,6 @@
 
 import math, os
 import copy
-import fasttext
 from sklearn.cluster import MiniBatchKMeans
 from sklearn.cluster import AgglomerativeClustering
 from time import time
