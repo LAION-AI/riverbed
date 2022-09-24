@@ -79,9 +79,13 @@ def _unpickle(state):
     return gzobj
 
 class Gush(igzip.IndexedGzipFile):
-    """A Gush file is a gzip file with added funcitonalites directed at information retreival.
-    It is a single gzip file that can be searched via BM25, vector based search and accessed 
-    by line number.
+    """A Gush file is a gzip file with added funcitonalites for information retreival.
+    It is used in the https://github.com/ontocord/riverbed/ platform, but
+    can also be used standalone.
+    
+    A Gush file is a single gzip file that can be searched via BM25/whoosh, 
+    searched by pytorch vector based approximate nearest neighbor, and 
+    accessed by line number. The distance metric for vector search is cosine distance.
     
       for r in obj.search("test"): print (r)
 
@@ -89,23 +93,19 @@ class Gush(igzip.IndexedGzipFile):
       
       for r in obj.search("test", numpy_or_pytorch_tensor): print (r)
     
-    This class allows in addition to the functionality of IndexedGzipFile, indexing 
-    each line using whoosh, and access to a specific line based on the seek point of 
-    the line, using the __getitem__ method.
-    
-      obj[5]
-    
-    Additionally, a (conginguous) list or slice can be used, which will be more efficient 
-    then doing line by line access. 
+      obj[5] # returns the text at line 6.
     
       obj[5:10]
     
-    The underlying vectors can also be accessed using line numbers.
+    TODO: The underlying vectors can also be accessed using line numbers.
     
       obj.vecs[5]
 
       objs.vecs[5:10]
-    
+   TODO: return a dataframe, additonally parsing from jsonl if the data is in that format.
+      
+      objs.dfs[5]
+      obj.dfs[5:10]
     
     The base IndexedGzipFile class allows for fast random access of a gzip
     file by using the ``zran`` library to build and maintain an index of seek
@@ -127,8 +127,6 @@ class Gush(igzip.IndexedGzipFile):
         .. note:: The ``auto_build`` behaviour only takes place on calls to
                   :meth:`seek`.
         :arg filename:         File name or open file handle.
-        :arg index_whoosh:     Whether to index the file using whoose for 
-                               BM25 searching
         :arg fileobj:          Open file handle.
         :arg mode:             Opening mode. Must be either ``'r'`` or ``'rb``.
         :arg auto_build:       If ``True`` (the default), the index is
@@ -158,9 +156,15 @@ class Gush(igzip.IndexedGzipFile):
                                a default value of 1048576 is used.
         :arg line2seekpoint:      Optional, must be passed as a keyword argument.
                                If not passed, this will automatically be created.
+        :arg do_bm25:          Optional. Whether to index the file using whoosh for 
+                               BM25 searching
+        :arg bm25_field:     Optional. Defaults to "text". If the data is in jsonl format,
+                             this is the field that is Whoosh/bm25 indexed.
         :arg  mmap_file:      Optional, must be passed as a keyword argument.
                               This is the file name for the vectors representing 
-                              each line in the gzip file.
+                              each line in the gzip file. Used for ANN search.
+        :arg shape             Optional, must be passed as a keyword argument.
+                              This is the shape of the mmap_file.                              
         :arg  parent_vecs:      Optional, must be passed as a keyword argument.
                                 This is a numpy or pytorch vector of the form,
                                 assuming a 4 level hiearcical structure:
@@ -182,6 +186,9 @@ class Gush(igzip.IndexedGzipFile):
                                [15... 25], .....                   # level 3 parents point to level 2 parents.
                                ...
                                [46, 10020, ....], [10, 1, ... 100], ... # level 0 parents point to vecs in the mmap_file.
+                               
+                               If mmap_file, shape, parent_vecs, parent_levels and parent2idx are not provided,
+                               vector based search will not be available. 
                               
                               
                               
@@ -204,8 +211,17 @@ class Gush(igzip.IndexedGzipFile):
           need_export_index = False
         self.line2seekpoint  = kwargs.pop('line2seekpoint', None)
         self.parent_vecs  = kwargs.pop('parent_vecs', None)
+        self.parent_levels  = kwargs.pop('parent_levels', None)
         self.parent2idx  = kwargs.pop('parent2idx', None)
         self.mmap_file = kwargs.pop('mmap_file', f+"idx/index.mmap")
+        self.shape = kwargs.pop('shape',None)
+        if self.parent_vecs is not None or self.parent_levels is not None or self.parent2idx is not None or self.shape is not None:
+          assert self.parent_vecs is not None and self.parent_levels is not None and self.parent2idx is not None and self.shape is not None
+        if self.parent_vecs is not None:
+          self.dtype = self.parent_vecs.to_nump().dtype
+          assert self.parent_vecs.shape[0] == self.shape[0]
+          self.num_top_parents = len([a for a in self.parent_levels if a == max(self.parent_levels)])
+          
         if need_export_index and 'auto_build' not in kwargs: kwargs['auto_build'] = True
         super(Gush, self).__init__(*args, **kwargs)
         if not hasattr(self, 'file_size'):
@@ -239,7 +255,7 @@ class Gush(igzip.IndexedGzipFile):
             self.line2seekpoint = [0]+list(itertools.chain(*line_nums))
         if f and need_export_index: 
             self.export_index(f+"idx/index.pickle")
-        if 'index_whoosh' in kwargs and kwargs['index_whoosh']:
+        if 'do_bm25' in kwargs and kwargs['do_bm25']:
           assert f, "need a index name to store the whoosh index"
           schema = Schema(id=ID(stored=True), content=TEXT)
           #TODO determine how to clear out the whoosh index besides rm -rf _M* MAIN*
@@ -260,6 +276,7 @@ class Gush(igzip.IndexedGzipFile):
         if type(query) in (nd.array, torch.Tensor):
           vec = query
           query = None
+        assert vec is None or self.parent_vecs is not None
         if query is not None:        
           assert hasattr(self, 'whoosh_ix'), "must be created with whoosh_index set"
           with self.whoosh_searcher():
