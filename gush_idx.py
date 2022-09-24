@@ -47,6 +47,40 @@ def np_memmap(f, dat=None, idxs=None, shape=None, dtype=np.float32, ):
     memmap[idxs] = dat
   return memmap
 
+def pytorch_ann_search(vec, mmap_file, shape, dtype, parents, num_top_level_parents, parent_levels, parent2idx, ):
+  vecs = self.parents[:num_top_level_parents]
+  idx2idx = list(range(num_top_level_parents))
+  for _ in range(parent_level[0]):
+    results = cosine_similarity(vec.unsqueeze(0), vecs)
+    results = results.top_k(k)
+    children = itertools.chain(*[parent2idx[idx2idx[idx]] for idx in results.indices])
+    idx = results.indices[0]
+    if self.parent_level[idx2idx[idx]] == 0: #we are at the leaf nodes
+      idxs = []
+      n_chunks = 0
+      for child_id in children:
+         idxs.append(child_id)
+         n_chunks += 1
+         if n_chunks > chunk_size:
+            vecs = torch.from_numpy(np_memmap(mmap_file, shape=shape, dtype=dtype)[idxs]).to(device)
+            results = cosine_similarity(vec.unsqueeze(0), vecs)
+            results = results.sort()
+            for idx, score in zip(results.indexes, results.values):
+               idx = idxs[idx]
+               yield (idx, score)
+            idxs = []
+            n_chunk = 0
+      if idxs:
+         vecs = torch.from_numpy(np_memmap(mmap_file, shape=shape, dtype=dtype)[idxs]).to(device)
+         results = cosine_similarity(vec.unsqueeze(0), vecs)
+         results = results.sort()
+         for idx, score in zip(results.indexes, results.values):
+            idx = idxs[idx]
+            yield (idx, score)
+    else:
+      vecs = self.parents[children]
+      idx2idx = children    
+                    
 def _is_contiguous(arr):
         start = None
         prev = None
@@ -165,7 +199,9 @@ class Gush(igzip.IndexedGzipFile):
                               each line in the gzip file. Used for ANN search.
         :arg shape             Optional, must be passed as a keyword argument.
                               This is the shape of the mmap_file.                              
-        :arg  parent_vecs:      Optional, must be passed as a keyword argument.
+        :arg dtype             Optional, must be passed as a keyword argument.
+                              This is the dtype of the mmap_file.                              
+        :arg  parents:      Optional, must be passed as a keyword argument.
                                 This is a numpy or pytorch vector of the form,
                                 assuming a 4 level hiearcical structure:
                                 [level 3 parents ... level 1 parents ... level 0 parents]
@@ -210,16 +246,17 @@ class Gush(igzip.IndexedGzipFile):
           file_size = self.file_size = kwargs.pop('file_size', None)
           need_export_index = False
         self.line2seekpoint  = kwargs.pop('line2seekpoint', None)
-        self.parent_vecs  = kwargs.pop('parent_vecs', None)
+        self.parents  = kwargs.pop('parents', None)
         self.parent_levels  = kwargs.pop('parent_levels', None)
         self.parent2idx  = kwargs.pop('parent2idx', None)
         self.mmap_file = kwargs.pop('mmap_file', f+"idx/index.mmap")
         self.shape = kwargs.pop('shape',None)
-        if self.parent_vecs is not None or self.parent_levels is not None or self.parent2idx is not None or self.shape is not None:
-          assert self.parent_vecs is not None and self.parent_levels is not None and self.parent2idx is not None and self.shape is not None
-        if self.parent_vecs is not None:
-          self.dtype = self.parent_vecs.to_nump().dtype
-          assert self.parent_vecs.shape[0] == self.shape[0]
+        self.dtype = kwargs.pop('shape',np.float32)
+        if self.parents is not None or self.parent_levels is not None or self.parent2idx is not None or self.shape is not None:
+          assert self.parents is not None and self.parent_levels is not None and self.parent2idx is not None and self.shape is not None
+        if self.parents is not None:
+          self.dtype = self.parents.to_nump().dtype
+          assert self.parents.shape[0] == self.shape[0]
           self.num_top_parents = len([a for a in self.parent_levels if a == max(self.parent_levels)])
           
         if need_export_index and 'auto_build' not in kwargs: kwargs['auto_build'] = True
@@ -283,69 +320,40 @@ class Gush(igzip.IndexedGzipFile):
             if type(query) is str:
                query = QueryParser("content", self.whoosh_ix.schema).parse(query)
             results = searcher.search(query)
-            idxs = []
-            n_chunks = 0
             if vec is None:
               for r in results:
                yield (int(r['id']), self[int(r['id'])].decode().strip())
             else:
+              idxs = []
+              n_chunks = 0
               for r in results:
-               idxs.append(int(r['id']))
-               n_chunks += 1
-               if n_chunks > chunk_size:
-                  vecs = torch.from_numpy(np_memmap(self.mmap_file, shape=self.vec_shape)[idxs]).to(device)
+                 idxs.append(int(r['id']))
+                 n_chunks += 1
+                 if n_chunks > chunk_size:
+                    vecs = torch.from_numpy(np_memmap(self.mmap_file, shape=self.shape, dtype=self.dtype)[idxs]).to(device)
+                    results = cosine_similarity(vec.unsqueeze(0), vecs)
+                    results = results.sort()
+                    for idx, score in zip(results.indexes, results.values):
+                       idx = idxs[idx]
+                       yield (idx, self[idx].decode().strip()), score)
+                    idxs = []
+                    n_chunk = 0
+              if idxs:
+                  vecs = torch.from_numpy(np_memmap(self.mmap_file, shape=self.shape, dtype=self.dtype)[idxs]).to(device)
                   results = cosine_similarity(vec.unsqueeze(0), vecs)
                   results = results.sort()
                   for idx, score in zip(results.indexes, results.values):
                      idx = idxs[idx]
                      yield (idx, self[idx].decode().strip()), score)
-                  idxs = []
-                  n_chunk = 0
-            if idxs:
-                vecs = torch.from_numpy(np_memmap(self.mmap_file, shape=self.vec_shape)[idxs]).to(device)
-                results = cosine_similarity(vec.unsqueeze(0), vecs)
-                results = results.sort()
-                for idx, score in zip(results.indexes, results.values):
-                   idx = idxs[idx]
-                   yield (idx, self[idx].decode().strip()), score)
         else:
                 assert vec is not None        
                 #do ANN search
                 if type(self.parents) is not torch.Tensor:
                    self.parents = torch.from_numpy(self.parents).to(device)
-                vecs = self.parents[:self.num_top_level_parents]
-                idx2idx = list(range(self.num_top_level_parents))
-                for _ in range(self.parent_level[0]):
-                   results = cosine_similarity(vec.unsqueeze(0), vecs)
-                   results = results.top_k(k)
-                   children = itertools.chain(*[self.parent2child[idx2idx[idx]] for idx in results.indices])
-                   idx = results.indices[0]
-                   if self.parent_level[idx2idx[idx]] == 0: #we are at the leaf nodes
-                        idxs = []
-                        n_chunks = 0
-                        for child_id in children:
-                           idxs.append(child_id)
-                           n_chunks += 1
-                           if n_chunks > chunk_size:
-                              vecs = torch.from_numpy(np_memmap(self.mmap_file, shape=self.vec_shape)[idxs]).to(device)
-                              results = cosine_similarity(vec.unsqueeze(0), vecs)
-                              results = results.sort()
-                              for idx, score in zip(results.indexes, results.values):
-                                 idx = idxs[idx]
-                                 yield (idx, self[idx].decode().strip()), score)
-                              idxs = []
-                              n_chunk = 0
-                        if idxs:
-                              vecs = torch.from_numpy(np_memmap(self.mmap_file, shape=self.vec_shape)[idxs]).to(device)
-                              results = cosine_similarity(vec.unsqueeze(0), vecs)
-                              results = results.sort()
-                              for idx, score in zip(results.indexes, results.values):
-                                 idx = idxs[idx]
-                                 yield (idx, self[idx].decode().strip()), score)
-                   else:
-                     vecs = self.parents[children]
-                     idx2idx = children    
-
+                for r in pytorch_ann_search(vec, self.mmap_file, self.shape,  self.dtype, \
+                                            self.parents, self.num_top_level_parents, self.parent_levels, self.parent2idx):
+                  yield (r[0], self[r[0]].decode().strip()), r[1])
+                  
                 
     def __reduce__(self):
         """Used to pickle an ``LineIndexGzipFile``.
