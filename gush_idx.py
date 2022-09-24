@@ -79,8 +79,56 @@ def pytorch_ann_search(vec, mmap_file, shape, dtype, parents, num_top_level_pare
             yield (idx, score)
     else:
       vecs = self.parents[children]
-      idx2idx = children    
-                    
+      idx2idx = children   
+      
+# with a max of 4 levels, and each node containing 200 items, we can have up to 1.6B items approximately
+def create_hiearchical_parents(mmap_file, shape, dtype, max_level=4, cluster_size=200, prefered_leaf_node_size=None, kmeans_batch_size=10000):
+  global device
+  span2cluster_label = {}
+  tmp_clusters = {}
+  cluster_vecs = np_memmap(mmap_file, shape=shape, dtype=dtype)
+  
+  # cluster leaves
+  for rng in range(0, len_cluster_vecs, kmeans_batch_size):
+      max_rng = min(len_cluster_vecs, rng+kmeans_batch_size)
+      spans = list(range(rng, max_rng)) + [span for span in range(rng) if span not in span2cluster_label]
+      if device == 'cuda':
+        kmeans = KMeans(n_clusters=true_k, mode='cosine')
+        km_labels = kmeans.fit_predict(torch.from_numpy(cluster_vecs[rng:max_rng]).to(device))
+        km_labels = [l.item() for l in km_labels.cpu()]
+      else:
+        km = MiniBatchKMeans(n_clusters=true_k, init='k-means++', n_init=1,
+                                      init_size=max(true_k*3,1000), batch_size=1024).fit(cluster_vecs[rng_max_rng])
+        km_labels = km.labels_
+
+      new_cluster = {}  
+      for span, label in zip(spans, km_labels):
+        new_cluster[label] = new_cluster.get(label, [])+[span]
+
+      if True:
+        for label, spans in new_cluster.items():
+          cluster_labels = [span2cluster_label[span] for span in spans if span in span2cluster_label]
+          items2 = [span for span in spans if span not in span2cluster_label]
+          if cluster_labels:
+            most_common = Counter(cluster_labels).most_common(1)[0]
+            if most_common[1] >= 2: #if two or more of the span in a cluster has already been labeled, use that label for the rest of the spans
+              label = most_common[0]
+              items = [span for span in items if span2cluster_label.get(span) in (label, None)]
+            else:
+              items = items2
+          else:
+            items = items2
+          for span in  spans:
+            if span not in tmp_clusters.get(label, []):
+                tmp_clusters[label] = tmp_clusters.get(label, []) + [span]
+            span2cluster_label[span] = label
+      # remove small clusters
+      # split up large clusters
+      
+  # now do parents
+  for level in range(max_level):
+    pass
+  
 def _is_contiguous(arr):
         start = None
         prev = None
