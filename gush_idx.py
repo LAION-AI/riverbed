@@ -69,7 +69,7 @@ def _unpickle(state):
     """
     tell  = state.pop('tell')
     index = state.pop('index')
-    gzobj = GushFile(**state)
+    gzobj = Gush(**state)
 
     if index is not None:
         gzobj.import_index(fileobj=io.BytesIO(index))
@@ -78,14 +78,39 @@ def _unpickle(state):
 
     return gzobj
 
-class GushFile(igzip.IndexedGzipFile):
-    """This class inheriets from `` ingdex_gzip.IndexedGzipFile``. This class allows in addition to the functionality 
-    of IndexedGzipFile, indexing each line using whoosh, and access to a specific line based on the seek point of the line, using the __getitem__ method.
-    Additionally, a (conginguous) list or slice can be used, which will be more efficient then doing line by line access. 
+class Gush(igzip.IndexedGzipFile):
+    """A Gush file is a gzip file with added funcitonalites directed at information retreival.
+    It is a single gzip file that can be searched via BM25, vector based search and accessed 
+    by line number.
+    
+      for r in obj.search("test"): print (r)
+
+      for r in obj.search(numpy_or_pytorch_tensor): print (r)
+      
+      for r in obj.search("test", numpy_or_pytorch_tensor): print (r)
+    
+    This class allows in addition to the functionality of IndexedGzipFile, indexing 
+    each line using whoosh, and access to a specific line based on the seek point of 
+    the line, using the __getitem__ method.
+    
+      obj[5]
+    
+    Additionally, a (conginguous) list or slice can be used, which will be more efficient 
+    then doing line by line access. 
+    
+      obj[5:10]
+    
+    The underlying vectors can also be accessed using line numbers.
+    
+      obj.vecs[5]
+
+      objs.vecs[5:10]
+    
     
     The base IndexedGzipFile class allows for fast random access of a gzip
     file by using the ``zran`` library to build and maintain an index of seek
     points into the file.
+    
     ``IndexedGzipFile`` is an ``io.BufferedReader`` which wraps an
     :class:`_IndexedGzipFile` instance. By accessing the ``_IndexedGzipFile``
     instance through an ``io.BufferedReader``, read performance is improved
@@ -132,7 +157,35 @@ class GushFile(igzip.IndexedGzipFile):
                                ``io.BufferedReader.__init__``. If not provided,
                                a default value of 1048576 is used.
         :arg line2seekpoint:      Optional, must be passed as a keyword argument.
-                               If not passed, this will automatically be created.                               
+                               If not passed, this will automatically be created.
+        :arg  mmap_file:      Optional, must be passed as a keyword argument.
+                              This is the file name for the vectors representing 
+                              each line in the gzip file.
+        :arg  parent_vecs:      Optional, must be passed as a keyword argument.
+                                This is a numpy or pytorch vector of the form,
+                                assuming a 4 level hiearcical structure:
+                                [level 3 parents ... level 1 parents ... level 0 parents]
+                                Where level 4 parents are the top level parents. 
+                                This structure is used for approximage nearest neighbor search.
+        :arg parent_levels:  Optional, must be passed as a keyword argument. If parent_vecs
+                              are passed, this param must be also passed. It is an array repreesnting the
+                              paent level. e.g., 
+                              [4, 4, 4, 3, 3, 3, 3, 3, 3, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, \
+                              1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, \
+                              0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, \
+                              0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ]
+        :arg parent2idx:      Optional, must be passed as a keyword argument. If parent_vecs
+                              are passed, this param must be also passed. It is a list of lists which 
+                              represents the mapping between one parents level to the next, and where 
+                              the level 0 parents points to the actual leaf vectors in the mmap_file. e.g., 
+                              [[3,...5], [6, ... 9], [10, ... 14], # level 4 parents points to level 3 parents
+                               [15... 25], .....                   # level 3 parents point to level 2 parents.
+                               ...
+                               [46, 10020, ....], [10, 1, ... 100], ... # level 0 parents point to vecs in the mmap_file.
+                              
+                              
+                              
+                                
         """
         f = kwargs.get("filename") 
         if args and not f:
@@ -151,10 +204,10 @@ class GushFile(igzip.IndexedGzipFile):
           need_export_index = False
         self.line2seekpoint  = kwargs.pop('line2seekpoint', None)
         self.parent_vecs  = kwargs.pop('parent_vecs', None)
-        self.parent2line  = kwargs.pop('parent2line', None)
-        self.mmap_file = kwargs.pop('mmap_file', None)
+        self.parent2idx  = kwargs.pop('parent2idx', None)
+        self.mmap_file = kwargs.pop('mmap_file', f+"idx/index.mmap")
         if need_export_index and 'auto_build' not in kwargs: kwargs['auto_build'] = True
-        super(GushFile, self).__init__(*args, **kwargs)
+        super(Gush, self).__init__(*args, **kwargs)
         if not hasattr(self, 'file_size'):
           self.build_full_index()
           pos = self.tell()
@@ -187,12 +240,12 @@ class GushFile(igzip.IndexedGzipFile):
         if f and need_export_index: 
             self.export_index(f+"idx/index.pickle")
         if 'index_whoosh' in kwargs and kwargs['index_whoosh']:
-          assert f, "need a filename to store the whoosh index"
+          assert f, "need a index name to store the whoosh index"
           schema = Schema(id=ID(stored=True), content=TEXT)
           #TODO determine how to clear out the whoosh index besides rm -rf _M* MAIN*
           self.whoosh_ix = create_in(f+"idx", schema)  
           if need_export_index: 
-            writer = self.whoosh_ix.writer()
+            writer self.whoosh_ix.writer()
             for idx, l in enumerate(self):
               writer.add_document(id=str(id),
                                   content=l.decode().strip())  
@@ -204,6 +257,9 @@ class GushFile(igzip.IndexedGzipFile):
         return self.whoosh_ix.searcher()
 
     def search(self, query=None, vec=None, lookahead_cutoff=100, k=5):
+        if type(query) in (nd.array, torch.Tensor):
+          vec = query
+          query = None
         if query is not None:        
           assert hasattr(self, 'whoosh_ix'), "must be created with whoosh_index set"
           with self.whoosh_searcher():
@@ -240,8 +296,8 @@ class GushFile(igzip.IndexedGzipFile):
                 #do ANN search
                 if type(self.parents) is not torch.Tensor:
                    self.parents = torch.from_numpy(self.parents).to(device)
-                vecs = self.parents[:self.top_n_parents]
-                idx2idx = list(range(self.top_n_parents))
+                vecs = self.parents[:self.num_top_level_parents]
+                idx2idx = list(range(self.num_top_level_parents))
                 for _ in range(self.parent_level[0]):
                    results = cosine_similarity(vec.unsqueeze(0), vecs)
                    results = results.top_k(k)
