@@ -313,14 +313,14 @@ class Gush(igzip.IndexedGzipFile):
                                 [level 3 parents ... level 1 parents ... level 0 parents]
                                 Where level 4 parents are the top level parents. 
                                 This structure is used for approximage nearest neighbor search.
-        :arg parent_levels:  Optional, must be passed as a keyword argument. If parent_vecs
+        :arg parent_levels:  Optional, must be passed as a keyword argument. If parents
                               are passed, this param must be also passed. It is an array repreesnting the
                               paent level. e.g., 
                               [4, 4, 4, 3, 3, 3, 3, 3, 3, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, \
                               1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, \
                               0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, \
                               0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ]
-        :arg parent2idx:      Optional, must be passed as a keyword argument. If parent_vecs
+        :arg parent2idx:      Optional, must be passed as a keyword argument. If parents
                               are passed, this param must be also passed. It is a list of lists which 
                               represents the mapping between one parents level to the next, and where 
                               the level 0 parents points to the actual leaf vectors in the mmap_file. e.g., 
@@ -329,7 +329,7 @@ class Gush(igzip.IndexedGzipFile):
                                ...
                                [46, 10020, ....], [10, 1, ... 100], ... # level 0 parents point to vecs in the mmap_file.
                                
-                               If mmap_file, shape, parent_vecs, parent_levels and parent2idx are not provided,
+                               If mmap_file, shape, parents, parent_levels and parent2idx are not provided,
                                vector based search will not be available. 
                               
                               
@@ -457,7 +457,7 @@ class Gush(igzip.IndexedGzipFile):
         if type(query) in (nd.array, torch.Tensor):
           vec = query
           query = None
-        assert vec is None or self.parent_vecs is not None
+        assert vec is None or self.parents is not None
         if query is not None:        
           assert hasattr(self, 'whoosh_ix'), "must be created with whoosh_index set"
           with self.whoosh_searcher():
