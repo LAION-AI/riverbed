@@ -50,7 +50,7 @@ def np_memmap(f, dat=None, idxs=None, shape=None, dtype=np.float32, ):
   else:
     memmap[idxs] = dat
   return memmap
-
+         
   
 #cluster pruning based approximate nearest neightbor search. See https://nlp.stanford.edu/IR-book/html/htmledition/cluster-pruning-1.html
 def pytorch_ann_search(vec, mmap_file, shape, dtype, parents, num_top_level_parents, parent_levels, parent2idx, ):
