@@ -25,6 +25,10 @@ from whoosh.qparser import QueryParser
 import numpy as np
 import torch
 from torch.nn.functional import cosine_similarity
+from fast_pytorch_kmeans import KMeans
+from sklearn.cluster import MiniBatchKMeans
+from sklearn.cluster import AgglomerativeClustering
+
 if torch.cuda.is_available():
   device = 'cuda'
 else:
@@ -47,6 +51,7 @@ def np_memmap(f, dat=None, idxs=None, shape=None, dtype=np.float32, ):
     memmap[idxs] = dat
   return memmap
 
+  
 #cluster pruning based approximate nearest neightbor search. See https://nlp.stanford.edu/IR-book/html/htmledition/cluster-pruning-1.html
 def pytorch_ann_search(vec, mmap_file, shape, dtype, parents, num_top_level_parents, parent_levels, parent2idx, ):
   vecs = self.parents[:num_top_level_parents]
