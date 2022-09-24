@@ -22,7 +22,31 @@ import copy
 from whoosh.index import create_in
 from whoosh.fields import *
 from whoosh.qparser import QueryParser
-        
+import numpy as np
+import torch
+from torch.nn.functional import cosine_similarity
+if torch.cuda.is_available():
+  device = 'cuda'
+else:
+  device = 'cpu'
+
+def np_memmap(f, dat=None, idxs=None, shape=None, dtype=np.float32, ):
+  if not f.endswith(".mmap"):
+    f = f+".mmap"
+  if os.path.exists(f):
+    mode = "r+"
+  else:
+    mode = "w+"
+  if shape is None: shape = dat.shape
+  memmap = np.memmap(f, mode=mode, dtype=dtype, shape=tuple(shape))
+  if dat is None:
+    return memmap
+  if tuple(shape) == tuple(dat.shape):
+    memmap[:] = dat
+  else:
+    memmap[idxs] = dat
+  return memmap
+
 def _is_contiguous(arr):
         start = None
         prev = None
@@ -126,6 +150,9 @@ class GushFile(igzip.IndexedGzipFile):
           file_size = self.file_size = kwargs.pop('file_size', None)
           need_export_index = False
         self.line2seekpoint  = kwargs.pop('line2seekpoint', None)
+        self.parent_vecs  = kwargs.pop('parent_vecs', None)
+        self.parent2line  = kwargs.pop('parent2line', None)
+        self.mmap_file = kwargs.pop('mmap_file', None)
         if need_export_index and 'auto_build' not in kwargs: kwargs['auto_build'] = True
         super(GushFile, self).__init__(*args, **kwargs)
         if not hasattr(self, 'file_size'):
@@ -176,14 +203,76 @@ class GushFile(igzip.IndexedGzipFile):
         assert hasattr(self, 'whoosh_ix'), "must be created with whoosh_index set"
         return self.whoosh_ix.searcher()
 
-    def search(self, query):
-        assert hasattr(self, 'whoosh_ix'), "must be created with whoosh_index set"
-        with self.whoosh_searcher():
-          if type(query) is str:
-             query = QueryParser("content", self.whoosh_ix.schema).parse(query)
-          results = searcher.search(query)
-          for r in results:
+    def search(self, query=None, vec=None, lookahead_cutoff=100, k=5):
+        if query is not None:        
+          assert hasattr(self, 'whoosh_ix'), "must be created with whoosh_index set"
+          with self.whoosh_searcher():
+            if type(query) is str:
+               query = QueryParser("content", self.whoosh_ix.schema).parse(query)
+            results = searcher.search(query)
+            idxs = []
+            n_chunks = 0
+            if vec is None:
+              for r in results:
                yield (int(r['id']), self[int(r['id'])].decode().strip())
+            else:
+              for r in results:
+               idxs.append(int(r['id']))
+               n_chunks += 1
+               if n_chunks > chunk_size:
+                  vecs = torch.from_numpy(np_memmap(self.mmap_file, shape=self.vec_shape)[idxs]).to(device)
+                  results = cosine_similarity(vec.unsqueeze(0), vecs)
+                  results = results.sort()
+                  for idx, score in zip(results.indexes, results.values):
+                     idx = idxs[idx]
+                     yield (idx, self[idx].decode().strip()), score)
+                  idxs = []
+                  n_chunk = 0
+            if idxs:
+                vecs = torch.from_numpy(np_memmap(self.mmap_file, shape=self.vec_shape)[idxs]).to(device)
+                results = cosine_similarity(vec.unsqueeze(0), vecs)
+                results = results.sort()
+                for idx, score in zip(results.indexes, results.values):
+                   idx = idxs[idx]
+                   yield (idx, self[idx].decode().strip()), score)
+        else:
+                assert vec is not None        
+                #do ANN search
+                if type(self.parents) is not torch.Tensor:
+                   self.parents = torch.from_numpy(self.parents).to(device)
+                vecs = self.parents[:self.top_n_parents]
+                idx2idx = list(range(self.top_n_parents))
+                for _ in range(self.parent_level[0]):
+                   results = cosine_similarity(vec.unsqueeze(0), vecs)
+                   results = results.top_k(k)
+                   children = itertools.chain(*[self.parent2child[idx2idx[idx]] for idx in results.indices])
+                   idx = results.indices[0]
+                   if self.parent_level[idx2idx[idx]] == 0: #we are at the leaf nodes
+                        idxs = []
+                        n_chunks = 0
+                        for child_id in children:
+                           idxs.append(child_id)
+                           n_chunks += 1
+                           if n_chunks > chunk_size:
+                              vecs = torch.from_numpy(np_memmap(self.mmap_file, shape=self.vec_shape)[idxs]).to(device)
+                              results = cosine_similarity(vec.unsqueeze(0), vecs)
+                              results = results.sort()
+                              for idx, score in zip(results.indexes, results.values):
+                                 idx = idxs[idx]
+                                 yield (idx, self[idx].decode().strip()), score)
+                              idxs = []
+                              n_chunk = 0
+                        if idxs:
+                              vecs = torch.from_numpy(np_memmap(self.mmap_file, shape=self.vec_shape)[idxs]).to(device)
+                              results = cosine_similarity(vec.unsqueeze(0), vecs)
+                              results = results.sort()
+                              for idx, score in zip(results.indexes, results.values):
+                                 idx = idxs[idx]
+                                 yield (idx, self[idx].decode().strip()), score)
+                   else:
+                     vecs = self.parents[children]
+                     idx2idx = children    
+
                 
     def __reduce__(self):
         """Used to pickle an ``LineIndexGzipFile``.
@@ -212,7 +301,8 @@ class GushFile(igzip.IndexedGzipFile):
             index = io.BytesIO()
             self.export_index(fileobj=index)
             index = index.getvalue()
-
+        if type(self.parents) is torch.Tensor:
+           self.parents = self.parents.cpu()
         state = {
             'filename'         : fobj.filename,
             'auto_build'       : fobj.auto_build,
@@ -222,10 +312,15 @@ class GushFile(igzip.IndexedGzipFile):
             'readall_buf_size' : fobj.readall_buf_size,
             'buffer_size'      : self._IndexedGzipFile__buffer_size,
             'line2seekpoint'   : self.line2seekpoint,
+            'parent_vecs'   : self.parent_vecs,                
+            'parent2line'   : self.parent2line,                      
             'file_size'   : self.file_size,
             'tell'             : self.tell(),
             'index'            : index}
 
+        if type(self.parents) is torch.Tensor:
+           self.parents = self.parents.to(device)
+        
         return (_unpickle, (state, ))
 
     
