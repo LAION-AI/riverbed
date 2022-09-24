@@ -47,6 +47,7 @@ def np_memmap(f, dat=None, idxs=None, shape=None, dtype=np.float32, ):
     memmap[idxs] = dat
   return memmap
 
+#cluster pruning based approximate nearest neightbor search. See https://nlp.stanford.edu/IR-book/html/htmledition/cluster-pruning-1.html
 def pytorch_ann_search(vec, mmap_file, shape, dtype, parents, num_top_level_parents, parent_levels, parent2idx, ):
   vecs = self.parents[:num_top_level_parents]
   idx2idx = list(range(num_top_level_parents))
@@ -81,12 +82,13 @@ def pytorch_ann_search(vec, mmap_file, shape, dtype, parents, num_top_level_pare
       vecs = self.parents[children]
       idx2idx = children   
       
-#incrementally hiearchical clustering from vectors in the mmap file.       
-#with a max of 4 levels, and each node containing 200 items, we can have up to 1.6B items approximately
-#span2cluster_label maps a span to a parent span. spans can be of the form int|(int,int).
-#leaf nodes are ints. non-leaf nodes are (int,int) tuples
-#clusters maps cluster_label => list of spans  
-def create_hiearchical_parents(clusters, span2cluster_label, mmap_file, shape, dtype, cluster_idxs=None, max_level=4, max_cluster_size=200, min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=10000):
+# incremental hiearchical clustering from vectors in the mmap file.       
+# with a max of 4 levels, and each node containing 200 items, we can have up to 1.6B items approximately
+# span2cluster_label maps a span to a parent span. spans can be of the form int|(int,int).
+# leaf nodes are ints. non-leaf nodes are (int,int) tuples
+# clusters maps cluster_label => list of spans  
+def create_hiearchical_parents(clusters, span2cluster_label, mmap_file, shape, dtype, cluster_idxs=None, max_level=4, max_cluster_size=200, \
+                               min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=10000):
   global device
   for span, label in span2cluster_label.items():
     clusters[label] = clusters.get(label,[]) + [span]
@@ -107,10 +109,12 @@ def create_hiearchical_parents(clusters, span2cluster_label, mmap_file, shape, d
         #create the next batch to cluster
         if cluster_idxs is None:
           spans = list(range(rng, max_rng))
-          spans.extend([idx for idx in range(rng) if (all_spans is not None and all_spans[idx] not in span2cluster_label) or (all_spans is None and idx not in span2cluster_label)])
+          spans.extend([idx for idx in range(rng) if (all_spans is not None and all_spans[idx] not in span2cluster_label) or \
+                        (all_spans is None and idx not in span2cluster_label)])
         else:
           spans = cluster_idxs[rng: max_rng] 
-          spans.extend([idx for idx in range(rng) if cluster_idxs[:rng] if (all_spans is not None and all_spans[idx] not in span2cluster_label) or (all_spans is None and idx not in span2cluster_label)])
+          spans.extend([idx for idx in range(rng) if cluster_idxs[:rng] if (all_spans is not None and all_spans[idx] not in span2cluster_label) or \
+                        (all_spans is None and idx not in span2cluster_label)])
         if level == 0:
           already_clustered = [idx for idx in range(cluster_vecs.shape[0]) if idx in span2cluster_label]
         else:
@@ -348,6 +352,7 @@ class Gush(igzip.IndexedGzipFile):
           file_size = self.file_size = kwargs.pop('file_size', None)
           need_export_index = False
         self.line2seekpoint  = kwargs.pop('line2seekpoint', None)
+        self.bm25_field  = kwargs.pop('bm25_field', None)
         self.parents  = kwargs.pop('parents', None)
         self.parent_levels  = kwargs.pop('parent_levels', None)
         self.parent2idx  = kwargs.pop('parent2idx', None)
@@ -397,16 +402,43 @@ class Gush(igzip.IndexedGzipFile):
           assert f, "need a index name to store the whoosh index"
           schema = Schema(id=ID(stored=True), content=TEXT)
           #TODO determine how to clear out the whoosh index besides rm -rf _M* MAIN*
+          self.seek(0, os.SEEK_END)
           self.whoosh_ix = create_in(f+"idx", schema)  
           if need_export_index: 
-            writer self.whoosh_ix.writer()
+            with self._IndexedGzipFile__file_lock:
+              writer self.whoosh_ix.writer()
+              self.seek(0, os.SEEK_END)
+              for idx, l in enumerate(self):
+                l =l.decode().replace("\\n", "\n").strip()
+                if l[0] == "{" and l[-1] == "}":
+                  content = l.split(self.bm25_field+'": "')[1]
+                  content = content.split('", "')[0]
+                else:
+                  content = l
+                writer.add_document(id=str(idx),
+                                    content=content)  
+              writer.commit()
+              self.seek(0, os.SEEK_END)
+    
+    def enable_bm25_search(self, bm25_field):
+      self.bm25_field = bm25_field
+      with self._IndexedGzipFile__file_lock:
+          self.seek(0, os.SEEK_END)
+          self.whoosh_ix = create_in(sell.filename+"idx", schema)  
+          writer self.whoosh_ix.writer()
             for idx, l in enumerate(self):
-              writer.add_document(id=str(id),
-                                  content=l.decode().strip())  
+              l =l.decode().replace("\\n", "\n").strip()
+              if l[0] == "{" and l[-1] == "}":
+                content = l.split(self.bm25_field+'": "')[1]
+                content = content.split('", "')[0]
+              else:
+                content = l
+              writer.add_document(id=str(idx),
+                                      content=content)  
             writer.commit()
             self.seek(0, os.SEEK_END)
     
-    def set_vector_search_data(self, clusters, mmap_file, shape, dtype):
+    def enable_ann_search(self, clusters, mmap_file, shape, dtype):
       global device
       cluster_info = list(clusters.items())
       cluster_info.sort(key=lambda a: a[0][0], reverse=True)
