@@ -53,7 +53,7 @@ import tqdm
 import gzip
 import multiprocessing
 import bisect
-from .utils import np_memmap
+from .utils import *
 
 if torch.cuda.is_available():
   device = 'cuda'
@@ -83,15 +83,6 @@ if minilm_model is None:
   spacy_nlp = spacy.load('en_core_web_md')
   stopwords_set = set(nltk_stopwords.words('english') + ['...', 'could', 'should', 'shall', 'can', 'might', 'may', 'include', 'including'])
 
-#Mean Pooling - Take attention mask into account for correct averaging
-#TODO, mask out the prefix for data that isn't the first portion of a prefixed text.
-def mean_pooling(model_output, attention_mask):
-    with torch.no_grad():
-      token_embeddings = model_output.last_hidden_state
-      input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
-      return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
-    
-    
 # The Riverbed code includes a RiverbedTokenizer, RiverbedModel and RiverbedDocumenProcessor for information retrieval processing. 
 # The tokenizer stores the stopwords, compound, token2weight and synonyms data structure.
 # the model stores a copy of synonyms and the kenlm data structures. the model will allow us to find an ontology
