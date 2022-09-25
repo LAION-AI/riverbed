@@ -54,6 +54,7 @@ import tqdm
 import gzip
 import multiprocessing
 import bisect
+from .utils import np_memmap
 
 if torch.cuda.is_available():
   device = 'cuda'
@@ -66,23 +67,6 @@ try:
 except:
    labse_tokenizer= labse_model=  clip_processor = minilm_tokenizer= clip_model= minilm_model= spacy_nlp= stopwords_set = None
   
-def np_memmap(f, dat=None, idxs=None, shape=None, dtype=np.float32, ):
-  if not f.endswith(".mmap"):
-    f = f+".mmap"
-  if os.path.exists(f):
-    mode = "r+"
-  else:
-    mode = "w+"
-  if shape is None: shape = dat.shape
-  memmap = np.memmap(f, mode=mode, dtype=dtype, shape=tuple(shape))
-  if dat is None:
-    return memmap
-  if tuple(shape) == tuple(dat.shape):
-    memmap[:] = dat
-  else:
-    memmap[idxs] = dat
-  return memmap
-
 if minilm_model is None:
   clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")   
   minilm_tokenizer = AutoTokenizer.from_pretrained('sentence-transformers/all-MiniLM-L6-v2')
