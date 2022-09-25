@@ -43,7 +43,6 @@ import spacy
 import json
 from dateutil.parser import parse as dateutil_parse
 import pandas as pd
-from snorkel.labeling import labeling_function
 import itertools
 from nltk.corpus import stopwords as nltk_stopwords
 import pickle
@@ -833,8 +832,6 @@ class RiverbedDocumentProcessor:
       ('date', None, None, lambda self, span: "" if " || " not in span['text'] else span['text'].split(" || ")[0].split(":")[-1].split("date of")[-1].strip("; ")), 
   ]
 
-  # for labeling the spans in the batch. assumes feature extractions above. (span_label, snorkel_labling_lfs, snorkel_label_cardinality, snorkel_epochs)
-  default_lfs = []
 
   # the similarity models sometimes put too much weight on proper names, etc. but we might want to cluster by general concepts
   # such as change of control, regulatory actions, etc. The proper names themselves can be collapsed to one canonical form (The Person). 
@@ -1226,20 +1223,6 @@ class RiverbedDocumentProcessor:
     # create more informative labels                   
     batch, label2tf, df = self._create_informative_label_and_tfidf(batch, batch_id_prefix, tmp_clusters, span2idx, tmp_span2batch, span2cluster_label, label2tf, df)
     
-    # at this point, batch should have enough data for all snorkel labeling functions
-    if span_lfs:
-      df_train = pd.DataFrom(batch)
-      for span_label, lfs, snorkel_label_cardinality, snorkel_epochs in span_lfs:
-        # we assume there is no shuffling, so we can tie back to the original batch
-        applier = PandasLFApplier(lfs=fs)
-        L_train = applier.apply(df=df_train)
-        label_model = LabelModel(cardinality=snorkel_label_cardinality, verbose=verbose_snrokel)
-        label_model.fit(L_train=L_train,n_epochs=snorkel_epochs)
-        for idx, label in enumerate(label_model.predict(L=L_train,tie_break_policy="abstain")):
-          batch[idx][span_label] = label
-        # note, we only use these models once, since we are doing this in an incremental fashion.
-        # we would want to create a final model by training on all re-labeled data from the jsonl file
-    
     # all labeling and feature extraction is complete, and the batch has all the info. now save away the batch
     for b in batch:
       if b['idx'] >= start_idx_for_curr_batch:
@@ -1412,17 +1395,7 @@ class RiverbedDocumentProcessor:
                                                       running_features_size=running_features_size, label2tf=label2tf, df=df, domain_stopwords_set=domain_stopwords_set, \
                                                       verbose_snrokel=verbose_snrokel)  
           batch = []
-      
-    #now create global labeling functions based on all the labeled data
-    #have an option to use a different labeling function, such as regression trees. 
-    #we don't necessarily need snorkel lfs after we have labeled the dataset.
-    if span_lfs:
-      df_train = pd.DataFrame(f"{project_name}/{project_name}.jsonl").shuffle()
-      for span_label, lfs, snorkel_label_cardinality, snorkel_epochs in span_lfs:
-        applier = PandasLFApplier(lfs=lfs)
-        L_train = applier.apply(df=df_train)
-        label_models.append(span_label, LabelModel(cardinality=snorkel_label_cardinality,verbose=verbose_snrokel))
-    
+          
     span2idx, span_clusters, label2tf, df, span2cluster_label, label_models = self.span2idx, self.span_clusters, self.label2tf, self.df, self.span2cluster_label, self.label_models                    
     return self
 
