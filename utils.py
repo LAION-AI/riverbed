@@ -92,7 +92,7 @@ def pytorch_ann_search(vec, mmap_file, shape, dtype, parents, num_top_level_pare
 # span2cluster_label maps a span to a parent span. spans can be of the form int|(int,int).
 # leaf nodes are ints. non-leaf nodes are (int,int) tuples
 # clusters maps cluster_label => list of spans  
-def create_hiearchical_parents(clusters, span2cluster_label, mmap_file, shape, dtype, cluster_idxs=None, max_level=4, max_cluster_size=200, \
+def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, shape, dtype, cluster_idxs=None, max_level=4, max_cluster_size=200, \
                                min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=10000):
   global device
   for span, label in span2cluster_label.items():
@@ -461,18 +461,18 @@ class SearcherIdx:
       clusters, _ = self.cluster()
     cluster_info = list(clusters.items())
     cluster_info.sort(key=lambda a: a[0][0], reverse=True)
-    self.parents = torch.from_numpy(np_memmap(mmap_file, shape=shape, dtype=dtype)[a[0][1] for a in cluster_info.keys()]).to(device)
+    self.parents = torch.from_numpy(np_memmap(mmap_file, shape=shape, dtype=dtype)[a[0][1] for a in cluster_info]).to(device)
     self.parent_levels = [a[0][0] for a in cluster_info]
     self.num_top_parents = len([a for a in self.parent_levels if a == max(self.parent_levels)])
-    label2idx = dict([(a[0], idx) for idx, a for a in enumerate(clsuter_info)]) 
-    self.parent2idx = [a[1] if a[0][0] == 0 else label2idx[a[0]] for a in cluster_info.values()]
+    label2idx = dict([(a[0], idx) for idx, a in enumerate(clsuter_info)]) 
+    self.parent2idx = [[a if type(a) is int  else label2idx[a] for a in a_cluster] for _, a_cluster in cluster_info]
 
   
   def cluster(self, clusters=None, span2cluster_label=None, cluster_idxs=None, max_level=4, max_cluster_size=200, \
                                min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=10000):
     if clusters is None: cluster = {}
     if span2cluster_label is None: span2cluster_label = {}
-    return create_hiearchical_parents(clusters, span2cluster_label, self.mmap_file, self.shape, self.dtype, cluster_idxs=cluster_idxs, max_level=max_level, \
+    return create_hiearchical_clusters(clusters, span2cluster_label, self.mmap_file, self.shape, self.dtype, cluster_idxs=cluster_idxs, max_level=max_level, \
                                       max_cluster_size=max_cluster_size, min_overlap_merge_cluster=min_overlap_merge_cluster, \
                                       prefered_leaf_node_size=prefered_leaf_node_size, kmeans_batch_size=kmeans_batch_size):
   
