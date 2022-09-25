@@ -819,7 +819,7 @@ class IndexedGzipFileExt(igzip.IndexedGzipFile):
     @staticmethod
     def open(filename):
        if os.path.exists(filename+"_idx/index.pickle"):
-          return LineIndexGzipFileExt(filename, index_file=filename+"_idx/index.pickle")
+          return IndexedGzipFileExt(filename, index_file=filename+"_idx/index.pickle")
        else:
-          return LineIndexGzipFileExt(filename) 
+          return IndexedGzipFileExt(filename) 
                                     
