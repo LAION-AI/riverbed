@@ -110,8 +110,8 @@ def embed_text(dat_iter, embed_dim=25, downsampler=None,   mmap_file, shape, dty
             toks = labse_tokenizer(batch, padding=True, truncation=True, return_tensors="pt").to(device)
             with torch.no_grad():
               dat = labse_model(**toks).pooler_output   
-          dat = downsampler(dat)
-          mmap_len += len(batch).cpu().numpy()
+          dat = downsampler(dat).cpu().numpy()
+          mmap_len += len(batch)
           cluster_vecs = np_memmap(mmap_file, shape=[mmap_len, cluster_vecs.shape[1]], dat=cluster_vecs, idxs=terms_idx[rng:max_rng])  
           batch = []
     if batch:  
@@ -128,8 +128,8 @@ def embed_text(dat_iter, embed_dim=25, downsampler=None,   mmap_file, shape, dty
           toks = labse_tokenizer(batch, padding=True, truncation=True, return_tensors="pt").to(device)
           with torch.no_grad():
             dat = labse_model(**toks).pooler_output   
-       dat = downsampler(dat)
-       mmap_len += len(batch).cpu().numpy()
+       dat = downsampler(dat).cpu().numpy()
+       mmap_len += len(batch)
        cluster_vecs = np_memmap(mmap_file, shape=[mmap_len, cluster_vecs.shape[1]], dat=cluster_vecs, idxs=terms_idx[rng:max_rng])  
        batch = []
           
