@@ -406,11 +406,10 @@ class SearcherIdx:
           if not l: continue
           if l[0] == "{" and l[-1] == "}":
             content = l.split(self.bm25_field+'": "')[1]
-            content = content.split('", "')[0]
+            content = content.split('", "')[0].replace("_", " ")
           else:
-            content = l
-            writer.add_document(id=str(idx),
-                                    content=content)  
+            content = l.replace("_", " ")
+          writer.add_document(id=str(idx), content=content)  
       writer.commit()
       bm25_fobj.seek(pos,0)
       self.filebyline = filebyline
@@ -529,7 +528,7 @@ class IndexedGzipFileExt(igzip.IndexedGzipFile):
 
 
     def __init__(self, *args, **kwargs):
-        """Create an ``LineIndexGzipFile``. The file may be specified either
+        """Create an ``LineIndexGzipFileExt``. The file may be specified either
         with an open file handle (``fileobj``), or with a ``filename``. If the
         former, the file must have been opened in ``'rb'`` mode.
         .. note:: The ``auto_build`` behaviour only takes place on calls to
@@ -715,3 +714,10 @@ class IndexedGzipFileExt(igzip.IndexedGzipFile):
         else:
           return [self[idx] for idx in keys]
     
+    @staticmethod
+    def open(filename):
+       if os.path.exists(filename+"_idx/index.pickle"):
+          return LineIndexGzipFileExt(filename, index_file=filename+"_idx/index.pickle")
+       else:
+          return LineIndexGzipFileExt(filename) 
+                                    
