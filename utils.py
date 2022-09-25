@@ -253,27 +253,31 @@ def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, shape, 
       len_spans = cluster_vecs.shape[0]
     else:
       len_spans = len(cluster_idxs)
-    recluster_at = max(0,len_spans-4*int(.7*kmeans_batch_size))
+    recluster_at = max(0,0.5*len_spans)
     for rng in tqdm.tqdm(range(0, len_spans, int(.7*kmeans_batch_size))):
         max_rng = min(len_spans, rng+int(.7*kmeans_batch_size))
         #create the next batch to cluster
         if cluster_idxs is None:
           spans = list(range(rng, max_rng))
-          spans.extend([idx for idx in range(rng) if (all_spans is not None and all_spans[idx] not in span2cluster_label) or \
-                        (all_spans is None and idx not in span2cluster_label)])
+          not_already_clustered = [idx for idx in range(rng) if (all_spans is not None and all_spans[idx] not in span2cluster_label) or \
+                        (all_spans is None and idx not in span2cluster_label)]
         else:
           spans = cluster_idxs[rng: max_rng] 
-          spans.extend([idx for idx in range(rng) if cluster_idxs[:rng] if (all_spans is not None and all_spans[idx] not in span2cluster_label) or \
-                        (all_spans is None and idx not in span2cluster_label)])
+          not_already_clustered = [idx for idx in range(rng) if cluster_idxs[:rng] if (all_spans is not None and all_spans[idx] not in span2cluster_label) or \
+                        (all_spans is None and idx not in span2cluster_label)]
+        if len(not_already_clustered) > int(.15*kmeans_batch_size):
+          spans.extend(random.sample(not_already_clustered, int(.15*kmeans_batch_size)))
+        else:
+          spans.extend(not_already_clustered)
         if level == 0:
           already_clustered = [idx for idx in range(cluster_vecs.shape[0]) if idx in span2cluster_label]
         else:
           already_clustered = [idx for idx, span in enumerate(all_spans) if span in span2cluster_label]
-        if len(already_clustered) > int(.3*kmeans_batch_size):
-          spans.extend(random.sample(already_clustered, int(.3*kmeans_batch_size)))
+        if len(already_clustered)  > int(.15*kmeans_batch_size):
+          spans.extend(random.sample(already_clustered, int(.15*kmeans_batch_size)))
         else:
           spans.extend(already_clustered)
-        
+        print (len(spans))
         # get the vector indexs for the cluster
         if level == 0:
           spans = [span for span in spans if span not in skip_idxs]
