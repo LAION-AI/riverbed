@@ -163,29 +163,28 @@ def embed_text(dat_iter, mmap_file, downsampler=None, skip_idxs=None,  dtype=np.
           if not l:
             skip_idxs.append(mmap_len) 
             mmap_len += 1
-    if batch:  
-       if embedder == "clip":
+    if batch:
+      with torch.no_grad():
+        if embedder == "clip":
           toks = clip_processor(batch, padding=True, truncation=True, return_tensors="pt").to(device)
-          with torch.no_grad():
-            dat = clip_model.get_text_features(**toks)
-       elif embedder == "minilm":
+          dat = clip_model.get_text_features(**toks)
+        elif embedder == "minilm":
           toks = minilm_tokenizer(batch, padding=True, truncation=True, return_tensors="pt").to(device)
-          with torch.no_grad():
-            dat = minilm_model(**toks)
-            dat = mean_pooling(dat, toks.attention_mask)
-       elif embedder == "labse":
+          dat = minilm_model(**toks)
+          dat = mean_pooling(dat, toks.attention_mask)
+        elif embedder == "labse":
           toks = labse_tokenizer(batch, padding=True, truncation=True, return_tensors="pt").to(device)
-          with torch.no_grad():
-            dat = labse_model(**toks).pooler_output   
-       dat = downsampler(dat)
-       if dtype == np.float16: 
-         dat = dat.half()
-       else:
-         dat = dat.float()
-       dat = dat.cpu().numpy()
-       cluster_vecs = np_memmap(mmap_file, shape=[ len(batch)+mmap_len, cluster_vecs.shape[1]], dat=dat, idxs=range(mmap_len, len(batch)+mmap_len))  
-       mmap_len += len(batch)
-       batch = []
+          dat = labse_model(**toks).pooler_output   
+        dat = downsampler(dat)
+        if dtype == np.float16: 
+          dat = dat.half()
+        else:
+          dat = dat.float()
+        dat = dat.cpu().numpy()
+      cluster_vecs = np_memmap(mmap_file, shape=[ len(batch)+mmap_len, embed_dim], dat=dat, idxs=range(mmap_len, len(batch)+mmap_len))  
+      mmap_len += len(batch)
+      batch = []
+      
           
     return downsampler, mmap_len, skip_idxs
     
