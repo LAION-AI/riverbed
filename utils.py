@@ -43,6 +43,8 @@ if torch.cuda.is_available():
 else:
   device = 'cpu'
 
+labse_tokenizer= labse_model=  clip_processor = minilm_tokenizer= clip_model= minilm_model= spacy_nlp= stopwords_set = None
+
 try:
   if minilm_model is not None: 
     pass
@@ -92,13 +94,14 @@ def np_memmap(f, dat=None, idxs=None, shape=None, dtype=np.float16, ):
 def mean_pooling(model_output, attention_mask):
     with torch.no_grad():
       token_embeddings = model_output.last_hidden_state
-      input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
+      input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).to(token_embeddings.dtype)
       return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
 
 
-def embed_text(dat_iter, mmap_file, downsampler=None,  dtype=np.float16, embed_dim=25, mmap_len=0, embedder="minilm", chunk_size=1000):
-    global device
+def embed_text(dat_iter, mmap_file, downsampler=None, skip_idxs=None,  dtype=np.float16, embed_dim=25, mmap_len=0, embedder="minilm", chunk_size=1000, use_tqdm=True):
+    global device, labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
     init_models()
+    if skip_idxs is None: skip_idxs = []
     if embedder == "clip":
       clip_model = clip_model.to(device)
       minilm_model =  minilm_model.cpu()
@@ -123,7 +126,11 @@ def embed_text(dat_iter, mmap_file, downsampler=None,  dtype=np.float16, embed_d
         downsampler = downsampler.half()
     downsampler = downsampler.to(device)
     batch = []
-    for l in dat_iter:
+    if use_tqdm:
+      dat_iter2 = tqdm.tqdm(dat_iter)
+    else:
+      dat_iter2 = dat_iter
+    for l in dat_iter2:
         try:
           l = l.decode()
         except:
@@ -133,29 +140,29 @@ def embed_text(dat_iter, mmap_file, downsampler=None,  dtype=np.float16, embed_d
           batch.append(l)
         if not l or len(batch) >= chunk_size:  
           if batch:
-            if embedder == "clip":
-              toks = clip_processor(batch, padding=True, truncation=True, return_tensors="pt").to(device)
-              with torch.no_grad():
+            with torch.no_grad():
+              if embedder == "clip":
+                toks = clip_processor(batch, padding=True, truncation=True, return_tensors="pt").to(device)
                 dat = clip_model.get_text_features(**toks)
-            elif embedder == "minilm":
-              toks = minilm_tokenizer(batch, padding=True, truncation=True, return_tensors="pt").to(device)
-              with torch.no_grad():
+              elif embedder == "minilm":
+                toks = minilm_tokenizer(batch, padding=True, truncation=True, return_tensors="pt").to(device)
                 dat = minilm_model(**toks)
                 dat = mean_pooling(dat, toks.attention_mask)
-            elif embedder == "labse":
-              toks = labse_tokenizer(batch, padding=True, truncation=True, return_tensors="pt").to(device)
-              with torch.no_grad():
+              elif embedder == "labse":
+                toks = labse_tokenizer(batch, padding=True, truncation=True, return_tensors="pt").to(device)
                 dat = labse_model(**toks).pooler_output   
-            dat = downsampler(dat)
-            if dtype == np.float16: 
-              dat = dat.half()
-            else:
-              dat = dat.float()
-            dat = dat.cpu().numpy()
-            cluster_vecs = np_memmap(mmap_file, shape=[ len(batch)+mmap_len, cluster_vecs.shape[1]], dat=dat, idxs=range(mmap_len, len(batch)+mmap_len))  
+              dat = downsampler(dat)
+              if dtype == np.float16: 
+                dat = dat.half()
+              else:
+                dat = dat.float()
+              dat = dat.cpu().numpy()
+            cluster_vecs = np_memmap(mmap_file, shape=[ len(batch)+mmap_len, embed_dim], dat=dat, idxs=range(mmap_len, len(batch)+mmap_len))  
             mmap_len += len(batch)
             batch = []
-          if not l: mmap_len += 1
+          if not l:
+            skip_idxs.append(mmap_len) 
+            mmap_len += 1
     if batch:  
        if embedder == "clip":
           toks = clip_processor(batch, padding=True, truncation=True, return_tensors="pt").to(device)
@@ -180,7 +187,7 @@ def embed_text(dat_iter, mmap_file, downsampler=None,  dtype=np.float16, embed_d
        mmap_len += len(batch)
        batch = []
           
-    return downsampler, mmap_len
+    return downsampler, mmap_len, skip_idxs
     
   
     
@@ -224,9 +231,13 @@ def pytorch_ann_search(vec, mmap_file, shape, dtype, parents, num_top_level_pare
 # span2cluster_label maps a span to a parent span. spans can be of the form int|(int,int).
 # leaf nodes are ints. non-leaf nodes are (int,int) tuples
 # clusters maps cluster_label => list of spans  
-def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, shape, dtype, cluster_idxs=None, max_level=4, max_cluster_size=200, \
+def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, shape, dtype, skip_idxs=None, cluster_idxs=None, max_level=4, max_cluster_size=200, \
                                min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=10000):
   global device
+  if skip_idxs is None: 
+    skip_idxs = set()
+  else:
+    skip_idxs = set(skip_idxs)
   if clusters is None: clusters = {}
   if span2cluster_label is None: span2cluster_label = {}
   for span, label in span2cluster_label.items():
@@ -262,11 +273,14 @@ def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, shape, 
           spans.extend(random.sample(already_clustered, int(.3*kmeans_batch_size)))
         else:
           spans.extend(already_clustered)
+        
         # get the vector indexs for the cluster
         if level == 0:
+          spans = [span for span in spans if span not in skip_idxs]
           vector_idxs = spans
         else:
-          spans = [all_spans[idx] for idx in spans] 
+          spans = [all_spans[idx] for idx in spans]
+          spans = [span for span in spans  if span[1] not in skip_idxs] 
           vector_idxs = [span[1] for span in spans]
         #do kmeans clustering in batches with the vector indexes
         if level == 0:
