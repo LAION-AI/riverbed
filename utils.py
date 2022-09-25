@@ -402,7 +402,7 @@ class SearcherIdx:
       pos = bm25_fobj.tell()
       bm25_fobj.seek(0, 0)
       for idx, l in tqdm.tqdm(enumerate(bm25_fobj)):
-          l =l.decode().replace("\\n", "\n").strip()
+          l =l.decode().replace("\\n", "\n").replace("\\t", "\t").strip()
           if not l: continue
           if l[0] == "{" and l[-1] == "}":
             content = l.split(self.bm25_field+'": "')[1]
@@ -432,7 +432,7 @@ class SearcherIdx:
             results = searcher.search(query, limit=None)
             if vec is None:
               for r in results:
-               yield (int(r['id']), self.filebyline[int(r['id'])].decode().strip())
+               yield (int(r['id']), self.filebyline[int(r['id'])].decode().replace("\\n", "\n").replace("\\t", "\t").strip()
             else:
               idxs = []
               n_chunks = 0
@@ -445,7 +445,7 @@ class SearcherIdx:
                     results = results.sort()
                     for idx, score in zip(results.indexes, results.values):
                        idx = idxs[idx]
-                       yield (idx, self.filebyline[idx].decode().strip(), score)
+                       yield (idx, self.filebyline[idx].decode().replace("\\n", "\n").replace("\\t", "\t").strip(), score)
                     idxs = []
                     n_chunk = 0
               if idxs:
@@ -454,7 +454,7 @@ class SearcherIdx:
                   results = results.sort()
                   for idx, score in zip(results.indexes, results.values):
                      idx = idxs[idx]
-                     yield (idx, self[idx].decode().strip(), score)
+                     yield (idx, self[idx].decode().replace("\\n", "\n").replace("\\t", "\t").strip(), score)
         else:
                 assert vec is not None        
                 #do ANN search
@@ -463,7 +463,7 @@ class SearcherIdx:
                 if hasattr(self, 'filebyline'):
                   for r in pytorch_ann_search(vec, self.mmap_file, self.shape,  self.dtype, \
                                             self.parents, self.num_top_level_parents, self.parent_levels, self.parent2idx):
-                    yield (r[0], self.filebyline[r[0]].decode().strip(), r[1])
+                    yield (r[0], self.filebyline[r[0]].decode().replace("\\n", "\n").replace("\\t", "\t").strip(), r[1])
                 else:
                   for r in pytorch_ann_search(vec, self.mmap_file, self.shape,  self.dtype, \
                                             self.parents, self.num_top_level_parents, self.parent_levels, self.parent2idx):
