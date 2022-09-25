@@ -97,6 +97,8 @@ def pytorch_ann_search(vec, mmap_file, shape, dtype, parents, num_top_level_pare
 def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, shape, dtype, cluster_idxs=None, max_level=4, max_cluster_size=200, \
                                min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=10000):
   global device
+  if clusters is None: clusters = {}
+  if span2cluster_label is None: span2cluster_label = {}
   for span, label in span2cluster_label.items():
     clusters[label] = clusters.get(label,[]) + [span]
   if prefered_leaf_node_size is None: prefered_leaf_node_size = max_cluster_size
