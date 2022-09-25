@@ -216,40 +216,40 @@ def _is_contiguous(arr):
 
 
 class FileByLineIdx:
-  """ A class for accessing a file by line numbers. Requires  fobj that provides a seek, and tell method must be passed.
-  Optionally, the dat representing the line seek points can also be passed as dat. """
-  def __init__(self, fobj, dat=None):
-    self.dat = dat
-    self.fobj = fobj
-    pos = fobj.tell()
-    fobj.seek(0, os.SEEK_END)
-    self.file_size = file_size = fobj.tell() 
-    if self.dat is not None:
-      fobj.seek(pos,0)
-    else:
-      def reader(fobj, rng, max_rng, ret):
-        fobj.seek(rng,0)
-        pos = fobj.tell()
-        while rng < max_rng:
-          fobj.readline()
-          pos = fobj.tell() 
-          if pos < max_rng:
-            ret.append(pos)
-          else:
-            break
-        rng = pos
-      workers=[]
-      line_nums = []
-      for rng in range(0, file_size, 10000000):                    
-        max_rng = min(rng + 10000000, file_size)
-        line_nums.append([])
-        worker = threading.Thread(target=reader, args=(copy.copy(fobj), rng, max_rng, line_nums[-1]))
-        workers.append(worker)
-        worker.start()
-      for worker in workers:
-        worker.join()
-      self.dat = [0]+list(itertools.chain(*line_nums))
-      fobj.seek(pos,0)
+    """ A class for accessing a file by line numbers. Requires  fobj that provides a seek, and tell method must be passed.
+    Optionally, the dat representing the line seek points can also be passed as dat. """
+    def __init__(self, fobj, dat=None):
+      self.dat = dat
+      self.fobj = fobj
+      pos = fobj.tell()
+      fobj.seek(0, os.SEEK_END)
+      self.file_size = file_size = fobj.tell() 
+      if self.dat is not None:
+        fobj.seek(pos,0)
+      else:
+        def reader(fobj, rng, max_rng, ret):
+          fobj.seek(rng,0)
+          pos = fobj.tell()
+          while rng < max_rng:
+            fobj.readline()
+            pos = fobj.tell() 
+            if pos < max_rng:
+              ret.append(pos)
+            else:
+              break
+          rng = pos
+        workers=[]
+        line_nums = []
+        for rng in range(0, file_size, 10000000):                    
+          max_rng = min(rng + 10000000, file_size)
+          line_nums.append([])
+          worker = threading.Thread(target=reader, args=(copy.copy(fobj), rng, max_rng, line_nums[-1]))
+          workers.append(worker)
+          worker.start()
+        for worker in workers:
+          worker.join()
+        self.dat = [0]+list(itertools.chain(*line_nums))
+        fobj.seek(pos,0)
   
 
     def __iter__(self):
@@ -502,12 +502,13 @@ def _unpickle(state):
 
   
 class IndexedGzipFileExt(igzip.IndexedGzipFile):
-    """Extends IndexedGzipFile to auto save the index file to the directory filename+"_idx".
+    """This class inheriets from `` ingdex_gzip.IndexedGzipFile``. This class allows in addition to the functionality 
+    of IndexedGzipFile, access to a specific line based on the seek point of the line, using the __getitem__ method.
+    Additionally, a (conginguous) list or slice can be used, which will be more efficient then doing line by line access. 
     
     The base IndexedGzipFile class allows for fast random access of a gzip
     file by using the ``zran`` library to build and maintain an index of seek
     points into the file.
-    
     ``IndexedGzipFile`` is an ``io.BufferedReader`` which wraps an
     :class:`_IndexedGzipFile` instance. By accessing the ``_IndexedGzipFile``
     instance through an ``io.BufferedReader``, read performance is improved
@@ -551,7 +552,8 @@ class IndexedGzipFileExt(igzip.IndexedGzipFile):
                                Passed through to
                                ``io.BufferedReader.__init__``. If not provided,
                                a default value of 1048576 is used.
-
+        :arg line2seekpoint:      Optional, must be passed as a keyword argument.
+                               If not passed, this will automatically be created.                               
         """
         filename = kwargs.get("filename") 
         if args and not filename:
@@ -565,14 +567,47 @@ class IndexedGzipFileExt(igzip.IndexedGzipFile):
             need_export_index = True
           else:
             kwargs['index_file'] = kwargs.pop('index_file', filename+"_idx/index.pickle")
+        
+        if 'file_size' in kwargs:
+          file_size = self.file_size = kwargs.pop('file_size', None)
+          need_export_index = False
+        self.line2seekpoint  = kwargs.pop('line2seekpoint', None)
         if need_export_index and 'auto_build' not in kwargs: kwargs['auto_build'] = True
         super(IndexedGzipFileExt, self).__init__(*args, **kwargs)
+        if not hasattr(self, 'file_size'):
+          self.build_full_index()
+          pos = self.tell()
+          self.seek(0, os.SEEK_END)
+          self.file_size = file_size = self.tell() 
+          if self.line2seekpoint is None:
+            def reader(fobj, rng, max_rng, ret):
+              fobj.seek(rng,0)
+              pos = fobj.tell()
+              while rng < max_rng:
+                fobj.readline()
+                pos = fobj.tell() 
+                if pos < max_rng:
+                  ret.append(pos)
+                else:
+                  break
+                rng = pos
+
+            workers=[]
+            line_nums = []
+            for rng in range(0, file_size, 10000000):                    
+              max_rng = min(rng + 10000000, file_size)
+              line_nums.append([])
+              worker = threading.Thread(target=reader, args=(copy.copy(self), rng, max_rng, line_nums[-1]))
+              workers.append(worker)
+              worker.start()
+            for worker in workers:
+              worker.join()
+            self.line2seekpoint = [0]+list(itertools.chain(*line_nums))
         if filename and need_export_index: 
-            self.export_index(filename+"_idx/index.pickle")
-        
-                
+          self.export_index(filename+"_idx/index.pickle")
+
     def __reduce__(self):
-        """Used to pickle an ``LineIndexGzipFileExt``.
+        """Used to pickle an ``LineIndexGzipFile``.
         Returns a tuple containing:
           - a reference to the ``unpickle`` function
           - a tuple containing a "state" object, which can be passed
@@ -607,9 +642,66 @@ class IndexedGzipFileExt(igzip.IndexedGzipFile):
             'readbuf_size'     : fobj.readbuf_size,
             'readall_buf_size' : fobj.readall_buf_size,
             'buffer_size'      : self._IndexedGzipFile__buffer_size,
+            'line2seekpoint'   : self.line2seekpoint,
+            'file_size'   : self.file_size,
             'tell'             : self.tell(),
             'index'            : index}
 
         return (_unpickle, (state, ))
 
+    
+    def __iter__(self):
+        len_self = len(self)
+        for start in range(0, len_self, 1000):
+          end = min(len_self, start+1000)
+          start = self.line2seekpoint[start]
+          if end == len_self:
+            end = self.file_size
+          else:
+            end= self.line2seekpoint[end]-1
+          ret = []
+          with self._IndexedGzipFile__file_lock:
+            pos = self.tell()
+            self.seek(start, 0)
+            ret= self.read(end-start).split(b'\n')
+            self.seek(pos, 0)
+          for line in ret:
+            yield line
+
+    def __len__(self):
+        return len(self.line2seekpoint)
+
+    def __getitem__(self, keys):
+        start, end = None, None
+        if isinstance(keys, int):
+          contiguous = False
+        else:
+          contiguous, start, end = _is_contiguous(keys)
+        if isinstance(keys, slice):
+          contiguous = True
+          start = 0 if keys.start is None else keys.start
+          end = len(self) if keys.stop is None else keys.stop
+
+        if contiguous:
+          start = self.line2seekpoint[start]
+          if end >= len(self.line2seekpoint):
+            end = self.file_size
+          else:
+            end= self.line2seekpoint[end+1]-1
+          with self._IndexedGzipFile__file_lock:
+            pos = self.tell()
+            self.seek(start, 0)
+            ret= self.read(end-start).split(b'\n')
+            self.seek(pos, 0)
+            return ret
+        elif isinstance(keys, int):
+          start = self.line2seekpoint[keys]
+          with self._IndexedGzipFile__file_lock:
+            pos = self.tell()
+            self.seek(start, 0)
+            ret= self.readline()
+            self.seek(pos, 0)
+            return ret
+        else:
+          return [self[idx] for idx in keys]
     
