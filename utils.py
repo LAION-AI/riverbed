@@ -189,7 +189,7 @@ def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, shape, 
                 for span in spans:
                   del span2cluster_label[span]
               elif len(spans) > max_cluster_size:
-                  for token in clusters[int(max_cluster_size*.75):]:
+                  for token in spans[int(max_cluster_size*.75):]:
                     del span2cluster_label[token]
                   
     # prepare data for next level clustering
