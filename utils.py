@@ -432,7 +432,7 @@ class SearcherIdx:
             results = searcher.search(query, limit=None)
             if vec is None:
               for r in results:
-               yield (int(r['id']), self.filebyline[int(r['id'])].decode().replace("\\n", "\n").replace("\\t", "\t").strip()
+               yield (int(r['id']), self.filebyline[int(r['id'])].decode().replace("\\n", "\n").replace("\\t", "\t").strip())
             else:
               idxs = []
               n_chunks = 0
