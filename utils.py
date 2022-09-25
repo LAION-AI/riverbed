@@ -37,7 +37,7 @@ from nltk.corpus import stopwords as nltk_stopwords
 from torch import nn
 import spacy
 import whoosh.index as whoosh_index
-        
+import math        
 if torch.cuda.is_available():
   device = 'cuda'
 else:
@@ -223,8 +223,47 @@ def pytorch_ann_search(vec, mmap_file, shape, dtype, parents, num_top_level_pare
             yield (idx, score)
     else:
       vecs = parents[children]
-      idx2idx = children   
+      idx2idx = children  
+
+def _cluster_one_batch(true_k,  spans, vector_idxs, clusters, span2cluster_label, level, cluster_vecs, batch_size, min_overlap_merge_cluster):
+    if device == 'cuda':
+      km = KMeans(n_clusters=true_k, mode='cosine')
+      km_labels = km.fit_predict(torch.from_numpy(cluster_vecs[vector_idxs]).to(device=device, dtype=torch.float32))
+      km_labels = [l.item() for l in km_labels.cpu()]
+    else:
+      km = MiniBatchKMeans(n_clusters=true_k, init='k-means++', n_init=1,
+                                        init_size=max(true_k*3,1000), batch_size=1024)
+      km_labels = km.labels_  
       
+    #put into a temporary cluster
+    tmp_cluster = {}  
+    for span, label in zip(spans, km_labels):
+      tmp_cluster[label] = tmp_cluster.get(label, [])+[span]
+  
+    #print (len(tmp_cluster), tmp_cluster)
+    #create unique (level, id) labels and merge if necessary
+    for a_cluster in tmp_cluster.values():
+        label = None
+        need_labels = [span for span in a_cluster if span not in span2cluster_label]
+        if need_labels:
+          cluster_labels = [span2cluster_label[span] for span in a_cluster if span in span2cluster_label]
+          if cluster_labels:
+            # merge with previous clusters if there is an overlap
+            most_common = Counter(cluster_labels).most_common(1)[0]
+            if most_common[1] >= min_overlap_merge_cluster: 
+              label = most_common[0]
+          if not label:
+            # otherwise create a new cluster
+            if type(need_labels[0]) is int:
+              label = (level, need_labels[0])
+            else:
+              label = (level, need_labels[0][1]
+          for span in need_labels:
+            if span not in clusters.get(label, []):
+              clusters[label] = clusters.get(label, []) + [span]
+            span2cluster_label[span] = label
+
+
 # incremental hiearchical clustering from vectors in the mmap file.       
 # with a max of 4 levels, and each node containing 200 items, we can have up to 1.6B items approximately
 # span2cluster_label maps a span to a parent span. spans can be of the form int|(int,int).
@@ -233,6 +272,9 @@ def pytorch_ann_search(vec, mmap_file, shape, dtype, parents, num_top_level_pare
 def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, shape, dtype, skip_idxs=None, cluster_idxs=None, max_level=4, max_cluster_size=200, \
                                min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000):
   global device
+  
+
+  
   if skip_idxs is None: 
     skip_idxs = set()
   else:
@@ -253,8 +295,10 @@ def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, shape, 
       len_spans = cluster_vecs.shape[0]
     else:
       len_spans = len(cluster_idxs)
-    recluster_at = max(0,0.5*len_spans)
-    for rng in tqdm.tqdm(range(0, len_spans, int(.7*kmeans_batch_size))):
+    num_times = max(6,math.ceil(len_spans/int(.7*kmeans_batch_size)))
+    recluster_at = max(0,num_times*0.25)
+    rng = 0
+    for times in tqdm.tqdm(range(num_times)):
         max_rng = min(len_spans, rng+int(.7*kmeans_batch_size))
         #create the next batch to cluster
         if cluster_idxs is None:
@@ -265,19 +309,20 @@ def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, shape, 
           spans = cluster_idxs[rng: max_rng] 
           not_already_clustered = [idx for idx in range(rng) if cluster_idxs[:rng] if (all_spans is not None and all_spans[idx] not in span2cluster_label) or \
                         (all_spans is None and idx not in span2cluster_label)]
-        if len(not_already_clustered) > int(.15*kmeans_batch_size):
-          spans.extend(random.sample(not_already_clustered, int(.15*kmeans_batch_size)))
+        num_itmes_left = kmeans_batch_size - len(spans)
+        if len(not_already_clustered) > int(.5*num_itmes_left):
+          spans.extend(random.sample(not_already_clustered, int(.5*num_itmes_left)))
         else:
           spans.extend(not_already_clustered)
+        print (len(not_already_clustered))
         if level == 0:
           already_clustered = [idx for idx in range(cluster_vecs.shape[0]) if idx in span2cluster_label]
         else:
           already_clustered = [idx for idx, span in enumerate(all_spans) if span in span2cluster_label]
-        if len(already_clustered)  > int(.15*kmeans_batch_size):
-          spans.extend(random.sample(already_clustered, int(.15*kmeans_batch_size)))
+        if len(already_clustered)  > int(.5*num_itmes_left):
+          spans.extend(random.sample(already_clustered, int(.5*num_itmes_left)))
         else:
           spans.extend(already_clustered)
-        print (len(spans))
         # get the vector indexs for the cluster
         if level == 0:
           spans = [span for span in spans if span not in skip_idxs]
@@ -291,60 +336,34 @@ def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, shape, 
           true_k = int(len(vector_idxs)/prefered_leaf_node_size)
         else:
           true_k = int(len(vector_idxs)/max_cluster_size)
-        if device == 'cuda':
-          km = KMeans(n_clusters=true_k, mode='cosine')
-          km_labels = km.fit_predict(torch.from_numpy(cluster_vecs[vector_idxs]).to(device=device, dtype=torch.float32))
-          km_labels = [l.item() for l in km_labels.cpu()]
-        else:
-          km = MiniBatchKMeans(n_clusters=true_k, init='k-means++', n_init=1,
-                                            init_size=max(true_k*3,1000), batch_size=1024)
-          km_labels = km.labels_  
-          
-        #put into a temporary cluster
-        tmp_cluster = {}  
-        for span, label in zip(spans, km_labels):
-          tmp_cluster[label] = tmp_cluster.get(label, [])+[span]
-      
-        #print (len(tmp_cluster), tmp_cluster)
-        #create unique (level, id) labels and merge if necessary
-        for a_cluster in tmp_cluster.values():
-            label = None
-            need_labels = [span for span in a_cluster if span not in span2cluster_label]
-            if need_labels:
-              cluster_labels = [span2cluster_label[span] for span in a_cluster if span in span2cluster_label]
-              if cluster_labels:
-                # merge with previous clusters if there is an overlap
-                most_common = Counter(cluster_labels).most_common(1)[0]
-                if most_common[1] >= min_overlap_merge_cluster: 
-                  label = most_common[0]
-              if not label:
-                # otherwise create a new cluster
-                if type(need_labels[0]) is int:
-                  label = (level, need_labels[0])
-                else:
-                  label = (level, need_labels[0][1])
-
-              for span in need_labels:
-                if span not in clusters.get(label, []):
-                  clusters[label] = clusters.get(label, []) + [span]
-                span2cluster_label[span] = label
-                
-          # re-cluster any small clusters or break up large clusters   
-        if rng >= recluster_at and max_rng != len_spans:  
+        cluster_one_batch(true_k,  spans, vector_idxs, clusters, span2cluster_label, level, cluster_vecs, batch_size, min_overlap_merge_cluster)
+        # re-cluster any small clusters or break up large clusters   
+        if times >= recluster_at  
             need_recompute_clusters = False   
             for parent, spans in clusters.items(): 
-              if len(spans) < prefered_leaf_node_size*.5:
+              if  and times < num_times*.5 and \
+                ((level == 0 and len(spans) < prefered_leaf_node_size*.5) or
+                 (level == 0 and len(spans) < max_cluster_size*.5) or):
+                need_recompute_clusters = True
                 for span in spans:
-                  del span2cluster_label[span]
-                  need_recompute_clusters = True
+                  del span2cluster_label[span]  
               elif len(spans) > max_cluster_size:
-                  for token in spans[int(max_cluster_size*.75):]:
+                  need_recompute_clusters = True
+                  for token in spans:
                     del span2cluster_label[token]
-                    need_recompute_clusters = True
+                    
+                  vector_idxs = [span if type(span) is int else span[1] for span in spans]
+                  if level == 0:
+                    true_k = int(len(vector_idxs)/prefered_leaf_node_size)
+                  else:
+                    true_k = int(len(vector_idxs)/max_cluster_size)
+                  cluster_one_batch(true_k,  spans, vector_idxs, clusters, span2cluster_label, level, cluster_vecs, batch_size, min_overlap_merge_cluster)
+        
             if need_recompute_clusters:
               clusters.clear()
               for span, label in span2cluster_label.items():
                 clusters[label] = clusters.get(label, []) + [span]
+        rng = max_rng
 
     # prepare data for next level clustering
     all_spans = [label for label in clusters.keys() if label[0] == level]
