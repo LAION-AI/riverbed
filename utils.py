@@ -66,7 +66,7 @@ def init_models():
     stopwords_set = set(nltk_stopwords.words('english') + ['...', 'could', 'should', 'shall', 'can', 'might', 'may', 'include', 'including'])
 
   
-def np_memmap(f, dat=None, idxs=None, shape=None, dtype=np.float32, ):
+def np_memmap(f, dat=None, idxs=None, shape=None, dtype=np.float16, ):
   if not f.endswith(".mmap"):
     f = f+".mmap"
   if os.path.exists(f):
@@ -83,7 +83,7 @@ def np_memmap(f, dat=None, idxs=None, shape=None, dtype=np.float32, ):
     memmap[idxs] = dat
   return memmap
          
-def embed_text(dat_iter, mmap_file, type, downsampler=None,  embed_dim=25, mmap_len=0, embedder="minilm", chunk_size=1000):
+def embed_text(dat_iter, mmap_file, type, downsampler=None,  dtype=np.float16, embed_dim=25, mmap_len=0, embedder="minilm", chunk_size=1000):
     global device
     if embedder == "clip":
       model_embed_dim = clip_model.config.text_config.hidden_size
@@ -92,7 +92,10 @@ def embed_text(dat_iter, mmap_file, type, downsampler=None,  embed_dim=25, mmap_
     elif embedder == "labse":
       model_embed_dim = labse_model.config.hidden_size      
     if downsampler is None:
-      downsampler = nn.Linear(model_embed_dim, embed_dim, bias=False)
+      downsampler = nn.Linear(model_embed_dim, embed_dim, bias=False).eval()
+      if dtype == np.float16:
+        downsampler = downsampler.half()
+    downsampler = downsampler.to(device)
     batch = []
     for l in dat_iter:
         try:
@@ -117,9 +120,14 @@ def embed_text(dat_iter, mmap_file, type, downsampler=None,  embed_dim=25, mmap_
               toks = labse_tokenizer(batch, padding=True, truncation=True, return_tensors="pt").to(device)
               with torch.no_grad():
                 dat = labse_model(**toks).pooler_output   
-            dat = downsampler(dat).cpu().numpy()
+            dat = downsampler(dat)
+            if dtype == np.float16: 
+              dat = dat.half()
+            else:
+              dat = dat.float()
+            dat = dat.cpu().numpy()
+            cluster_vecs = np_memmap(mmap_file, shape=[ len(batch)+mmap_len, cluster_vecs.shape[1]], dat=dat, idxs=range(mmap_len, len(batch)+mmap_len))  
             mmap_len += len(batch)
-            cluster_vecs = np_memmap(mmap_file, shape=[mmap_len, cluster_vecs.shape[1]], dat=cluster_vecs, idxs=terms_idx[rng:max_rng])  
             batch = []
           if not l: mmap_len += 1
     if batch:  
@@ -136,9 +144,14 @@ def embed_text(dat_iter, mmap_file, type, downsampler=None,  embed_dim=25, mmap_
           toks = labse_tokenizer(batch, padding=True, truncation=True, return_tensors="pt").to(device)
           with torch.no_grad():
             dat = labse_model(**toks).pooler_output   
-       dat = downsampler(dat).cpu().numpy()
+       dat = downsampler(dat)
+       if dtype == np.float16: 
+         dat = dat.half()
+       else:
+         dat = dat.float()
+       dat = dat.cpu().numpy()
+       cluster_vecs = np_memmap(mmap_file, shape=[ len(batch)+mmap_len, cluster_vecs.shape[1]], dat=dat, idxs=range(mmap_len, len(batch)+mmap_len))  
        mmap_len += len(batch)
-       cluster_vecs = np_memmap(mmap_file, shape=[mmap_len, cluster_vecs.shape[1]], dat=cluster_vecs, idxs=terms_idx[rng:max_rng])  
        batch = []
           
     return downsmapler, mmap_len
@@ -401,7 +414,7 @@ class FileByLineIdx:
 
            
 class SearcherIdx:
-  def __init__(self,  mmap_file, shape, dtype=np.float32, parents=None, parent_levels=None, parent2idx=None, clusters=None, auto_create_ann_idx=True, \
+  def __init__(self,  mmap_file, shape, dtype=np.float16, parents=None, parent_levels=None, parent2idx=None, clusters=None, auto_create_ann_idx=True, \
                bm25_filename=None, bm25_fobj=None,  bm25_field="text", filebyline=None):
     """
         Clusters and performs approximate nearest neighbor search on a memmap file. Also provides a wrapper for Whoosh BM25.
