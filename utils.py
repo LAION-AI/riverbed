@@ -28,6 +28,8 @@ from torch.nn.functional import cosine_similarity
 from fast_pytorch_kmeans import KMeans
 from sklearn.cluster import MiniBatchKMeans
 from sklearn.cluster import AgglomerativeClustering
+from collections import Counter
+import random
 
 if torch.cuda.is_available():
   device = 'cuda'
@@ -53,15 +55,15 @@ def np_memmap(f, dat=None, idxs=None, shape=None, dtype=np.float32, ):
          
   
 #cluster pruning based approximate nearest neightbor search. See https://nlp.stanford.edu/IR-book/html/htmledition/cluster-pruning-1.html
-def pytorch_ann_search(vec, mmap_file, shape, dtype, parents, num_top_level_parents, parent_levels, parent2idx, ):
-  vecs = self.parents[:num_top_level_parents]
+def pytorch_ann_search(vec, mmap_file, shape, dtype, parents, num_top_level_parents, parent_levels, parent2idx, chunk_size=10000):
+  vecs = parents[:num_top_level_parents]
   idx2idx = list(range(num_top_level_parents))
   for _ in range(parent_levels[0]):
     results = cosine_similarity(vec.unsqueeze(0), vecs)
     results = results.top_k(k)
     children = itertools.chain(*[parent2idx[idx2idx[idx]] for idx in results.indices])
     idx = results.indices[0]
-    if self.parent_level[idx2idx[idx]] == 0: #we are at the leaf nodes
+    if parent_levels[idx2idx[idx]] == 0: #we are at the leaf nodes
       idxs = []
       n_chunks = 0
       for child_id in children:
@@ -84,7 +86,7 @@ def pytorch_ann_search(vec, mmap_file, shape, dtype, parents, num_top_level_pare
             idx = idxs[idx]
             yield (idx, score)
     else:
-      vecs = self.parents[children]
+      vecs = parents[children]
       idx2idx = children   
       
 # incremental hiearchical clustering from vectors in the mmap file.       
@@ -97,7 +99,7 @@ def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, shape, 
   global device
   for span, label in span2cluster_label.items():
     clusters[label] = clusters.get(label,[]) + [span]
-  if prefered_leaf_node_size is None: prefered_leaf_node_size = cluster_size
+  if prefered_leaf_node_size is None: prefered_leaf_node_size = max_cluster_size
   cluster_vecs = np_memmap(mmap_file, shape=shape, dtype=dtype)
   # first cluster leaves at level 0. 
   # the spans are the indexes themselves, so no need to map using all_spans
@@ -135,6 +137,11 @@ def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, shape, 
           spans = [all_spans[idx] for idx in spans] 
           vector_idxs = [span[1] for span in spans]
         #do kmeans clustering in batches with the vector indexes
+        if level == 0:
+          true_k = len(vector_idxs)/prefered_leaf_node_size
+        else:
+          true_k = len(vector_idxs)/max_cluster_size
+  
         if device == 'cuda':
           kmeans = KMeans(n_clusters=true_k, mode='cosine')
           km_labels = kmeans.fit_predict(torch.from_numpy(cluster_vecs[vector_idxs]).to(device))
@@ -147,7 +154,7 @@ def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, shape, 
         #put into a temporary cluster
         tmp_cluster = {}  
         for span, label in zip(spans, km_labels):
-          tmp_clusterr[label] = tmp_cluster.get(label, [])+[span]
+          tmp_cluster[label] = tmp_cluster.get(label, [])+[span]
           
         #create unique (level, id) labels and merge if necessary
         for a_cluster in tmp_cluster.values():
@@ -160,7 +167,7 @@ def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, shape, 
                 need_labels = [span for span in a_cluster if span2cluster_label.get(span) in (label, None)]
                 for span in need_labels:
                    if span not in clusters.get(label, []):
-                      clusters[label] = tmp_clusters.get(label, []) + [span]
+                      clusters[label] = tmp_cluster.get(label, []) + [span]
                    span2cluster_label[span] = label
                     
             #label the rest of the cluster that hasn't been merged        
@@ -172,17 +179,17 @@ def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, shape, 
                 label = (level, need_labels[0][1])
               for span in  need_labels:
                  if span not in clusters.get(label, []):
-                    clusters[label] = tmp_clusters.get(label, []) + [span]
+                    clusters[label] = tmp_cluster.get(label, []) + [span]
                  span2cluster_label[span] = label
 
           # re-cluster any small clusters or break up large clusters   
-          if rng >= recluster_at and max_rng != len_spans:     
-            for parent, spans in new_cluster.items(): 
-              if len(spans) < prefered_cluster_size*.5:
+        if rng >= recluster_at and max_rng != len_spans:     
+            for parent, spans in clusters.items(): 
+              if len(spans) < prefered_leaf_node_size*.5:
                 for span in spans:
                   del span2cluster_label[span]
               elif len(spans) > max_cluster_size:
-                  for token in cluster[int(max_cluster_size*.75):]:
+                  for token in clusters[int(max_cluster_size*.75):]:
                     del span2cluster_label[token]
                   
     # prepare data for next level clustering
@@ -302,7 +309,7 @@ class FileByLineIdx:
            
 class SearcherIdx:
   def __init__(self,  mmap_file, shape, dtype, parents=None, parent_levels=None, parent2idx=None, clusters=None, auto_create_ann_idx=True, \
-               bm25_filename=None, bm25_fobj=None,  bm25_field="text"):
+               bm25_filename=None, bm25_fobj=None,  bm25_field="text", filebyline=None):
     """
         Clusters and performs approximate nearest neighbor search on a memmap file. Also provides a wrapper for Whoosh BM25.
         :arg  mmap_file:      Optional, must be passed as a keyword argument.
@@ -360,7 +367,7 @@ class SearcherIdx:
      if parents is None and auto_create_ann_idx:
       self.recreate_idx(mmap_file, shape, dtype)
      else:
-      self.mmap_file, self.shape, self.dtype, self.parents, self.parent_levels, self.parent2idx = 
+      self.mmap_file, self.shape, self.dtype, self.parents, self.parent_levels, self.parent2idx = \
              mmap_file, shape, dtype, parents, parent_levels, parent2idx
      if self.parent_levels is not None:
        self.num_top_parents = len([a for a in self.parent_levels if a == max(self.parent_levels)])
@@ -383,11 +390,11 @@ class SearcherIdx:
       self.bm25_fobj = bm25_fobj  
       schema = Schema(id=ID(stored=True), content=TEXT)
       #TODO determine how to clear out the whoosh index besides rm -rf _M* MAIN*
-      fobj.seek(0, os.SEEK_END)
-      self.whoosh_ix = create_in(filename+"idx", schema)  
-      writer self.whoosh_ix.writer()
-      fobj.seek(0, os.SEEK_END)
-      for idx, l in enumerate(fobj):
+      bm25_fobj.seek(0, os.SEEK_END)
+      self.whoosh_ix = create_in(bm25_filename+"idx", schema)  
+      writer = self.whoosh_ix.writer()
+      bm25_fobj.seek(0, os.SEEK_END)
+      for idx, l in enumerate(bm25_fobj):
           l =l.decode().replace("\\n", "\n").strip()
           if l[0] == "{" and l[-1] == "}":
             content = l.split(self.bm25_field+'": "')[1]
@@ -397,21 +404,21 @@ class SearcherIdx:
             writer.add_document(id=str(idx),
                                     content=content)  
       writer.commit()
-      fobj.seek(0, os.SEEK_END)
+      bm25_fobj.seek(0, os.SEEK_END)
       self.filebyline = filebyline
       if self.filebyline is None: self.filebyline = FileByLineIdx(fobj=bm25_fobj)
                
     def whoosh_searcher(self):
       return self.whoosh_ix.searcher()
 
-    def search(self, query=None, vec=None, lookahead_cutoff=100, k=5):
-        if type(query) in (nd.array, torch.Tensor):
+    def search(self, query=None, vec=None, lookahead_cutoff=100, k=5, chunk_size=10000):
+        if type(query) in (np.array, torch.Tensor):
           vec = query
           query = None
         assert vec is None or self.parents is not None
         if query is not None:        
           assert hasattr(self, 'whoosh_ix'), "must be created with bm25 search set"
-          with self.whoosh_searcher():
+          with self.whoosh_searcher() as searcher:
             if type(query) is str:
                query = QueryParser("content", self.whoosh_ix.schema).parse(query)
             results = searcher.search(query)
@@ -430,7 +437,7 @@ class SearcherIdx:
                     results = results.sort()
                     for idx, score in zip(results.indexes, results.values):
                        idx = idxs[idx]
-                       yield (idx, self.filebyline[idx].decode().strip()), score)
+                       yield (idx, self.filebyline[idx].decode().strip(), score)
                     idxs = []
                     n_chunk = 0
               if idxs:
@@ -439,7 +446,7 @@ class SearcherIdx:
                   results = results.sort()
                   for idx, score in zip(results.indexes, results.values):
                      idx = idxs[idx]
-                     yield (idx, self[idx].decode().strip()), score)
+                     yield (idx, self[idx].decode().strip(), score)
         else:
                 assert vec is not None        
                 #do ANN search
@@ -448,7 +455,7 @@ class SearcherIdx:
                 if hasattr(self, 'filebyline'):
                   for r in pytorch_ann_search(vec, self.mmap_file, self.shape,  self.dtype, \
                                             self.parents, self.num_top_level_parents, self.parent_levels, self.parent2idx):
-                    yield (r[0], self.filebyline[r[0]].decode().strip()), r[1])
+                    yield (r[0], self.filebyline[r[0]].decode().strip(), r[1])
                 else:
                   for r in pytorch_ann_search(vec, self.mmap_file, self.shape,  self.dtype, \
                                             self.parents, self.num_top_level_parents, self.parent_levels, self.parent2idx):
@@ -461,10 +468,10 @@ class SearcherIdx:
       clusters, _ = self.cluster()
     cluster_info = list(clusters.items())
     cluster_info.sort(key=lambda a: a[0][0], reverse=True)
-    self.parents = torch.from_numpy(np_memmap(mmap_file, shape=shape, dtype=dtype)[a[0][1] for a in cluster_info]).to(device)
+    self.parents = torch.from_numpy(np_memmap(mmap_file, shape=shape, dtype=dtype)[[a[0][1] for a in cluster_info]]).to(device)
     self.parent_levels = [a[0][0] for a in cluster_info]
     self.num_top_parents = len([a for a in self.parent_levels if a == max(self.parent_levels)])
-    label2idx = dict([(a[0], idx) for idx, a in enumerate(clsuter_info)]) 
+    label2idx = dict([(a[0], idx) for idx, a in enumerate(cluster_info)]) 
     self.parent2idx = [[a if type(a) is int  else label2idx[a] for a in a_cluster] for _, a_cluster in cluster_info]
 
   
@@ -474,7 +481,7 @@ class SearcherIdx:
     if span2cluster_label is None: span2cluster_label = {}
     return create_hiearchical_clusters(clusters, span2cluster_label, self.mmap_file, self.shape, self.dtype, cluster_idxs=cluster_idxs, max_level=max_level, \
                                       max_cluster_size=max_cluster_size, min_overlap_merge_cluster=min_overlap_merge_cluster, \
-                                      prefered_leaf_node_size=prefered_leaf_node_size, kmeans_batch_size=kmeans_batch_size):
+                                      prefered_leaf_node_size=prefered_leaf_node_size, kmeans_batch_size=kmeans_batch_size)
   
 def _unpickle(state):
     """Create a new ``IndexedGzipFile`` from a pickled state.
