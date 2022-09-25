@@ -31,6 +31,7 @@ from sklearn.cluster import MiniBatchKMeans
 from sklearn.cluster import AgglomerativeClustering
 from collections import Counter
 import random
+import tqdm
 
 if torch.cuda.is_available():
   device = 'cuda'
@@ -114,7 +115,7 @@ def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, shape, 
     else:
       len_spans = len(cluster_idxs)
     recluster_at = max(0,len_spans-4*int(.7*kmeans_batch_size))
-    for rng in range(0, len_spans, int(.7*kmeans_batch_size)):
+    for rng in tqdm.tqdm(range(0, len_spans, int(.7*kmeans_batch_size))):
         max_rng = min(len_spans, rng+int(.7*kmeans_batch_size))
         #create the next batch to cluster
         if cluster_idxs is None:
@@ -397,7 +398,7 @@ class SearcherIdx:
       self.whoosh_ix = create_in(bm25_filename+"_idx", schema)  
       writer = self.whoosh_ix.writer()
       bm25_fobj.seek(0, os.SEEK_END)
-      for idx, l in enumerate(bm25_fobj):
+      for idx, l in tqdm.tqdm(enumerate(bm25_fobj)):
           l =l.decode().replace("\\n", "\n").strip()
           if not l: continue
           if l[0] == "{" and l[-1] == "}":
