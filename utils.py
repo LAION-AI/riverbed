@@ -308,7 +308,7 @@ class FileByLineIdx:
 
            
 class SearcherIdx:
-  def __init__(self,  mmap_file, shape, dtype, parents=None, parent_levels=None, parent2idx=None, clusters=None, auto_create_ann_idx=True, \
+  def __init__(self,  mmap_file, shape, dtype=np.float32, parents=None, parent_levels=None, parent2idx=None, clusters=None, auto_create_ann_idx=True, \
                bm25_filename=None, bm25_fobj=None,  bm25_field="text", filebyline=None):
     """
         Clusters and performs approximate nearest neighbor search on a memmap file. Also provides a wrapper for Whoosh BM25.
