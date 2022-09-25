@@ -299,7 +299,8 @@ def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, shape, 
         tmp_cluster = {}  
         for span, label in zip(spans, km_labels):
           tmp_cluster[label] = tmp_cluster.get(label, [])+[span]
-          
+      
+        print (len(tmp_cluster), tmp_cluster)
         #create unique (level, id) labels and merge if necessary
         for a_cluster in tmp_cluster.values():
             cluster_labels = [span2cluster_label[span] for span in a_cluster if span in span2cluster_label]
