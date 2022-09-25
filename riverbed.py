@@ -138,9 +138,9 @@ def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, shape, 
           vector_idxs = [span[1] for span in spans]
         #do kmeans clustering in batches with the vector indexes
         if level == 0:
-          true_k = len(vector_idxs)/prefered_leaf_node_size
+          true_k = int(len(vector_idxs)/prefered_leaf_node_size)
         else:
-          true_k = len(vector_idxs)/max_cluster_size
+          true_k = int(len(vector_idxs)/max_cluster_size)
   
         if device == 'cuda':
           kmeans = KMeans(n_clusters=true_k, mode='cosine')
