@@ -272,9 +272,6 @@ def _cluster_one_batch(true_k,  spans, vector_idxs, clusters, span2cluster_label
 def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, shape, dtype, skip_idxs=None, cluster_idxs=None, max_level=4, max_cluster_size=200, \
                                min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000):
   global device
-  
-
-  
   if skip_idxs is None: 
     skip_idxs = set()
   else:
