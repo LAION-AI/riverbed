@@ -376,11 +376,11 @@ class SearcherIdx:
     if bm25_filename or bm25_fobj:
        self.recreate_whoosh_idx(bm25_field, bm25_filename, bm25_fobj, filebyline)
     
-    def recreate_whoosh_idx(self, bm25_field="text", bm25_filename=None, bm25_fobj=None, filebyline=None):
+  def recreate_whoosh_idx(self, bm25_field="text", bm25_filename=None, bm25_fobj=None, filebyline=None):
       assert bm25_filename is not None or bm25_fobj is not None
       if bm25_filename is None:
         if not hasattr(self, 'bm25_filename'): 
-          bm25_filename = self.bm25_filename = f"__tmp__{random.randint(1000000)}"
+          bm25_filename = self.bm25_filename = f"__tmp__{random.randint(0,1000000)}"
         else:
           bm25_filename = self.bm25_filename
       self.bm25_field = bm25_field
@@ -391,7 +391,7 @@ class SearcherIdx:
       schema = Schema(id=ID(stored=True), content=TEXT)
       #TODO determine how to clear out the whoosh index besides rm -rf _M* MAIN*
       bm25_fobj.seek(0, os.SEEK_END)
-      self.whoosh_ix = create_in(bm25_filename+"idx", schema)  
+      self.whoosh_ix = create_in(bm25_filename+"_idx", schema)  
       writer = self.whoosh_ix.writer()
       bm25_fobj.seek(0, os.SEEK_END)
       for idx, l in enumerate(bm25_fobj):
@@ -408,10 +408,10 @@ class SearcherIdx:
       self.filebyline = filebyline
       if self.filebyline is None: self.filebyline = FileByLineIdx(fobj=bm25_fobj)
                
-    def whoosh_searcher(self):
+  def whoosh_searcher(self):
       return self.whoosh_ix.searcher()
 
-    def search(self, query=None, vec=None, lookahead_cutoff=100, k=5, chunk_size=10000):
+  def search(self, query=None, vec=None, lookahead_cutoff=100, k=5, chunk_size=10000):
         if type(query) in (np.array, torch.Tensor):
           vec = query
           query = None
