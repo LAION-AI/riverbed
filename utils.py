@@ -304,31 +304,27 @@ def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, shape, 
         #print (len(tmp_cluster), tmp_cluster)
         #create unique (level, id) labels and merge if necessary
         for a_cluster in tmp_cluster.values():
-            cluster_labels = [span2cluster_label[span] for span in a_cluster if span in span2cluster_label]
-            # merge with previous clusters if there is an overlap
-            if cluster_labels:
-              most_common = Counter(cluster_labels).most_common(1)[0]
-              if most_common[1] >= min_overlap_merge_cluster: 
-                label = most_common[0]
-                need_labels = [span for span in a_cluster if span2cluster_label.get(span) in (label, None)]
-                for span in need_labels:
-                   if span not in clusters.get(label, []):
-                      clusters[label] = clusters.get(label, []) + [span]
-                   span2cluster_label[span] = label
-                    
-            #label the rest of the cluster that hasn't been merged        
+            label = None
             need_labels = [span for span in a_cluster if span not in span2cluster_label]
             if need_labels:
-              if type(need_labels[0]) is int:
-                label = (level, need_labels[0])
-              else:
-                label = (level, need_labels[0][1])
-              for span in  need_labels:
-                 # this may be a hot-spot
-                 if span not in clusters.get(label, []):
-                    clusters[label] = clusters.get(label, []) + [span]
-                 span2cluster_label[span] = label
+              cluster_labels = [span2cluster_label[span] for span in a_cluster if span in span2cluster_label]
+              if cluster_labels:
+                # merge with previous clusters if there is an overlap
+                most_common = Counter(cluster_labels).most_common(1)[0]
+                if most_common[1] >= min_overlap_merge_cluster: 
+                  label = most_common[0]
+              if not label:
+                # otherwise create a new cluster
+                if type(need_labels[0]) is int:
+                  label = (level, need_labels[0])
+                else:
+                  label = (level, need_labels[0][1])
 
+              for span in need_labels:
+                if span not in clusters.get(label, []):
+                  clusters[label] = clusters.get(label, []) + [span]
+                span2cluster_label[span] = label
+                
           # re-cluster any small clusters or break up large clusters   
         if rng >= recluster_at and max_rng != len_spans:  
             need_recompute_clusters = False   
