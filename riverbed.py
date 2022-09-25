@@ -19,7 +19,6 @@ import threading
 import io
 import os
 import copy
-from whoosh.analysis import StemmingAnalyzer
 from whoosh.index import create_in
 from whoosh.fields import *
 from whoosh.qparser import QueryParser
@@ -31,7 +30,6 @@ from sklearn.cluster import MiniBatchKMeans
 from sklearn.cluster import AgglomerativeClustering
 from collections import Counter
 import random
-import tqdm
 
 if torch.cuda.is_available():
   device = 'cuda'
@@ -99,8 +97,6 @@ def pytorch_ann_search(vec, mmap_file, shape, dtype, parents, num_top_level_pare
 def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, shape, dtype, cluster_idxs=None, max_level=4, max_cluster_size=200, \
                                min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=10000):
   global device
-  if clusters is None: clusters = {}
-  if span2cluster_label is None: span2cluster_label = {}
   for span, label in span2cluster_label.items():
     clusters[label] = clusters.get(label,[]) + [span]
   if prefered_leaf_node_size is None: prefered_leaf_node_size = max_cluster_size
@@ -115,7 +111,7 @@ def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, shape, 
     else:
       len_spans = len(cluster_idxs)
     recluster_at = max(0,len_spans-4*int(.7*kmeans_batch_size))
-    for rng in tqdm.tqdm(range(0, len_spans, int(.7*kmeans_batch_size))):
+    for rng in range(0, len_spans, int(.7*kmeans_batch_size)):
         max_rng = min(len_spans, rng+int(.7*kmeans_batch_size))
         #create the next batch to cluster
         if cluster_idxs is None:
@@ -142,9 +138,9 @@ def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, shape, 
           vector_idxs = [span[1] for span in spans]
         #do kmeans clustering in batches with the vector indexes
         if level == 0:
-          true_k = int(len(vector_idxs)/prefered_leaf_node_size)
+          true_k = len(vector_idxs)/prefered_leaf_node_size
         else:
-          true_k = int(len(vector_idxs)/max_cluster_size)
+          true_k = len(vector_idxs)/max_cluster_size
   
         if device == 'cuda':
           kmeans = KMeans(n_clusters=true_k, mode='cosine')
@@ -392,15 +388,14 @@ class SearcherIdx:
       if bm25_fobj is None:
         bm25_fobj = open(bm25_filename, "rb")
       self.bm25_fobj = bm25_fobj  
-      schema = Schema(id=ID(stored=True), content=TEXT(analyzer=StemmingAnalyzer()))
+      schema = Schema(id=ID(stored=True), content=TEXT)
       #TODO determine how to clear out the whoosh index besides rm -rf _M* MAIN*
       bm25_fobj.seek(0, os.SEEK_END)
       self.whoosh_ix = create_in(bm25_filename+"_idx", schema)  
       writer = self.whoosh_ix.writer()
       bm25_fobj.seek(0, os.SEEK_END)
-      for idx, l in tqdm.tqdm(enumerate(bm25_fobj)):
+      for idx, l in enumerate(bm25_fobj):
           l =l.decode().replace("\\n", "\n").strip()
-          if not l: continue
           if l[0] == "{" and l[-1] == "}":
             content = l.split(self.bm25_field+'": "')[1]
             content = content.split('", "')[0]
@@ -426,7 +421,7 @@ class SearcherIdx:
           with self.whoosh_searcher() as searcher:
             if type(query) is str:
                query = QueryParser("content", self.whoosh_ix.schema).parse(query)
-            results = searcher.search(query, limit=None)
+            results = searcher.search(query)
             if vec is None:
               for r in results:
                yield (int(r['id']), self.filebyline[int(r['id'])].decode().strip())
