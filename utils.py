@@ -34,6 +34,8 @@ import random
 import tqdm
 from transformers import AutoTokenizer, AutoModel, BertTokenizerFast, CLIPProcessor, CLIPModel, BertModel
 from nltk.corpus import stopwords as nltk_stopwords
+from torch import nn
+import spacy
 
 if torch.cuda.is_available():
   device = 'cuda'
@@ -91,10 +93,23 @@ def mean_pooling(model_output, attention_mask):
       token_embeddings = model_output.last_hidden_state
       input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
       return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
-    
-             
+
+
 def embed_text(dat_iter, mmap_file, type, downsampler=None,  dtype=np.float16, embed_dim=25, mmap_len=0, embedder="minilm", chunk_size=1000):
     global device
+    init_models()
+    if embedder == "clip":
+      clip_model = clip_model.to(device)
+      minilm_model =  minilm_model.cpu()
+      labse_model =  labse_model.cpu()
+    elif embedder == "minilm":
+      clip_model = clip_model.cpu()
+      minilm_model =  minilm_model.to(device)
+      labse_model =  labse_model.cpu()
+    elif embedder == "labse":
+      clip_model = clip_model.cpu()
+      minilm_model =  minilm_model.cpu()
+      labse_model =  labse_model.to(device)
     if embedder == "clip":
       model_embed_dim = clip_model.config.text_config.hidden_size
     elif embedder == "minilm":
