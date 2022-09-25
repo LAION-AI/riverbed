@@ -186,7 +186,7 @@ def embed_text(dat_iter, mmap_file, downsampler=None, skip_idxs=None,  dtype=np.
       batch = []
       
           
-    return downsampler, mmap_len, skip_idxs
+    return downsampler, skip_idxs, mmap_len, dtype, embed_dim 
     
   
     
