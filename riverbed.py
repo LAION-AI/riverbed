@@ -425,7 +425,7 @@ class SearcherIdx:
           with self.whoosh_searcher() as searcher:
             if type(query) is str:
                query = QueryParser("content", self.whoosh_ix.schema).parse(query)
-            results = searcher.search(query)
+            results = searcher.search(query, limit=None)
             if vec is None:
               for r in results:
                yield (int(r['id']), self.filebyline[int(r['id'])].decode().strip())
