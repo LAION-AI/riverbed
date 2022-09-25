@@ -253,6 +253,12 @@ def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, shape, 
     else:
       len_spans = len(cluster_idxs)
     recluster_at = max(0,len_spans-4*int(.7*kmeans_batch_size))
+    if device == 'cuda':
+      km = KMeans(n_clusters=true_k, mode='cosine')
+    else:
+      km = MiniBatchKMeans(n_clusters=true_k, init='k-means++', n_init=1,
+                                        init_size=max(true_k*3,1000), batch_size=1024)
+    print (km)
     for rng in tqdm.tqdm(range(0, len_spans, int(.7*kmeans_batch_size))):
         max_rng = min(len_spans, rng+int(.7*kmeans_batch_size))
         #create the next batch to cluster
@@ -288,12 +294,9 @@ def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, shape, 
           true_k = int(len(vector_idxs)/max_cluster_size)
   
         if device == 'cuda':
-          kmeans = KMeans(n_clusters=true_k, mode='cosine')
-          km_labels = kmeans.fit_predict(torch.from_numpy(cluster_vecs[vector_idxs]).to(device))
+          km_labels = km.fit_predict(torch.from_numpy(cluster_vecs[vector_idxs]).to(device))
           km_labels = [l.item() for l in km_labels.cpu()]
         else:
-          km = MiniBatchKMeans(n_clusters=true_k, init='k-means++', n_init=1,
-                                        init_size=max(true_k*3,1000), batch_size=1024).fit(cluster_vecs[vector_idxs])
           km_labels = km.labels_
           
         #put into a temporary cluster
