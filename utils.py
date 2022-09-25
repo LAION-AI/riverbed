@@ -83,7 +83,7 @@ def np_memmap(f, dat=None, idxs=None, shape=None, dtype=np.float32, ):
     memmap[idxs] = dat
   return memmap
          
-def embed_text(dat_iter, embed_dim=25, mmap_file, type, downsampler=None, mmap_len=0, embedder="minilm", chunk_size=1000):
+def embed_text(dat_iter, mmap_file, type, downsampler=None,  embed_dim=25, mmap_len=0, embedder="minilm", chunk_size=1000):
     global device
     if embedder == "clip":
       model_embed_dim = clip_model.config.text_config.hidden_size
@@ -95,8 +95,14 @@ def embed_text(dat_iter, embed_dim=25, mmap_file, type, downsampler=None, mmap_l
       downsampler = nn.Linear(model_embed_dim, embed_dim, bias=False)
     batch = []
     for l in dat_iter:
+        try:
+          l = l.decode()
+        except:
+          pass
+        l = l.replace("\\n", "\n").replace("\\t", "\t").replace("_", " ").strip()
+        if not l: continue
         batch.append(l)
-        if len(batch) > chunk_size:  
+        if len(batch) >= chunk_size:  
           if embedder == "clip":
             toks = clip_processor(batch, padding=True, truncation=True, return_tensors="pt").to(device)
             with torch.no_grad():
