@@ -36,7 +36,8 @@ from transformers import AutoTokenizer, AutoModel, BertTokenizerFast, CLIPProces
 from nltk.corpus import stopwords as nltk_stopwords
 from torch import nn
 import spacy
-
+import whoosh.index as whoosh_index
+        
 if torch.cuda.is_available():
   device = 'cuda'
 else:
@@ -95,7 +96,7 @@ def mean_pooling(model_output, attention_mask):
       return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
 
 
-def embed_text(dat_iter, mmap_file, type, downsampler=None,  dtype=np.float16, embed_dim=25, mmap_len=0, embedder="minilm", chunk_size=1000):
+def embed_text(dat_iter, mmap_file, downsampler=None,  dtype=np.float16, embed_dim=25, mmap_len=0, embedder="minilm", chunk_size=1000):
     global device
     init_models()
     if embedder == "clip":
@@ -440,7 +441,7 @@ class FileByLineIdx:
            
 class SearcherIdx:
   def __init__(self,  mmap_file, shape, dtype=np.float16, parents=None, parent_levels=None, parent2idx=None, clusters=None, auto_create_ann_idx=True, \
-               bm25_filename=None, bm25_fobj=None,  bm25_field="text", filebyline=None):
+               bm25_filename=None, bm25_fobj=None,  bm25_field="text", filebyline=None, bm25_reindex=False):
     """
         Clusters and performs approximate nearest neighbor search on a memmap file. Also provides a wrapper for Whoosh BM25.
         :arg  mmap_file:      Optional, must be passed as a keyword argument.
@@ -505,9 +506,9 @@ class SearcherIdx:
      else:
        self.num_top_parents = 0
     if bm25_filename or bm25_fobj:
-       self.recreate_whoosh_idx(bm25_field, bm25_filename, bm25_fobj, filebyline)
+       self.recreate_whoosh_idx(bm25_field, bm25_filename, bm25_fobj, filebyline, bm25_reindex)
     
-  def recreate_whoosh_idx(self, bm25_field="text", bm25_filename=None, bm25_fobj=None, filebyline=None):
+  def recreate_whoosh_idx(self, bm25_field="text", bm25_filename=None, bm25_fobj=None, filebyline=None, bm25_reindex=False):
       assert bm25_filename is not None or bm25_fobj is not None
       if bm25_filename is None:
         if not hasattr(self, 'bm25_filename'): 
@@ -524,21 +525,25 @@ class SearcherIdx:
       schema = Schema(id=ID(stored=True), content=TEXT(analyzer=StemmingAnalyzer()))
       #TODO determine how to clear out the whoosh index besides rm -rf _M* MAIN*
       bm25_fobj.seek(0, os.SEEK_END)
-      self.whoosh_ix = create_in(bm25_filename+"_idx", schema)  
-      writer = self.whoosh_ix.writer()
-      pos = bm25_fobj.tell()
-      bm25_fobj.seek(0, 0)
-      for idx, l in tqdm.tqdm(enumerate(bm25_fobj)):
-          l =l.decode().replace("\\n", "\n").replace("\\t", "\t").strip()
-          if not l: continue
-          if l[0] == "{" and l[-1] == "}":
-            content = l.split(self.bm25_field+'": "')[1]
-            content = content.split('", "')[0].replace("_", " ")
-          else:
-            content = l.replace("_", " ")
-          writer.add_document(id=str(idx), content=content)  
-      writer.commit()
-      bm25_fobj.seek(pos,0)
+      need_reindex = bm25_reindex or not os.path.exists(bm25_filename+"_idx/_MAIN_1.toc") 
+      if not need_reindex:
+        self.whoosh_ix = whoosh_index.open_dir(bm25_filename+"_idx")
+      else:
+        self.whoosh_ix = create_in(bm25_filename+"_idx", schema)
+        writer = self.whoosh_ix.writer()
+        pos = bm25_fobj.tell()
+        bm25_fobj.seek(0, 0)
+        for idx, l in tqdm.tqdm(enumerate(bm25_fobj)):
+            l =l.decode().replace("\\n", "\n").replace("\\t", "\t").strip()
+            if not l: continue
+            if l[0] == "{" and l[-1] == "}":
+              content = l.split(self.bm25_field+'": "')[1]
+              content = content.split('", "')[0].replace("_", " ")
+            else:
+              content = l.replace("_", " ")
+            writer.add_document(id=str(idx), content=content)  
+        writer.commit()
+        bm25_fobj.seek(pos,0)
       self.filebyline = filebyline
       if self.filebyline is None: self.filebyline = FileByLineIdx(fobj=bm25_fobj)
                
