@@ -19,8 +19,8 @@ import threading
 import io
 import os
 import copy
-from whoosh.index import create_in
 from whoosh.analysis import StemmingAnalyzer
+from whoosh.index import create_in
 from whoosh.fields import *
 from whoosh.qparser import QueryParser
 import numpy as np
@@ -386,29 +386,27 @@ class SearcherIdx:
           bm25_filename = self.bm25_filename
       self.bm25_field = bm25_field
       self.bm25_filename = bm25_filename
-      if not os.path.exists(bm25_filename+"_idx"):
-            os.makedirs(bm25_filename+"_idx")
       if bm25_fobj is None:
         bm25_fobj = open(bm25_filename, "rb")
       self.bm25_fobj = bm25_fobj  
       schema = Schema(id=ID(stored=True), content=TEXT(analyzer=StemmingAnalyzer()))
       #TODO determine how to clear out the whoosh index besides rm -rf _M* MAIN*
-      pos = bm25_fobj.tell()
-      bm25_fobj.seek(0, 0)
+      bm25_fobj.seek(0, os.SEEK_END)
       self.whoosh_ix = create_in(bm25_filename+"_idx", schema)  
       writer = self.whoosh_ix.writer()
+      bm25_fobj.seek(0, os.SEEK_END)
       for idx, l in enumerate(bm25_fobj):
-            l =l.decode().replace("\\n", "\n").strip()
-            if not l: continue
-            if l[0] == "{" and l[-1] == "}":
-              content = l.split(self.bm25_field+'": "')[1]
-              content = content.split('", "')[0]
-            else:
-              content = l
-              writer.add_document(id=str(idx),
-                                      content=content)  
+          l =l.decode().replace("\\n", "\n").strip()
+          if not l: continue
+          if l[0] == "{" and l[-1] == "}":
+            content = l.split(self.bm25_field+'": "')[1]
+            content = content.split('", "')[0]
+          else:
+            content = l
+            writer.add_document(id=str(idx),
+                                    content=content)  
       writer.commit()
-      bm25_fobj.seek(pos,0)
+      bm25_fobj.seek(0, os.SEEK_END)
       self.filebyline = filebyline
       if self.filebyline is None: self.filebyline = FileByLineIdx(fobj=bm25_fobj)
                
