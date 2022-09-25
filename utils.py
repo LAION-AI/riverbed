@@ -387,6 +387,8 @@ class SearcherIdx:
           bm25_filename = self.bm25_filename = f"__tmp__{random.randint(0,1000000)}"
         else:
           bm25_filename = self.bm25_filename
+      if not os.path.exists(bm25_filename+"_idx"):
+            os.makedirs(bm25_filename+"_idx")    
       self.bm25_field = bm25_field
       self.bm25_filename = bm25_filename
       if bm25_fobj is None:
@@ -397,7 +399,8 @@ class SearcherIdx:
       bm25_fobj.seek(0, os.SEEK_END)
       self.whoosh_ix = create_in(bm25_filename+"_idx", schema)  
       writer = self.whoosh_ix.writer()
-      bm25_fobj.seek(0, os.SEEK_END)
+      pos = bm25_fobj.tell()
+      bm25_fobj.seek(0, 0)
       for idx, l in tqdm.tqdm(enumerate(bm25_fobj)):
           l =l.decode().replace("\\n", "\n").strip()
           if not l: continue
@@ -409,7 +412,7 @@ class SearcherIdx:
             writer.add_document(id=str(idx),
                                     content=content)  
       writer.commit()
-      bm25_fobj.seek(0, os.SEEK_END)
+      bm25_fobj.seek(pos,0)
       self.filebyline = filebyline
       if self.filebyline is None: self.filebyline = FileByLineIdx(fobj=bm25_fobj)
                
