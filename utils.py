@@ -300,7 +300,7 @@ def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, shape, 
         for span, label in zip(spans, km_labels):
           tmp_cluster[label] = tmp_cluster.get(label, [])+[span]
       
-        print (len(tmp_cluster), tmp_cluster)
+        #print (len(tmp_cluster), tmp_cluster)
         #create unique (level, id) labels and merge if necessary
         for a_cluster in tmp_cluster.values():
             cluster_labels = [span2cluster_label[span] for span in a_cluster if span in span2cluster_label]
@@ -312,7 +312,7 @@ def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, shape, 
                 need_labels = [span for span in a_cluster if span2cluster_label.get(span) in (label, None)]
                 for span in need_labels:
                    if span not in clusters.get(label, []):
-                      clusters[label] = tmp_cluster.get(label, []) + [span]
+                      clusters[label] = clusters.get(label, []) + [span]
                    span2cluster_label[span] = label
                     
             #label the rest of the cluster that hasn't been merged        
@@ -324,7 +324,7 @@ def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, shape, 
                 label = (level, need_labels[0][1])
               for span in  need_labels:
                  if span not in clusters.get(label, []):
-                    clusters[label] = tmp_cluster.get(label, []) + [span]
+                    clusters[label] = clusters.get(label, []) + [span]
                  span2cluster_label[span] = label
 
           # re-cluster any small clusters or break up large clusters   
