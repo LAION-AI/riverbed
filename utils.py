@@ -70,7 +70,39 @@ def init_models():
     spacy_nlp = spacy.load('en_core_web_md')
     stopwords_set = set(nltk_stopwords.words('english') + ['...', 'could', 'should', 'shall', 'can', 'might', 'may', 'include', 'including'])
 
-  
+def get_embeddings(sent, downsampler, dtype=np.float16, embedder="minilm"):
+  init_models()
+  if embedder == "clip":
+    clip_model = clip_model.to(device)
+    minilm_model =  minilm_model.cpu()
+    labse_model =  labse_model.cpu()
+  elif embedder == "minilm":
+    clip_model = clip_model.cpu()
+    minilm_model =  minilm_model.to(device)
+    labse_model =  labse_model.cpu()
+  elif embedder == "labse":
+    clip_model = clip_model.cpu()
+    minilm_model =  minilm_model.cpu()
+    labse_model =  labse_model.to(device)
+  with torch.no_grad():
+    if embedder == "clip":
+      toks = clip_processor(sent, padding=True, truncation=True, return_tensors="pt").to(device)
+      dat = clip_model.get_text_features(**toks)
+    elif embedder == "minilm":
+      toks = minilm_tokenizer(sent, padding=True, truncation=True, return_tensors="pt").to(device)
+      dat = minilm_model(**toks)
+      dat = mean_pooling(dat, toks.attention_mask)
+    elif embedder == "labse":
+      toks = labse_tokenizer(sent, padding=True, truncation=True, return_tensors="pt").to(device)
+      dat = labse_model(**toks).pooler_output   
+    dat = downsampler(dat)
+    if dtype == np.float16: 
+      dat = dat.half()
+    else:
+      dat = dat.float()
+    dat = dat.cpu().numpy()
+    return dat
+
 def np_memmap(f, dat=None, idxs=None, shape=None, dtype=np.float16, ):
   if not f.endswith(".mmap"):
     f = f+".mmap"
@@ -189,9 +221,8 @@ def embed_text(dat_iter, mmap_file, downsampler=None, skip_idxs=None,  dtype=np.
     return downsampler, skip_idxs, mmap_len, dtype, embed_dim 
     
   
-    
 #cluster pruning based approximate nearest neightbor search. See https://nlp.stanford.edu/IR-book/html/htmledition/cluster-pruning-1.html
-def pytorch_ann_search(vec, mmap_file, shape, dtype, parents, num_top_level_parents, parent_levels, parent2idx, chunk_size=10000):
+def pytorch_ann_search(vec, mmap_file, shape, dtype, parents, num_top_level_parents, parent_levels, parent2idx, chunk_size=10000, k=5):
   vecs = parents[:num_top_level_parents]
   idx2idx = list(range(num_top_level_parents))
   for _ in range(parent_levels[0]):
