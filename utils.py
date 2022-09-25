@@ -246,6 +246,7 @@ def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, shape, 
   # first cluster leaves at level 0. 
   # the spans are the indexes themselves, so no need to map using all_spans
   all_spans = None
+  print (device)
   for level in range(max_level):
     assert level == 0 or (all_spans is not None and cluster_idxs is not None)
     if cluster_idxs is None: 
@@ -323,6 +324,7 @@ def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, shape, 
               else:
                 label = (level, need_labels[0][1])
               for span in  need_labels:
+                 # this may be a hot-spot
                  if span not in clusters.get(label, []):
                     clusters[label] = clusters.get(label, []) + [span]
                  span2cluster_label[span] = label
