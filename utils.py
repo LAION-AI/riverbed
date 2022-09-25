@@ -328,15 +328,22 @@ def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, shape, 
                  span2cluster_label[span] = label
 
           # re-cluster any small clusters or break up large clusters   
-        if rng >= recluster_at and max_rng != len_spans:     
+        if rng >= recluster_at and max_rng != len_spans:  
+            need_recompute_clusters = False   
             for parent, spans in clusters.items(): 
               if len(spans) < prefered_leaf_node_size*.5:
                 for span in spans:
                   del span2cluster_label[span]
+                  need_recompute_clusters = True
               elif len(spans) > max_cluster_size:
                   for token in spans[int(max_cluster_size*.75):]:
                     del span2cluster_label[token]
-                  
+                    need_recompute_clusters = True
+            if need_recompute_clusters:
+              clusters.clear()
+              for span, label in span2cluster_label.items():
+                clusters[label] = clusters.get(label, []) + [span]
+
     # prepare data for next level clustering
     all_spans = [label for label in clusters.keys() if label[0] == level]
     if len(all_spans) < max_cluster_size: break
