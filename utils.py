@@ -83,7 +83,7 @@ def np_memmap(f, dat=None, idxs=None, shape=None, dtype=np.float32, ):
     memmap[idxs] = dat
   return memmap
          
-def embed_text(dat_iter, embed_dim=25, downsampler=None,   mmap_file, shape, dtype, parents, num_top_level_parents, parent_levels, parent2idx, mmap_len=0, embedder="minilm", chunk_size=1000):
+def embed_text(dat_iter, embed_dim=25, mmap_file, type, downsampler=None, mmap_len=0, embedder="minilm", chunk_size=1000):
     global device
     if embedder == "clip":
       model_embed_dim = clip_model.config.text_config.hidden_size
