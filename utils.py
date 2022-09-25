@@ -82,7 +82,17 @@ def np_memmap(f, dat=None, idxs=None, shape=None, dtype=np.float16, ):
   else:
     memmap[idxs] = dat
   return memmap
-         
+
+
+#Mean Pooling - Take attention mask into account for correct averaging
+#TODO, mask out the prefix for data that isn't the first portion of a prefixed text.
+def mean_pooling(model_output, attention_mask):
+    with torch.no_grad():
+      token_embeddings = model_output.last_hidden_state
+      input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
+      return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
+    
+             
 def embed_text(dat_iter, mmap_file, type, downsampler=None,  dtype=np.float16, embed_dim=25, mmap_len=0, embedder="minilm", chunk_size=1000):
     global device
     if embedder == "clip":
@@ -154,7 +164,7 @@ def embed_text(dat_iter, mmap_file, type, downsampler=None,  dtype=np.float16, e
        mmap_len += len(batch)
        batch = []
           
-    return downsmapler, mmap_len
+    return downsampler, mmap_len
     
   
     
