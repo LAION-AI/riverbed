@@ -502,6 +502,8 @@ def _unpickle(state):
 
   
 class IndexedGzipFileExt(igzip.IndexedGzipFile):
+  #TODO: refactor to use FileByLineIdx as a member obj.
+  
     """This class inheriets from `` ingdex_gzip.IndexedGzipFile``. This class allows in addition to the functionality 
     of IndexedGzipFile, access to a specific line based on the seek point of the line, using the __getitem__ method.
     Additionally, a (conginguous) list or slice can be used, which will be more efficient then doing line by line access. 
