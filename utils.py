@@ -382,6 +382,14 @@ def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, mmap_le
            clusters[label].remove(span)
            recompute_parent_labels = True
         del span2cluster_label[span]
+        # now re-create the label if the span is the proto index.
+        if span == label[1]:
+          label = (label[0], a_cluster[0])
+          clusters[label] = a_cluster
+          for span in a_cluster:
+            span2cluster_label[span] = label          
+
+
     label2label = {}
     for label, a_cluster in list(clusters.items()):
       if not a_cluster and label in span2cluster_label: 
@@ -389,8 +397,9 @@ def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, mmap_le
 
       if label[0] == 0 and label[1] not in a_cluster:
         del clusters[label]
+        old_label_id = label[1] 
         label = (label[0], a_cluster[0])
-        clusers[label] = a_cluster
+        clusters[label] = a_cluster
         for span in a_cluster:
           span2cluster_label[span] = label
 
