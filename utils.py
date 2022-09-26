@@ -849,7 +849,7 @@ class SearcherIdx:
       self.recreate_embeddings_idx(mmap_file, mmap_len, embed_dim, dtype, clusters, filename=filename,  embedder=embedder, chunk_size=chunk_size, use_tqdm=use_tqdm)
     else:       
      if parents is None and auto_create_embeddings_idx:
-      self.recreate_embeddings_idx(mmap_file, mmap_len, embed_dim, dtype, clusters=None, filename=filename,  embedder=embedder, chunk_size=chunk_size, use_tqdm=use_tqdm, auto_embed_text=auto_embed_text)
+      self.recreate_embeddings_idx(mmap_file, mmap_len, embed_dim, dtype, clusters=None, filename=filename,  embedder=embedder, chunk_size=chunk_size, use_tqdm=use_tqdm)
      else:
       self.mmap_file, self.mmap_len, self.embed_dim, self.dtype, self.parents, self.parent_labels, self.parent_levels, self.parent2idx = \
              mmap_file, mmap_len, embed_dim, dtype, parents, parent_labels, parent_levels, parent2idx
