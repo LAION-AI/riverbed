@@ -168,7 +168,6 @@ def embed_text(dat_iter, mmap_file, downsampler=None, skip_idxs=None,  dtype=np.
       dat_iter2 = dat_iter
     idx = mmap_len-1
     for l in dat_iter2:
-        idx += 1
         if type(l) is tuple:
           l, idx = l
           mmap_len = max(mmap_len, idx+1)
