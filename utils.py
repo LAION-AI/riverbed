@@ -369,46 +369,52 @@ def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, mmap_le
     for label, a_cluster in clusters:
       for span in a_cluster:
         span2cluster_label[span] = label
-  for span, label in span2cluster_label.items():
-    clusters[label] = clusters.get(label,[]) + [span]
-
-  #remove the cluster_idxs from the clusters so we can re-compute the clusters
-  if cluster_idxs is not None:
-    recompute_parent_labels=False
-    for span in cluster_idxs:
-      label = span2cluster_label.get(span)
+  else:      
+    #make sure clusters have the same data as span2cluster_label
+    for span, label in span2cluster_label.items():
+      if span not in clusters.get(label,[]):
+        clusters[label] = clusters.get(label,[]) + [span]
+  #we are not going to cluster idxs that should be skipped
+  if cluster_idxs:
+    cluster_idxs = [idx for idx in cluster_idxs if idx not in skip_idxs]
+  #remove some idx from the clusters so we can re-compute the clusters
+  remove_idxs = list(skip_idxs) + ([] if cluster_idxs is None else cluster_idxs)
+  if remove_idxs is not None:
+    need_recompute_clusters=False
+    for idx in remove_idxs:
+      label = span2cluster_label.get(idx)
       if label is not None:
-        if span in clusters[label]:
-           clusters[label].remove(span)
-           recompute_parent_labels = True
-        del span2cluster_label[span]
-        # now re-create the label if the span is the proto index.
-        if span == label[1]:
-          label = (label[0], a_cluster[0])
-          clusters[label] = a_cluster
-          for span in a_cluster:
-            span2cluster_label[span] = label          
+        clusters[label].remove(idx)
+        a_cluster = clusters[label]
+        del span2cluster_label[idx]
+        need_recompute_clusters=True
+        # now re-create the label if the idx is the proto index.
+        if idx == label[1]:
+          new_idx = a_cluster[0]          
+          for level in range(0, max_level):   
+            new_label2 = (level, new_idx)       
+            old_label2 = (level, idx)
+            if old_label2 in span2cluster_label:
+              #rename the label for the children
+              clusters[new_label2] = clusters[old_label2]
+              del clusters[old_label2]
+              for span in clusters[new_label2]:
+                span2cluster_label[span] = new_label2
+              #make the parent refer to the new label
+              parent_label = span2cluster_label[old_label2]
+              clusters[parent_label].remove(old_label2)
+              clusters[parent_label].append(new_label2)
+              span2cluster_label[new_label2] = parent_label
 
-
-    label2label = {}
-    for label, a_cluster in list(clusters.items()):
-      if not a_cluster and label in span2cluster_label: 
-        del span2cluster_label[label]
-
-      if label[0] == 0 and label[1] not in a_cluster:
-        del clusters[label]
-        old_label_id = label[1] 
-        label = (label[0], a_cluster[0])
-        clusters[label] = a_cluster
-        for span in a_cluster:
-          span2cluster_label[span] = label
-
-
+    #belt and suspenders, let's just recreate the clusters                       
+    if need_recompute_clusters:
+      clusters.clear()
+      for span, label in span2cluster_label.items():
+        clusters[label] = clusters.get(label, []) + [span]
 
   if prefered_leaf_node_size is None: prefered_leaf_node_size = max_cluster_size
   cluster_vecs = np_memmap(mmap_file, shape=[mmap_len, embed_dim], dtype=dtype)
-  # first cluster leaves at level 0. 
-  # the spans are the indexes themselves, so no need to map using all_spans
+  # at level 0, the spans are the indexes themselves, so no need to map using all_spans
   all_spans = None
   for level in range(max_level):
     assert level == 0 or (all_spans is not None and cluster_idxs is not None)
