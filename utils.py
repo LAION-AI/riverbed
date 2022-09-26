@@ -228,6 +228,7 @@ def embed_text(dat_iter, mmap_file, downsampler=None, skip_idxs=None,  dtype=np.
 def embeddings_search(vec, mmap_file,  parents, num_top_level_parents, parent_levels, parent2idx, mmap_len=0, embed_dim=25, dtype=np.float16, chunk_size=10000, k=5):
   vecs = parents[:num_top_level_parents]
   idx2idx = list(range(num_top_level_parents))
+  print (parent_levels, vecs)
   for _ in range(parent_levels[0]):
     results = cosine_similarity(vec.unsqueeze(0), vecs)
     results = results.top_k(k)
@@ -1017,9 +1018,11 @@ class SearcherIdx:
       self.fobj = None
       device2 = next(self.downsampler.parameters()).device
       self.downsampler.cpu()
+      self.parents.cpu()
       pickle.dump(self, open(f"{filename}_idx/search_index.pickle", "wb"))
       self.fobj = fobj
       self.downsampler.to(device2)
+      self.parents.to(device2)
       if type(self.fobj) is GzipByLineIdx:
         self.filebyline = self.fobj
       else:
@@ -1027,6 +1030,7 @@ class SearcherIdx:
 
   @staticmethod
   def from_pretrained(filename):
+      global device
       self = pickle.load(open(f"{filename}_idx/search_index.pickle", "rb"))
       if filename.endswith(".gz"):
         self.filebyline = self.fobj = GzipByLineIdx.open(filename)
@@ -1034,5 +1038,7 @@ class SearcherIdx:
         self.fobj = open(filename, "rb")
         if hasattr(self, 'filebyline') and self.filebyline is not None: self.filebyline.fobj = self.fobj
       self.num_top_level_parents = len([a for a in self.parent_levels if a == max(self.parent_levels)])
+      self.parents.to(device)
+      self.downsampler.to(device)
       return self
         
