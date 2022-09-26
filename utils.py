@@ -860,98 +860,98 @@ class SearcherIdx:
        self.num_top_level_parents = len([a for a in self.parent_levels if a == max(self.parent_levels)])
     else:
        self.num_top_level_parents = 0
-    if auto_create_bm25_idx and (filename or fobj):
-       self.recreate_whoosh_idx(bm25_field=bm25_field, filename=filename, fobj=fobj, filebyline=filebyline, auto_create_bm25_idx=auto_create_bm25_idx, use_tqdm=use_tqdm)
+    if auto_create_bm25_idx and fobj:
+       self.recreate_whoosh_idx(bm25_field=bm25_field, fobj=fobj, filebyline=filebyline, auto_create_bm25_idx=auto_create_bm25_idx, use_tqdm=use_tqdm)
     
   def recreate_whoosh_idx(self, bm25_field="text", filename=None, fobj=None, filebyline=None, auto_create_bm25_idx=False, use_tqdm=True):
-      assert filename is not None or fobj is not None
-      self.bm25_field = bm25_field
-      schema = Schema(id=ID(stored=True), content=TEXT(analyzer=StemmingAnalyzer()))
-      #TODO determine how to clear out the whoosh index besides rm -rf _M* MAIN*
-      need_reindex = auto_create_bm25_idx or not os.path.exists(filename+"_idx/_MAIN_1.toc") 
-      if not need_reindex:
-        self.whoosh_ix = whoosh_index.open_dir(filename+"_idx")
+    assert filename is not None or fobj is not None
+    self.bm25_field = bm25_field
+    schema = Schema(id=ID(stored=True), content=TEXT(analyzer=StemmingAnalyzer()))
+    #TODO determine how to clear out the whoosh index besides rm -rf _M* MAIN*
+    need_reindex = auto_create_bm25_idx or not os.path.exists(filename+"_idx/_MAIN_1.toc") 
+    if not need_reindex:
+      self.whoosh_ix = whoosh_index.open_dir(filename+"_idx")
+    else:
+      self.whoosh_ix = create_in(filename+"_idx", schema)
+      writer = self.whoosh_ix.writer()
+      pos = fobj.tell()
+      fobj.seek(0, 0)
+      if use_tqdm:
+        fobj2 = tqdm.tqdm(enumerate(fobj))
       else:
-        self.whoosh_ix = create_in(filename+"_idx", schema)
-        writer = self.whoosh_ix.writer()
-        pos = fobj.tell()
-        fobj.seek(0, 0)
-        if use_tqdm:
-          fobj2 = tqdm.tqdm(enumerate(fobj))
-        else:
-          fobj2 = fobj
-        for idx, l in fobj:
-            l =l.decode().replace("\\n", "\n").replace("\\t", "\t").strip()
-            if not l: continue
-            if l[0] == "{" and l[-1] == "}":
-              content = l.split(self.bm25_field+'": "')[1]
-              content = content.split('", "')[0].replace("_", " ")
-            else:
-              content = l.replace("_", " ")
-            writer.add_document(id=str(idx), content=content)  
-        writer.commit()
-        fobj.seek(pos,0)
+        fobj2 = fobj
+      for idx, l in fobj:
+          l =l.decode().replace("\\n", "\n").replace("\\t", "\t").strip()
+          if not l: continue
+          if l[0] == "{" and l[-1] == "}":
+            content = l.split(self.bm25_field+'": "')[1]
+            content = content.split('", "')[0].replace("_", " ")
+          else:
+            content = l.replace("_", " ")
+          writer.add_document(id=str(idx), content=content)  
+      writer.commit()
+      fobj.seek(pos,0)
 
                
   def whoosh_searcher(self):
       return self.whoosh_ix.searcher()
 
   def search(self, query=None, vec=None, lookahead_cutoff=100, k=5, chunk_size=10000, embedder="minilm"):
-        if type(query) in (np.array, torch.Tensor):
-          vec = query
-          query = None
-        assert vec is None or self.parents is not None
-        if vec is None and query is not None and hasattr(self, 'downsampler') and self.downsampler is not None:
-          vec = self.get_embeddings(query, embedder=embedder)
-          if not hasattr(self, 'whoosh_ix') or self.whoosh_ix is None:
-            query = None
-        if query is not None:        
-          assert hasattr(self, 'whoosh_ix'), "must be created with bm25 search set"
-          with self.whoosh_searcher() as searcher:
-            if type(query) is str:
-               query = QueryParser("content", self.whoosh_ix.schema).parse(query)
-            results = searcher.search(query, limit=None)
-            if vec is None:
-              for r in results:
-               yield (int(r['id']), self.filebyline[int(r['id'])].decode().replace("\\n", "\n").replace("\\t", "\t").strip())
-            else:
-              idxs = []
-              n_chunks = 0
-              for r in results:
-                 idxs.append(int(r['id']))
-                 n_chunks += 1
-                 if n_chunks > chunk_size:
-                    vecs = torch.from_numpy(np_memmap(self.mmap_file, shape=[self.mmap_len, self.embed_dim], dtype=self.dtype)[idxs]).to(device)
-                    results = cosine_similarity(vec.unsqueeze(0), vecs)
-                    results = results.sort()
-                    for idx, score in zip(results.indexes, results.values):
-                       idx = idxs[idx]
-                       yield (idx, self.filebyline[idx].decode().replace("\\n", "\n").replace("\\t", "\t").strip(), score)
-                    idxs = []
-                    n_chunk = 0
-              if idxs:
-                  vecs = torch.from_numpy(np_memmap(self.mmap_file, shape=[self.mmap_len, self.embed_dim], dtype=self.dtype)[idxs]).to(device)
-                  results = cosine_similarity(vec.unsqueeze(0), vecs)
-                  results = results.sort()
-                  for idx, score in zip(results.indexes, results.values):
-                     idx = idxs[idx]
-                     yield (idx, self[idx].decode().replace("\\n", "\n").replace("\\t", "\t").strip(), score)
+    if type(query) in (np.array, torch.Tensor):
+      vec = query
+      query = None
+    assert vec is None or self.parents is not None
+    if vec is None and query is not None and hasattr(self, 'downsampler') and self.downsampler is not None:
+      vec = self.get_embeddings(query, embedder=embedder)
+      if not hasattr(self, 'whoosh_ix') or self.whoosh_ix is None:
+        query = None
+    if query is not None:        
+      assert hasattr(self, 'whoosh_ix'), "must be created with bm25 search set"
+      with self.whoosh_searcher() as searcher:
+        if type(query) is str:
+           query = QueryParser("content", self.whoosh_ix.schema).parse(query)
+        results = searcher.search(query, limit=None)
+        if vec is None:
+          for r in results:
+           yield (int(r['id']), self.filebyline[int(r['id'])].decode().replace("\\n", "\n").replace("\\t", "\t").strip())
         else:
-          #do approximate nearest neighbor search of embeddings 
-          assert vec is not None        
-          if type(self.parents) is not torch.Tensor:
-             self.parents = torch.from_numpy(self.parents).to(device)
-          if hasattr(self, 'filebyline'):
-            for r in embeddings_search(vec, mmap_file= self.mmap_file, mmap_len=self.mmap_len, embed_dim=self.embed_dim,  dtype=self.dtype, \
-                                      parents=self.parents, num_top_level_parents=self.num_top_level_parents, parent_levels=self.parent_levels, \
-                                       parent2idx=self.parent2idx, k=k):
-              yield (r[0], self.filebyline[r[0]].decode().replace("\\n", "\n").replace("\\t", "\t").strip(), r[1])
-          else:
-            for r in embeddings_search(vec, mmap_file= self.mmap_file, mmap_len=self.mmap_len, embed_dim=self.embed_dim,  dtype=self.dtype, \
-                                      parents=self.parents, num_top_level_parents=self.num_top_level_parents, parent_levels=self.parent_levels, \
-                                       parent2idx=self.parent2idx, k=k):
-              yield (r[0], r[1])
-
+          idxs = []
+          n_chunks = 0
+          for r in results:
+             idxs.append(int(r['id']))
+             n_chunks += 1
+             if n_chunks > chunk_size:
+                vecs = torch.from_numpy(np_memmap(self.mmap_file, shape=[self.mmap_len, self.embed_dim], dtype=self.dtype)[idxs]).to(device)
+                results = cosine_similarity(vec.unsqueeze(0), vecs)
+                results = results.sort()
+                for idx, score in zip(results.indexes, results.values):
+                   idx = idxs[idx]
+                   yield (idx, self.filebyline[idx].decode().replace("\\n", "\n").replace("\\t", "\t").strip(), score)
+                idxs = []
+                n_chunk = 0
+          if idxs:
+              vecs = torch.from_numpy(np_memmap(self.mmap_file, shape=[self.mmap_len, self.embed_dim], dtype=self.dtype)[idxs]).to(device)
+              results = cosine_similarity(vec.unsqueeze(0), vecs)
+              results = results.sort()
+              for idx, score in zip(results.indexes, results.values):
+                 idx = idxs[idx]
+                 yield (idx, self[idx].decode().replace("\\n", "\n").replace("\\t", "\t").strip(), score)
+    else:
+      #do approximate nearest neighbor search of embeddings 
+      assert vec is not None        
+      if type(self.parents) is not torch.Tensor:
+         self.parents = torch.from_numpy(self.parents).to(device)
+      if hasattr(self, 'filebyline'):
+        for r in embeddings_search(vec, mmap_file= self.mmap_file, mmap_len=self.mmap_len, embed_dim=self.embed_dim,  dtype=self.dtype, \
+                                  parents=self.parents, num_top_level_parents=self.num_top_level_parents, parent_levels=self.parent_levels, \
+                                   parent2idx=self.parent2idx, k=k):
+          yield (r[0], self.filebyline[r[0]].decode().replace("\\n", "\n").replace("\\t", "\t").strip(), r[1])
+      else:
+        for r in embeddings_search(vec, mmap_file= self.mmap_file, mmap_len=self.mmap_len, embed_dim=self.embed_dim,  dtype=self.dtype, \
+                                  parents=self.parents, num_top_level_parents=self.num_top_level_parents, parent_levels=self.parent_levels, \
+                                   parent2idx=self.parent2idx, k=k):
+          yield (r[0], r[1])
+          
   def get_embeddings(self, sent,  embedder="minilm"):
     return get_embeddings(sent, downsampler=self.downsampler, dtype=self.dtype, embedder=embedder)
   
@@ -963,16 +963,18 @@ class SearcherIdx:
     fobj.seek(0, 0)
     self.downsampler, skip_idxs, self.dtype, self.mmap_len, self.embed_dim =  embed_text(self.fobj, filename + "_idx/search_index.mmap", downsampler=self.downsampler, \
           mmap_len=self.mmap_len, embed_dim=self.embed_dim, embedder=embedder, chunk_size=chunk_size, use_tqdm=use_tqdm)
+    print (self.mmap_len)
     fobj.seek(pos,0)
     self.skip_idxs = set(list(self.skip_idxs)+skip_idxs)
     
 
-  def recreate_embeddings_idx(self,  mmap_file, mmap_len, embed_dim, dtype, filename=None, clusters=None,  embedder="minilm", chunk_size=1000, use_tqdm=True):
+  def recreate_embeddings_idx(self,  mmap_file, mmap_len, embed_dim, dtype,  clusters=None,  embedder="minilm", chunk_size=1000, use_tqdm=True):
     global device
     self.mmap_file, self.mmap_len, self.embed_dim, self.dtype = mmap_file, mmap_len, embed_dim, dtype
     skip_idxs = self.skip_idxs
     if clusters is None:
       clusters, _ = self.cluster(skip_idxs=self.skip_idxs, use_tqdm=use_tqdm)
+    print ('recreate_embeddings_idx', clusters)
     cluster_info = list(clusters.items())
     cluster_info.sort(key=lambda a: a[0][0], reverse=True)
     self.parents = torch.from_numpy(np_memmap(mmap_file, shape=[self.mmap_len, self.embed_dim], dtype=dtype)[[a[0][1] for a in cluster_info]]).to(device)
