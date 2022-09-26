@@ -100,7 +100,7 @@ def get_embeddings(sent, downsampler, dtype=np.float16, embedder="minilm"):
       dat = dat.half()
     else:
       dat = dat.float()
-    dat = dat.cpu().numpy()
+    #dat = dat.cpu().numpy()
     return dat
 
 def np_memmap(f, dat=None, idxs=None, shape=None, dtype=np.float16, ):
@@ -228,12 +228,13 @@ def embed_text(dat_iter, mmap_file, downsampler=None, skip_idxs=None,  dtype=np.
 def embeddings_search(vec, mmap_file,  parents, num_top_level_parents, parent_levels, parent2idx, mmap_len=0, embed_dim=25, dtype=np.float16, chunk_size=10000, k=5):
   vecs = parents[:num_top_level_parents]
   idx2idx = list(range(num_top_level_parents))
+  vec = vec.unsqueeze(0)
   #print (parent_levels, vecs)
-  for _ in range(parent_levels[0]):
-    results = cosine_similarity(vec.unsqueeze(0), vecs)
-    results = results.top_k(k)
-    children = itertools.chain(*[parent2idx[idx2idx[idx]] for idx in results.indices])
-    idx = results.indices[0]
+  for _ in range(parent_levels[0]+1):
+    results = cosine_similarity(vec, vecs)
+    results = results.topk(k)
+    children = list(itertools.chain(*[parent2idx[idx2idx[idx]] for idx in results.indices[0]]))
+    idx = results.indices[0][0]
     if parent_levels[idx2idx[idx]] == 0: #we are at the leaf nodes
       idxs = []
       n_chunks = 0
@@ -242,23 +243,25 @@ def embeddings_search(vec, mmap_file,  parents, num_top_level_parents, parent_le
          n_chunks += 1
          if n_chunks > chunk_size:
             vecs = torch.from_numpy(np_memmap(mmap_file, shape=[mmap_len, embed_dim], dtype=dtype)[idxs]).to(device)
-            results = cosine_similarity(vec.unsqueeze(0), vecs)
-            results = results.sort()
-            for idx, score in zip(results.indexes, results.values):
+            results = cosine_similarity(vec, vecs)
+            results = results.sort(descending=True)
+            for idx, score in zip(results.indices[0].tolist(), results.values[0].tolist()):
                idx = idxs[idx]
                yield (idx, score)
             idxs = []
             n_chunk = 0
       if idxs:
          vecs = torch.from_numpy(np_memmap(mmap_file, shape=[mmap_len, embed_dim], dtype=dtype)[idxs]).to(device)
-         results = cosine_similarity(vec.unsqueeze(0), vecs)
-         results = results.sort()
-         for idx, score in zip(results.indexes, results.values):
+         results = cosine_similarity(vec, vecs)
+         results = results.sort(descending=True)
+         for idx, score in zip(results.indices[0].tolist(), results.values[0].tolist()):
             idx = idxs[idx]
             yield (idx, score)
+      break
     else:
       vecs = parents[children]
-      idx2idx = children  
+      idx2idx = children 
+
 
 #internal function used to cluster one batch of embeddings
 def _cluster_one_batch(true_k,  spans, vector_idxs, clusters, span2cluster_label, level, cluster_vecs, min_overlap_merge_cluster):
@@ -819,6 +822,7 @@ class SearcherIdx:
 
       """
     global device
+    self.embedder = embedder
     if type(filename) is not str:
       fobj = filename
       filename = None
@@ -846,12 +850,12 @@ class SearcherIdx:
     if skip_idxs is None: skip_idxs = []
     self.skip_idxs = skip_idxs
     if auto_embed_text and filename is not None and self.fobj is not None:
-      self.embed_text(embedder=embedder, chunk_size=chunk_size, use_tqdm=use_tqdm)
+      self.embed_text(chunk_size=chunk_size, use_tqdm=use_tqdm)
     if clusters is not None:
-      self.recreate_embeddings_idx(clusters, embedder=embedder, chunk_size=chunk_size, use_tqdm=use_tqdm)
+      self.recreate_embeddings_idx(clusters, chunk_size=chunk_size, use_tqdm=use_tqdm)
     else:       
      if parents is None and auto_create_embeddings_idx:
-      self.recreate_embeddings_idx(embedder=embedder, chunk_size=chunk_size, use_tqdm=use_tqdm)
+      self.recreate_embeddings_idx(chunk_size=chunk_size, use_tqdm=use_tqdm)
     if self.parent_levels is not None:
        self.num_top_level_parents = len([a for a in self.parent_levels if a == max(self.parent_levels)])
     else:
@@ -892,7 +896,8 @@ class SearcherIdx:
   def whoosh_searcher(self):
       return self.whoosh_ix.searcher()
 
-  def search(self, query=None, vec=None, lookahead_cutoff=100, k=5, chunk_size=10000, embedder="minilm"):
+  def search(self, query=None, vec=None, lookahead_cutoff=100, k=5, chunk_size=10000):
+    embedder = self.embedder
     if type(query) in (np.array, torch.Tensor):
       vec = query
       query = None
@@ -919,8 +924,8 @@ class SearcherIdx:
              if n_chunks > chunk_size:
                 vecs = torch.from_numpy(np_memmap(self.mmap_file, shape=[self.mmap_len, self.embed_dim], dtype=self.dtype)[idxs]).to(device)
                 results = cosine_similarity(vec.unsqueeze(0), vecs)
-                results = results.sort()
-                for idx, score in zip(results.indexes, results.values):
+                results = results.sort(descending=True)
+                for idx, score in zip(results.indexes[0].tolist(), results.values[0].tolist()):
                    idx = idxs[idx]
                    yield (idx, self.filebyline[idx].decode().replace("\\n", "\n").replace("\\t", "\t").strip(), score)
                 idxs = []
@@ -928,8 +933,8 @@ class SearcherIdx:
           if idxs:
               vecs = torch.from_numpy(np_memmap(self.mmap_file, shape=[self.mmap_len, self.embed_dim], dtype=self.dtype)[idxs]).to(device)
               results = cosine_similarity(vec.unsqueeze(0), vecs)
-              results = results.sort()
-              for idx, score in zip(results.indexes, results.values):
+              results = results.sort(descending=True)
+              for idx, score in zip(results.indexes[0].tolist(), results.values[0].tolist()):
                  idx = idxs[idx]
                  yield (idx, self[idx].decode().replace("\\n", "\n").replace("\\t", "\t").strip(), score)
     else:
@@ -948,23 +953,23 @@ class SearcherIdx:
                                    parent2idx=self.parent2idx, k=k):
           yield (r[0], r[1])
           
-  def get_embeddings(self, sent,  embedder="minilm"):
-    return get_embeddings(sent, downsampler=self.downsampler, dtype=self.dtype, embedder=embedder)
+  def get_embeddings(self, sent):
+    return get_embeddings(sent, downsampler=self.downsampler, dtype=self.dtype, embedder=self.embedder)
   
-  def embed_text(self, embedder="minilm", chunk_size=1000, use_tqdm=True):
+  def embed_text(self, chunk_size=1000, use_tqdm=True):
     assert self.fobj is not None
     if not hasattr(self, 'downsampler'): self.downsampler = None
     fobj = self.fobj
     pos = fobj.tell()
     fobj.seek(0, 0)
     self.downsampler, skip_idxs, self.dtype, self.mmap_len, self.embed_dim =  embed_text(self.fobj, self.mmap_file, downsampler=self.downsampler, \
-          mmap_len=self.mmap_len, embed_dim=self.embed_dim, embedder=embedder, chunk_size=chunk_size, use_tqdm=use_tqdm)
+          mmap_len=self.mmap_len, embed_dim=self.embed_dim, embedder=self.embedder, chunk_size=chunk_size, use_tqdm=use_tqdm)
     #print (self.mmap_len)
     fobj.seek(pos,0)
     self.skip_idxs = set(list(self.skip_idxs)+skip_idxs)
     
 
-  def recreate_embeddings_idx(self,  mmap_file=None, mmap_len=None, embed_dim=None, dtype=None,  clusters=None,  embedder="minilm", chunk_size=1000, use_tqdm=True):
+  def recreate_embeddings_idx(self,  mmap_file=None, mmap_len=None, embed_dim=None, dtype=None,  clusters=None,  chunk_size=1000, use_tqdm=True):
     global device
     if mmap_file is None: mmap_file = self.mmap_file
     if mmap_len is None: mmap_len = self.mmap_len
