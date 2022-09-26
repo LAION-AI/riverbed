@@ -36,6 +36,7 @@ from transformers import AutoTokenizer, AutoModel, BertTokenizerFast, CLIPProces
 from nltk.corpus import stopwords as nltk_stopwords
 from torch import nn
 import spacy
+from collections import OrderedDict
 
 import math        
 if torch.cuda.is_available():
@@ -225,7 +226,7 @@ def embed_text(dat_iter, mmap_file, downsampler=None, skip_idxs=None,  dtype=np.
   
 #cluster pruning based approximate nearest neightbor search. See https://nlp.stanford.edu/IR-book/html/htmledition/cluster-pruning-1.html
 #assumes the embeddings are stored in the mmap_file and the clustered index has been created.
-def embeddings_search(vec, mmap_file,  parents, num_top_level_parents, parent_levels, parent2idx, mmap_len=0, embed_dim=25, dtype=np.float16, chunk_size=10000, k=5):
+def embeddings_search_old(vec, mmap_file,  parents, num_top_level_parents, parent_levels, parent2idx, mmap_len=0, embed_dim=25, dtype=np.float16, chunk_size=10000, k=5):
   vecs = parents[:num_top_level_parents]
   idx2idx = list(range(num_top_level_parents))
   vec = vec.unsqueeze(0)
@@ -261,6 +262,45 @@ def embeddings_search(vec, mmap_file,  parents, num_top_level_parents, parent_le
     else:
       vecs = parents[children]
       idx2idx = children 
+
+ 
+#cluster pruning based approximate nearest neightbor search. See https://nlp.stanford.edu/IR-book/html/htmledition/cluster-pruning-1.html
+#assumes the embeddings are stored in the mmap_file and the clustered index has been created.
+def embeddings_search(vec, mmap_file, top_parents,  top_parents_idxs, parent2idx, parents, clusters, mmap_len=0, embed_dim=25, dtype=np.float16, chunk_size=10000, k=5):
+  curr_parents = top_parents
+  vecs = parents[top_parents_idxs] 
+  max_level = top_parents[0][1]
+  #print (parent_levels, vecs)
+  for _ in range(max_level+1):
+    results = cosine_similarity(vec, vecs)
+    results = results.topk(k)
+    children = list(itertools.chain(*[clusters[curr_parents[idx]] for idx in results.indices[0]]))
+    if type(children[0]) is int: #we are at the leaf nodes
+      idxs = []
+      n_chunks = 0
+      for child_id in children:
+         idxs.append(child_id)
+         n_chunks += 1
+         if n_chunks > chunk_size:
+            vecs = torch.from_numpy(np_memmap(mmap_file, shape=[mmap_len, embed_dim], dtype=dtype)[idxs]).to(device)
+            results = cosine_similarity(vec, vecs)
+            results = results.sort(descending=True)
+            for idx, score in zip(results.indices[0].tolist(), results.values[0].tolist()):
+               idx = idxs[idx]
+               yield (idx, score)
+            idxs = []
+            n_chunk = 0
+      if idxs:
+         vecs = torch.from_numpy(np_memmap(mmap_file, shape=[mmap_len, embed_dim], dtype=dtype)[idxs]).to(device)
+         results = cosine_similarity(vec, vecs)
+         results = results.sort(descending=True)
+         for idx, score in zip(results.indices[0].tolist(), results.values[0].tolist()):
+            idx = idxs[idx]
+            yield (idx, score)
+      break
+    else:
+      curr_parents = children
+      vecs = parents[[parent2idx[parent] for parent in curr_parents]] 
 
 
 #internal function used to cluster one batch of embeddings
@@ -753,9 +793,11 @@ class GzipByLineIdx(igzip.IndexedGzipFile):
 
            
 class SearcherIdx:
+  #TODO. Change this to inherit from a transformers.PretrainedModel, with parents as an embeddings, and downsampler as a module.
+
   def __init__(self,  filename, fobj=None, mmap_file=None, mmap_len=0, embed_dim=25, dtype=np.float16, \
                parents=None, parent_levels=None, parent_labels=None, skip_idxs=None, \
-               parent2idx=None, clusters=None,  embedder="minilm", chunk_size=1000, \
+               parent2idx=None, top_parents=None, top_parent_idxs=None, clusters=None,  embedder="minilm", chunk_size=1000, \
                bm25_field="text", filebyline=None, downsampler=None, auto_embed_text=False, \
                auto_create_embeddings_idx=False, auto_create_bm25_idx=False, use_tqdm=True):
     """
@@ -763,51 +805,37 @@ class SearcherIdx:
         Also provides a wrapper for Whoosh BM25.
         :arg filename:        The name of the file that is to be indexed and searched. 
                               Can be a txt, jsonl or gzip of the foregoing. 
-        :arg fobj:           Optional. The file object 
+        :arg fobj:            Optional. The file object 
         :arg  mmap_file:      Optional, must be passed as a keyword argument.
-                              This is the file name for the vectors representing 
-                              each line in the gzip file. Used for embeddings search.
+                                This is the file name for the vectors representing 
+                                each line in the gzip file. Used for embeddings search.
         :arg mmap_len         Optional, must be passed as a keyword argument if mmap_file is passed.
-                              This is the shape of the mmap_file.     
-        :arg embed_dim         Optional, must be passed as a keyword argument if mmap_file is passed.
-                              This is the shape of the mmap_file.                       
-        :arg dtype             Optional, must be passed as a keyword argument.
-                              This is the dtype of the mmap_file.                              
-        :arg  parents:      Optional, must be passed as a keyword argument.
-                                This is a numpy or pytorch vector of the form,
-                                assuming a 4 level hiearcical structure:
-                                [level 3 parents ... level 1 parents ... level 0 parents]
+                                This is the shape of the mmap_file.     
+        :arg embed_dim        Optional, must be passed as a keyword argument if mmap_file is passed.
+                                This is the shape of the mmap_file.                       
+        :arg dtype            Optional, must be passed as a keyword argument.
+                                This is the dtype of the mmap_file.                              
+        :arg  parents:        Optional, must be passed as a keyword argument.
+                                This is a numpy or pytorch vector of all the parents of the clusters]
                                 Where level 4 parents are the top level parents. 
                                 This structure is used for approximage nearest neighbor search.
-        :arg parent_levels:  Optional, must be passed as a keyword argument. If parents
-                              are passed, this param must be also passed. It is an array repreesnting the
-                              paent level. e.g., 
-                              [4, 4, 4, 3, 3, 3, 3, 3, 3, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, \
-                              1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, \
-                              0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, \
-                              0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ]
         :arg parent2idx:      Optional, must be passed as a keyword argument. If parents
-                              are passed, this param must be also passed. It is a list of lists which 
-                              represents the mapping between one parents level to the next, and where 
-                              the level 0 parents points to the actual leaf vectors in the mmap_file. e.g., 
-                              [[3,...5], [6, ... 9], [10, ... 14], # level 4 parents points to level 3 parents
-                               [15... 25], .....                   # level 3 parents point to level 2 parents.
-                               ...
-                               [46, 10020, ....], [10, 1, ... 100], ... # level 0 parents point to vecs in the mmap_file.
-                               
-                               If mmap_file, shape, parents, parent_levels and parent2idx are not provided,
-                               vector based search will not be available. 
-        :arg parent_labels:   Optional. A tuple based label (level, idx) for the parent_labels
-        :arg clusters:        Optional. A dictionary representing parent label -> [child indexes]
-        :arg auto_create_embeddings_idx. Optional. Will create a cluster index from the contents of the mmap file. Assumes the mmap_file is populated.
-        :arg auto_embed_text. Optional. Will populate the mmap_file. 
-        :arg auto_create_bm25_idx: Optional. Will BM25 index the contents of the file using whoosh, with stemming.
+                                are passed, this param must be also passed. 
+                                It is a dict that maps the parent tuple to the index into the parents tensor
+        :arg top_parents:     Optional. The list of tuples representing the top parents.
+        :arg top_parents_idxs: Optional. The index into the parents vector for the top_parents.  
+        :arg clusters:         Optional. A dictionary representing parent label -> [child indexes]
+        :arg auto_create_embeddings_idx. Optional. Will create a cluster index from the contents of the mmap file. 
+                                Assumes the mmap_file is populated.
+        :arg auto_embed_text. Optional. Will populate the mmap_file from the data from filename/fobj. 
+        :arg auto_create_bm25_idx: Optional. Will do BM25 indexing of the contents of the file using whoosh, with stemming.
         :filebyline           Optional. The access for a file by lines.
         :arg bm25_field:      Optional. Defaults to "text". If the data is in jsonl format,
-                             this is the field that is Whoosh/bm25 indexed.
-        :skip_idxs.         Optional. The indexes that are empty and should not be searched or clustered/
+                              this is the field that is Whoosh/bm25 indexed.
+        :skip_idxs.           Optional. The indexes that are empty and should not be searched or clustered/
         :filebyline           Optional. If not passed, will be created. Used to random access the file by line number.
         :downsampler          Optional. The pythorch downsampler for mapping the output of the embedder to a lower dimension.
+
       NOTE: Either pass in the parents, parent_levels, parent_labels, and parent2idx data is pased or clusters is passed. 
           If none of these are passed and auto_create_embeddings_idx is set, then the data in the mmap file will be clustered and the 
           data structure will be created.
@@ -845,8 +873,8 @@ class SearcherIdx:
         self.filebyline = self.fobj 
       else:   
         self.filebyline = FileByLineIdx(fobj=fobj)  
-    self.mmap_file, self.mmap_len, self.embed_dim, self.dtype, self.parents, self.parent_labels, self.parent_levels, self.parent2idx = \
-             mmap_file, mmap_len, embed_dim, dtype, parents, parent_labels, parent_levels, parent2idx
+    self.mmap_file, self.mmap_len, self.embed_dim, self.dtype, self.clusers, self.parent2idx,  self.parents, self.top_parents, self.top_parent_idxs   = \
+             mmap_file, mmap_len, embed_dim, dtype, clusters, parent2idx, parents, top_parents, top_parent_idxs
     if skip_idxs is None: skip_idxs = []
     self.skip_idxs = skip_idxs
     if auto_embed_text and filename is not None and self.fobj is not None:
@@ -944,13 +972,13 @@ class SearcherIdx:
          self.parents = torch.from_numpy(self.parents).to(device)
       if hasattr(self, 'filebyline'):
         for r in embeddings_search(vec, mmap_file= self.mmap_file, mmap_len=self.mmap_len, embed_dim=self.embed_dim,  dtype=self.dtype, \
-                                  parents=self.parents, num_top_level_parents=self.num_top_level_parents, parent_levels=self.parent_levels, \
-                                   parent2idx=self.parent2idx, k=k):
+                                  parents=self.parents, top_parent_idxs=self.top_parent_idxs, \
+                                  top_parents=self.top_parents, parent2idx=self.parent2idx, k=k):
           yield (r[0], self.filebyline[r[0]].decode().replace("\\n", "\n").replace("\\t", "\t").strip(), r[1])
       else:
-        for r in embeddings_search(vec, mmap_file= self.mmap_file, mmap_len=self.mmap_len, embed_dim=self.embed_dim,  dtype=self.dtype, \
-                                  parents=self.parents, num_top_level_parents=self.num_top_level_parents, parent_levels=self.parent_levels, \
-                                   parent2idx=self.parent2idx, k=k):
+        for r in embeddings_search( vec, mmap_file= self.mmap_file, mmap_len=self.mmap_len, embed_dim=self.embed_dim,  dtype=self.dtype, \
+                                  parents=self.parents, top_parent_idxs=self.top_parent_idxs, \
+                                  top_parents=self.top_parents, parent2idx=self.parent2idx, k=k):
           yield (r[0], r[1])
           
   def get_embeddings(self, sent):
@@ -977,32 +1005,26 @@ class SearcherIdx:
     if dtype is None: dtype = self.dtype
     self.mmap_file, self.mmap_len, self.embed_dim, self.dtype = mmap_file, mmap_len, embed_dim, dtype
     if clusters is None:
-      clusters, _ = self.cluster(use_tqdm=use_tqdm)
-    #print ('recreate_embeddings_idx', clusters)
-    cluster_info = list(clusters.items())
-    cluster_info.sort(key=lambda a: a[0][0], reverse=True)
-    self.parents = torch.from_numpy(np_memmap(mmap_file, shape=[self.mmap_len, self.embed_dim], dtype=dtype)[[a[0][1] for a in cluster_info]]).to(device)
-    self.parent_levels = [a[0][0] for a in cluster_info]
-    self.num_top_level_parents = len([a for a in self.parent_levels if a == max(self.parent_levels)])
-    label2idx = dict([(a[0], idx) for idx, a in enumerate(cluster_info)]) 
-    self.parent2idx = [[a if type(a) is int  else label2idx[a] for a in a_cluster] for _, a_cluster in cluster_info]
-    self.parent_labels = [a[0] for a in cluster_info]
-
+      clusters, _ = self.cluster(chunk_size=chunk_size, use_tqdm=use_tqdm)
+    self.clusters = clusters
+    all_parents = list(clusters.keys())
+    all_parents.sort(key=lambda a: a[0], reverse=True)
+    max_level = all_parents[0][0]
+    self.top_parents =  [a for a in enumerate(all_parents) if a[0] == max_level]
+    self.top_parent_idxs = [idx for idx, a in enumerate(all_parents) if a[0] == max_level]
+    self.parent2idx = OrderedDict([(a,idx) for idx, a in enumerate(all_parents)])
+    self.parents = torch.from_numpy(np_memmap(mmap_file, shape=[self.mmap_len, self.embed_dim], dtype=dtype)[[a[1] for a in all_parents]]).to(device)
+    
   def get_cluster_and_span2cluster_label(self):
     span2cluster_label = {}
-    for level, label, indexes in zip(self.parent_levels, self.parent_labels, self.parent2idx):
-      label = (level, indexes[0])
-      if level != 0:
-        for idx in indexes:
-          span = self.parent_labels[idx]
-          span2cluster_label[span] = label
-      else:
-        for idx in indexes:
-          span2cluster_label[idx] = label
-    cluster = {}
-    for span, label in span2cluster_label.items():
-      cluster[label] = cluster.get(label,[]) + [span]
-    return cluster, span2cluster_label
+    for label, a_cluster in self.clusters:
+      for span in a_cluster:
+        span2cluster_label[span] = label
+    return self.clusters, span2cluster_label
+
+  def get_all_parents(self): 
+    return self.parent2idx.keys()
+  
 
   def cluster(self, clusters=None, span2cluster_label=None, cluster_idxs=None, max_level=4, max_cluster_size=200, \
                                min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000, use_tqdm=True):
