@@ -301,7 +301,7 @@ def _cluster_one_batch(true_k,  spans, vector_idxs, clusters, span2cluster_label
 # leaf nodes are ints. non-leaf nodes are (int,int) tuples
 # clusters maps cluster_label => list of spans  
 def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, mmap_len=0, embed_dim=25, dtype=np.float16, skip_idxs=None, cluster_idxs=None, max_level=4, max_cluster_size=200, \
-                               min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000):
+                               min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000, use_tqdm=True):
   global device
   if skip_idxs is None: 
     skip_idxs = set()
@@ -327,7 +327,11 @@ def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, mmap_le
     num_times = max(6,math.ceil(len_spans/int(.7*kmeans_batch_size)))
     recluster_at = max(0,num_times*0.65)
     rng = 0
-    for times in tqdm.tqdm(range(num_times)):
+    if use_tqdm:
+      num_times2 = tqdm.tqdm(range(num_times))
+    else:
+      num_times2 = range(num_times)
+    for times in num_times2:
         max_rng = min(len_spans, rng+int(.7*kmeans_batch_size))
         #create the next batch to cluster
         if cluster_idxs is None:
