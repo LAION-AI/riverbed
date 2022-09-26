@@ -971,9 +971,8 @@ class SearcherIdx:
     if embed_dim is None: embed_dim = self.embed_dim
     if dtype is None: dtype = self.dtype
     self.mmap_file, self.mmap_len, self.embed_dim, self.dtype = mmap_file, mmap_len, embed_dim, dtype
-    skip_idxs = self.skip_idxs
     if clusters is None:
-      clusters, _ = self.cluster(skip_idxs=self.skip_idxs, use_tqdm=use_tqdm)
+      clusters, _ = self.cluster(use_tqdm=use_tqdm)
     #print ('recreate_embeddings_idx', clusters)
     cluster_info = list(clusters.items())
     cluster_info.sort(key=lambda a: a[0][0], reverse=True)
@@ -1000,12 +999,12 @@ class SearcherIdx:
       cluster[label] = cluster.get(label,[]) + [span]
     return cluster, span2cluster_label
 
-  def cluster(self, clusters=None, span2cluster_label=None, skip_idxs=None, cluster_idxs=None, max_level=4, max_cluster_size=200, \
-                               min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=10000, use_tqdm=True):
+  def cluster(self, clusters=None, span2cluster_label=None, cluster_idxs=None, max_level=4, max_cluster_size=200, \
+                               min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000, use_tqdm=True):
     if clusters is None: clusters = {}
     if span2cluster_label is None: span2cluster_label = {}
-    return create_hiearchical_clusters(clusters, span2cluster_label, self.mmap_file, self.mmap_len, self.embed_dim, self.dtype, \
-                                      skip_idxs=skip_idxs, cluster_idxs=cluster_idxs, max_level=max_level, \
+    return create_hiearchical_clusters(clusters=clusters, span2cluster_label=span2cluster_label, mmap_file=self.mmap_file, mmap_len=self.mmap_len, embed_dim=self.embed_dim, dtype=self.dtype, \
+                                      skip_idxs=self.skip_idxs, cluster_idxs=cluster_idxs, max_level=max_level, \
                                       max_cluster_size=max_cluster_size, min_overlap_merge_cluster=min_overlap_merge_cluster, \
                                       prefered_leaf_node_size=prefered_leaf_node_size, kmeans_batch_size=kmeans_batch_size, use_tqdm=use_tqdm)
   
