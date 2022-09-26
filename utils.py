@@ -222,7 +222,7 @@ def embed_text(dat_iter, mmap_file, downsampler=None, skip_idxs=None,  dtype=np.
     
   
 #cluster pruning based approximate nearest neightbor search. See https://nlp.stanford.edu/IR-book/html/htmledition/cluster-pruning-1.html
-def embeddings_search(vec, mmap_file, mmap_len=0, embed_dim=25, dtype=np.float16,  parents, num_top_level_parents, parent_levels, parent2idx, chunk_size=10000, k=5):
+def embeddings_search(vec, mmap_file,  parents, num_top_level_parents, parent_levels, parent2idx, mmap_len=0, embed_dim=25, dtype=np.float16, chunk_size=10000, k=5):
   vecs = parents[:num_top_level_parents]
   idx2idx = list(range(num_top_level_parents))
   for _ in range(parent_levels[0]):
