@@ -741,9 +741,10 @@ class GzipByLineIdx(igzip.IndexedGzipFile):
 
            
 class SearcherIdx:
-  def __init__(self,  filename, fobj=None, mmap_file=None, mmap_len=1, embed_dim=25, dtype=np.float16, parents=None, parent_levels=None, parent_labels=None, \
-               parent2idx=None, clusters=None,  \
-                bm25_field="text", filebyline=None, \
+  def __init__(self,  filename, fobj=None, mmap_file=None, mmap_len=1, embed_dim=25, dtype=np.float16, \
+               parents=None, parent_levels=None, parent_labels=None, \
+               parent2idx=None, clusters=None,  embedder="minilm", chunk_size=1000, \
+               bm25_field="text", filebyline=None, downsampler=None, \
                auto_create_embeddings_idx=False, auto_create_bm25_idx=False, use_tqdm=True):
     """
         Clusters and performs approximate nearest neighbor search on a memmap file. Also provides a wrapper for Whoosh BM25.
@@ -803,32 +804,30 @@ class SearcherIdx:
       fobj = filename
       filename = None
     if mmap_file is None:
-      mmap_file = f"{filename}_idx/index.mmap"
-    self.fobj = fobj
+      mmap_file = f"{filename}_idx/search_index.mmap"
+    if fobj is None:
+      if filename.endswith(".gz"):
+        fobj = self.fobj = GzipByLineIdx.open(filename)
+      else:
+        fobj = self.fobj = open(filename, "rb")  
+    else:
+      self.fobj = fobj
     if filename or fobj:
       if filename is None:
          filename =  f"__tmp__{random.randint(0,1000000)}"
       if not os.path.exists(filename+"_idx"):
-            os.makedirs(filename+"_idx")   
-      self.filebyline = filebyline
-      if self.filebyline is None: 
-        if type(self.fobj) is GzipByLineIdx:
-          self.filebyline = self.fobj 
-        else:   
-          self.filebyline = FileByLineIdx(fobj=fobj)
-      if fobj is None:
-        if filename.endswith(".gz"):
-          fobj = self.fobj = GzipByLineIdx.open(filename)
-        else:
-          fobj = self.fobj = open(filename, "rb")  
-      else:
-        self.fobj = fobj
-        
+        os.makedirs(filename+"_idx")   
+    self.filebyline = filebyline
+    if self.filebyline is None: 
+      if type(self.fobj) is GzipByLineIdx:
+        self.filebyline = self.fobj 
+      else:   
+        self.filebyline = FileByLineIdx(fobj=fobj)  
     if clusters is not None:
-      self.recreate_embeddings_idx(mmap_file, mmap_len, embed_dim, dtype, clusters, filename=filename,  skip_idxs=skip_idxs,  embedder=embedder, chunk_size=chunk_size, use_tqdm=use_tqdm)
+      self.recreate_embeddings_idx(mmap_file, mmap_len, embed_dim, dtype, clusters, filename=filename,  embedder=embedder, chunk_size=chunk_size, use_tqdm=use_tqdm)
     else:       
      if parents is None and auto_create_embeddings_idx:
-      self.recreate_embeddings_idx(mmap_file, mmap_len, embed_dim, dtype, clusters=None, filename=filename,  skip_idxs=skip_idxs,  embedder=embedder, chunk_size=chunk_size, use_tqdm=use_tqdm)
+      self.recreate_embeddings_idx(mmap_file, mmap_len, embed_dim, dtype, clusters=None, filename=filename,  embedder=embedder, chunk_size=chunk_size, use_tqdm=use_tqdm)
      else:
       self.mmap_file, self.mmap_len, self.embed_dim, self.dtype, self.parents, self.parent_labels, self.parent_levels, self.parent2idx = \
              mmap_file, mmap_len, embed_dim, dtype, parents, parent_labels, parent_levels, parent2idx
@@ -934,10 +933,11 @@ class SearcherIdx:
   
   def embed_text(self, filename,  embedder="minilm", chunk_size=1000, use_tqdm=True):
     assert self.fobj is not None
+    if not hasattr(self, 'downsampler'): self.downsampler = None
     fobj = self.fobj
     pos = fobj.tell()
     fobj.seek(0, 0)
-    self.downsampler, skip_idxs, self.dtype, self.mmap_len, self.embed_dim =  embed_text(self.fobj, filename + "_idx/index.mmap", downsampler=self.downsampler, \
+    self.downsampler, skip_idxs, self.dtype, self.mmap_len, self.embed_dim =  embed_text(self.fobj, filename + "_idx/search_index.mmap", downsampler=self.downsampler, \
           mmap_len=self.mmap_len, embed_dim=self.embed_dim, embedder=embedder, chunk_size=chunk_size, use_tqdm=use_tqdm)
     fobj.seek(pos,0)
     return skip_idxs
