@@ -69,6 +69,7 @@ def init_models():
     stopwords_set = set(nltk_stopwords.words('english') + ['...', 'could', 'should', 'shall', 'can', 'might', 'may', 'include', 'including'])
 
 def get_embeddings(sent, downsampler, dtype=np.float16, embedder="minilm"):
+  global labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
   init_models()
   if embedder == "clip":
     clip_model = clip_model.to(device)
@@ -854,11 +855,10 @@ class SearcherIdx:
     else:       
      if parents is None and auto_create_embeddings_idx:
       self.recreate_embeddings_idx(mmap_file, mmap_len, embed_dim, dtype, clusters=None, filename=filename,  embedder=embedder, chunk_size=chunk_size, use_tqdm=use_tqdm)
-
-     if self.parent_levels is not None:
-       self.num_top_parents = len([a for a in self.parent_levels if a == max(self.parent_levels)])
-     else:
-       self.num_top_parents = 0
+    if self.parent_levels is not None:
+       self.num_top_level_parents = len([a for a in self.parent_levels if a == max(self.parent_levels)])
+    else:
+       self.num_top_level_parents = 0
     if auto_create_bm25_idx and (filename or fobj):
        self.recreate_whoosh_idx(bm25_field=bm25_field, filename=filename, fobj=fobj, filebyline=filebyline, auto_create_bm25_idx=auto_create_bm25_idx, use_tqdm=use_tqdm)
     
@@ -952,7 +952,7 @@ class SearcherIdx:
               yield (r[0], r[1])
 
   def get_embeddings(self, sent,  embedder="minilm"):
-    return get_embeddings(sent, downsampler=self.downsampler, dtype=self.dtype, embdder=embedder)
+    return get_embeddings(sent, downsampler=self.downsampler, dtype=self.dtype, embedder=embedder)
   
   def embed_text(self, filename,  embedder="minilm", chunk_size=1000, use_tqdm=True):
     assert self.fobj is not None
@@ -976,7 +976,7 @@ class SearcherIdx:
     cluster_info.sort(key=lambda a: a[0][0], reverse=True)
     self.parents = torch.from_numpy(np_memmap(mmap_file, shape=[self.mmap_len, self.embed_dim], dtype=dtype)[[a[0][1] for a in cluster_info]]).to(device)
     self.parent_levels = [a[0][0] for a in cluster_info]
-    self.num_top_parents = len([a for a in self.parent_levels if a == max(self.parent_levels)])
+    self.num_top_level_parents = len([a for a in self.parent_levels if a == max(self.parent_levels)])
     label2idx = dict([(a[0], idx) for idx, a in enumerate(cluster_info)]) 
     self.parent2idx = [[a if type(a) is int  else label2idx[a] for a in a_cluster] for _, a_cluster in cluster_info]
     self.parent_labels = [a[0] for a in cluster_info]
