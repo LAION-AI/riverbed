@@ -221,7 +221,7 @@ def embed_text(dat_iter, mmap_file, downsampler=None, skip_idxs=None,  dtype=np.
     
   
 #cluster pruning based approximate nearest neightbor search. See https://nlp.stanford.edu/IR-book/html/htmledition/cluster-pruning-1.html
-def pytorch_ann_search(vec, mmap_file, shape, dtype, parents, num_top_level_parents, parent_levels, parent2idx, chunk_size=10000, k=5):
+def pytorch_embeddings_search(vec, mmap_file, shape, dtype, parents, num_top_level_parents, parent_levels, parent2idx, chunk_size=10000, k=5):
   vecs = parents[:num_top_level_parents]
   idx2idx = list(range(num_top_level_parents))
   for _ in range(parent_levels[0]):
@@ -508,13 +508,13 @@ class FileByLineIdx:
 
            
 class SearcherIdx:
-  def __init__(self,  mmap_file, shape, dtype=np.float16, parents=None, parent_levels=None, parent_labels=None, parent2idx=None, clusters=None, auto_create_ann_idx=False, \
+  def __init__(self,  mmap_file, shape, dtype=np.float16, parents=None, parent_levels=None, parent_labels=None, parent2idx=None, clusters=None, auto_create_embeddings_idx=False, \
                filename=None, fobj=None,  bm25_field="text", filebyline=None, auto_create_bm25_idx=False):
     """
         Clusters and performs approximate nearest neighbor search on a memmap file. Also provides a wrapper for Whoosh BM25.
         :arg  mmap_file:      Optional, must be passed as a keyword argument.
                               This is the file name for the vectors representing 
-                              each line in the gzip file. Used for ANN search.
+                              each line in the gzip file. Used for embeddings search.
         :arg shape             Optional, must be passed as a keyword argument.
                               This is the shape of the mmap_file.                              
         :arg dtype             Optional, must be passed as a keyword argument.
@@ -563,10 +563,10 @@ class SearcherIdx:
       """
     global device
     if clusters is not None:
-      self.recreate_ann_idx(mmap_file, shape, dtype, clusters)
+      self.recreate_embeddings_idx(mmap_file, shape, dtype, clusters)
     else:       
-     if parents is None and auto_create_ann_idx:
-      self.recreate_ann_idx(mmap_file, shape, dtype)
+     if parents is None and auto_create_embeddings_idx:
+      self.recreate_embeddings_idx(mmap_file, shape, dtype)
      else:
       self.mmap_file, self.shape, self.dtype, self.parents, self.parent_labels, self.parent_levels, self.parent2idx = \
              mmap_file, shape, dtype, parents, parent_labels, parent_levels, parent2idx
@@ -670,19 +670,22 @@ class SearcherIdx:
                      idx = idxs[idx]
                      yield (idx, self[idx].decode().replace("\\n", "\n").replace("\\t", "\t").strip(), score)
         else:
-          #do ANN search
+          #do approximate nearest neighbor search of embeddings 
           assert vec is not None        
           if type(self.parents) is not torch.Tensor:
              self.parents = torch.from_numpy(self.parents).to(device)
           if hasattr(self, 'filebyline'):
-            for r in pytorch_ann_search(vec, self.mmap_file, self.shape,  self.dtype, \
-                                      self.parents, self.num_top_level_parents, self.parent_levels, self.parent2idx):
+            for r in pytorch_embeddings_search(vec, self.mmap_file, self.shape,  self.dtype, \
+                                      self.parents, self.num_top_level_parents, self.parent_levels, self.parent2idx, k=k):
               yield (r[0], self.filebyline[r[0]].decode().replace("\\n", "\n").replace("\\t", "\t").strip(), r[1])
           else:
-            for r in pytorch_ann_search(vec, self.mmap_file, self.shape,  self.dtype, \
-                                      self.parents, self.num_top_level_parents, self.parent_levels, self.parent2idx):
+            for r in pytorch_embeddings_search(vec, self.mmap_file, self.shape,  self.dtype, \
+                                      self.parents, self.num_top_level_parents, self.parent_levels, self.parent2idx, k=k):
               yield (r[0], r[1])
 
+  def get_embeddings(self, sent,  embedder="minilm"):
+    return get_embeddings(sent, downsampler=self.downsampler, dtype=self.dtype, embdder=embedder)
+  
   def embed_text(self, filename,  skip_idxs=None,  embedder="minilm", chunk_size=1000, use_tqdm=True):
     assert self.fobj is not None
     fobj = self.fobj
@@ -694,7 +697,7 @@ class SearcherIdx:
     fobj.seek(pos,0)
     return skip_idxs
 
-  def recreate_ann_idx(self,  mmap_file, shape, dtype, clusters=None):
+  def recreate_embeddings_idx(self,  mmap_file, shape, dtype, clusters=None):
     global device
     self.mmap_file, self.shape, self.dtype = mmap_file, shape, dtype
     if clusters is None:
