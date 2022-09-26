@@ -509,8 +509,8 @@ class FileByLineIdx:
 
            
 class SearcherIdx:
-  def __init__(self,  mmap_file, shape, dtype=np.float16, parents=None, parent_levels=None, parent2idx=None, clusters=None, auto_create_ann_idx=True, \
-               bm25_filename=None, bm25_fobj=None,  bm25_field="text", filebyline=None, bm25_reindex=False):
+  def __init__(self,  mmap_file, shape, dtype=np.float16, parents=None, parent_levels=None, parent2idx=None, clusters=None, auto_create_ann_idx=False, \
+               filename=None, fobj=None,  bm25_field="text", filebyline=None, auto_create_bm25_idx=False):
     """
         Clusters and performs approximate nearest neighbor search on a memmap file. Also provides a wrapper for Whoosh BM25.
         :arg  mmap_file:      Optional, must be passed as a keyword argument.
@@ -548,8 +548,8 @@ class SearcherIdx:
           if none of these are passed and auto_create_idx is set, then the data in the mmap file will be clustered and the 
           data structure will be created.
         :filebyline     Optional. The access for a file by lines.
-        :bm25_filename:     Optional. If the filename and fobj are both None, then no bm25 search is provided.
-        :bm25_fobj:         Optional. File object for bm25 indexing and searching.
+        :filename:     Optional. If the filename and fobj are both None, then no bm25 search is provided.
+        :fobj:         Optional. File object for bm25 indexing and searching.
         :arg bm25_field:     Optional. Defaults to "text". If the data is in jsonl format,
                              this is the field that is Whoosh/bm25 indexed.
       USAGE:
@@ -574,35 +574,39 @@ class SearcherIdx:
        self.num_top_parents = len([a for a in self.parent_levels if a == max(self.parent_levels)])
      else:
        self.num_top_parents = 0
-    if bm25_filename or bm25_fobj:
-       self.recreate_whoosh_idx(bm25_field, bm25_filename, bm25_fobj, filebyline, bm25_reindex)
+    if auto_create_bm25_idx and (filename or fobj):
+       self.recreate_whoosh_idx(bm25_field, filename, fobj, filebyline, auto_create_bm25_idx)
     
-  def recreate_whoosh_idx(self, bm25_field="text", bm25_filename=None, bm25_fobj=None, filebyline=None, bm25_reindex=False):
-      assert bm25_filename is not None or bm25_fobj is not None
-      if bm25_filename is None:
-        if not hasattr(self, 'bm25_filename'): 
-          bm25_filename = self.bm25_filename = f"__tmp__{random.randint(0,1000000)}"
+  def recreate_whoosh_idx(self, bm25_field="text", filename=None, fobj=None, filebyline=None, auto_create_bm25_idx=False):
+      assert filename is not None or fobj is not None
+      if filename is None:
+        if not hasattr(self, 'filename'): 
+          filename = self.filename = f"__tmp__{random.randint(0,1000000)}"
         else:
-          bm25_filename = self.bm25_filename
-      if not os.path.exists(bm25_filename+"_idx"):
-            os.makedirs(bm25_filename+"_idx")    
+          filename = self.filename
+      if not os.path.exists(filename+"_idx"):
+            os.makedirs(filename+"_idx")    
       self.bm25_field = bm25_field
-      self.bm25_filename = bm25_filename
-      if bm25_fobj is None:
-        bm25_fobj = open(bm25_filename, "rb")
-      self.bm25_fobj = bm25_fobj  
+      self.filename = filename
+      if fobj is None:
+        if filename.endswith(".gz"):
+          fobj = self.fobj = IndexedGzipFileExt.open(filename)
+        else:
+          fobj = self.fobj = open(filename, "rb")  
+      else:
+        self.fobj = fobj
       schema = Schema(id=ID(stored=True), content=TEXT(analyzer=StemmingAnalyzer()))
       #TODO determine how to clear out the whoosh index besides rm -rf _M* MAIN*
-      bm25_fobj.seek(0, os.SEEK_END)
-      need_reindex = bm25_reindex or not os.path.exists(bm25_filename+"_idx/_MAIN_1.toc") 
+      fobj.seek(0, os.SEEK_END)
+      need_reindex = auto_create_bm25_idx or not os.path.exists(filename+"_idx/_MAIN_1.toc") 
       if not need_reindex:
-        self.whoosh_ix = whoosh_index.open_dir(bm25_filename+"_idx")
+        self.whoosh_ix = whoosh_index.open_dir(filename+"_idx")
       else:
-        self.whoosh_ix = create_in(bm25_filename+"_idx", schema)
+        self.whoosh_ix = create_in(filename+"_idx", schema)
         writer = self.whoosh_ix.writer()
-        pos = bm25_fobj.tell()
-        bm25_fobj.seek(0, 0)
-        for idx, l in tqdm.tqdm(enumerate(bm25_fobj)):
+        pos = fobj.tell()
+        fobj.seek(0, 0)
+        for idx, l in tqdm.tqdm(enumerate(fobj)):
             l =l.decode().replace("\\n", "\n").replace("\\t", "\t").strip()
             if not l: continue
             if l[0] == "{" and l[-1] == "}":
@@ -612,9 +616,9 @@ class SearcherIdx:
               content = l.replace("_", " ")
             writer.add_document(id=str(idx), content=content)  
         writer.commit()
-        bm25_fobj.seek(pos,0)
+        fobj.seek(pos,0)
       self.filebyline = filebyline
-      if self.filebyline is None: self.filebyline = FileByLineIdx(fobj=bm25_fobj)
+      if self.filebyline is None: self.filebyline = FileByLineIdx(fobj=fobj)
                
   def whoosh_searcher(self):
       return self.whoosh_ix.searcher()
@@ -681,8 +685,24 @@ class SearcherIdx:
     self.num_top_parents = len([a for a in self.parent_levels if a == max(self.parent_levels)])
     label2idx = dict([(a[0], idx) for idx, a in enumerate(cluster_info)]) 
     self.parent2idx = [[a if type(a) is int  else label2idx[a] for a in a_cluster] for _, a_cluster in cluster_info]
+    self.parent_labels = [a[0] for a in cluster_info]
 
-  
+  def get_cluster_and_span2cluster_label(self):
+    span2cluster_label = {}
+    for level, label, indexes in zip(self.parent_levels, self.parent_labels, self.parent2idx):
+      label = (level, indexes[0])
+      if level != 0:
+        for idx in indexes:
+          span = self.parent_labels[idx]
+          span2cluster_label[span] = label
+      else:
+        for idx in indexes:
+          span2cluster_label[idx] = label
+    cluster = {}
+    for span, label in span2cluster_label.items():
+      cluster[label] = cluster.get(label,[]) + [span]
+    return cluster, span2cluster_label
+
   def cluster(self, clusters=None, span2cluster_label=None, cluster_idxs=None, max_level=4, max_cluster_size=200, \
                                min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=10000):
     if clusters is None: cluster = {}
@@ -691,6 +711,22 @@ class SearcherIdx:
                                       max_cluster_size=max_cluster_size, min_overlap_merge_cluster=min_overlap_merge_cluster, \
                                       prefered_leaf_node_size=prefered_leaf_node_size, kmeans_batch_size=kmeans_batch_size)
   
+  def save_pretrained(self, filename):
+      os.system(f"mkdir -p {filename}_idx")
+      fobj = self.fobj
+      self.fobj = None
+      pickle.dump(self, open(f"{filename}_idx/search_index.pickle", "wb"))
+      self.fobj = fobj
+
+  @staticmethod
+  def from_pretrained(filename):
+      self = pickle.load(open(f"{filename}_idx/search_index.pickle", "rb"))
+      if filename.endswith(".gz"):
+        self.fobj = IndexedGzipFileExt.open(filename)
+      else:
+        self.fobj = open(filename, "rb")
+      return self
+
 def _unpickle(state):
     """Create a new ``IndexedGzipFile`` from a pickled state.
     :arg state: State of a pickled object, as returned by the
