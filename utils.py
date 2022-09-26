@@ -23,12 +23,12 @@ from whoosh.analysis import StemmingAnalyzer
 from whoosh.index import create_in
 from whoosh.fields import *
 from whoosh.qparser import QueryParser
+import whoosh.index as whoosh_index
 import numpy as np
 import torch
 from torch.nn.functional import cosine_similarity
 from fast_pytorch_kmeans import KMeans
 from sklearn.cluster import MiniBatchKMeans
-from sklearn.cluster import AgglomerativeClustering
 from collections import Counter
 import random
 import tqdm
@@ -36,15 +36,13 @@ from transformers import AutoTokenizer, AutoModel, BertTokenizerFast, CLIPProces
 from nltk.corpus import stopwords as nltk_stopwords
 from torch import nn
 import spacy
-import whoosh.index as whoosh_index
+
 import math        
 if torch.cuda.is_available():
   device = 'cuda'
 else:
   device = 'cpu'
-
-labse_tokenizer= labse_model=  clip_processor = minilm_tokenizer= clip_model= minilm_model= spacy_nlp= stopwords_set = None
-
+  
 try:
   if minilm_model is not None: 
     pass
