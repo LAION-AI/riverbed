@@ -221,7 +221,7 @@ def embed_text(dat_iter, mmap_file, downsampler=None, skip_idxs=None,  dtype=np.
     
   
 #cluster pruning based approximate nearest neightbor search. See https://nlp.stanford.edu/IR-book/html/htmledition/cluster-pruning-1.html
-def pytorch_embeddings_search(vec, mmap_file, shape, dtype, parents, num_top_level_parents, parent_levels, parent2idx, chunk_size=10000, k=5):
+def embeddings_search(vec, mmap_file, mmap_len, parents, num_top_level_parents, parent_levels, parent2idx, embed_dim=25, dtype=np.float16, chunk_size=10000, k=5):
   vecs = parents[:num_top_level_parents]
   idx2idx = list(range(num_top_level_parents))
   for _ in range(parent_levels[0]):
@@ -236,7 +236,7 @@ def pytorch_embeddings_search(vec, mmap_file, shape, dtype, parents, num_top_lev
          idxs.append(child_id)
          n_chunks += 1
          if n_chunks > chunk_size:
-            vecs = torch.from_numpy(np_memmap(mmap_file, shape=shape, dtype=dtype)[idxs]).to(device)
+            vecs = torch.from_numpy(np_memmap(mmap_file, shape=[mmap_len, embed_dim], dtype=dtype)[idxs]).to(device)
             results = cosine_similarity(vec.unsqueeze(0), vecs)
             results = results.sort()
             for idx, score in zip(results.indexes, results.values):
@@ -245,7 +245,7 @@ def pytorch_embeddings_search(vec, mmap_file, shape, dtype, parents, num_top_lev
             idxs = []
             n_chunk = 0
       if idxs:
-         vecs = torch.from_numpy(np_memmap(mmap_file, shape=shape, dtype=dtype)[idxs]).to(device)
+         vecs = torch.from_numpy(np_memmap(mmap_file, shape=[mmap_len, embed_dim], dtype=dtype)[idxs]).to(device)
          results = cosine_similarity(vec.unsqueeze(0), vecs)
          results = results.sort()
          for idx, score in zip(results.indexes, results.values):
@@ -299,7 +299,7 @@ def _cluster_one_batch(true_k,  spans, vector_idxs, clusters, span2cluster_label
 # span2cluster_label maps a span to a parent span. spans can be of the form int|(int,int).
 # leaf nodes are ints. non-leaf nodes are (int,int) tuples
 # clusters maps cluster_label => list of spans  
-def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, shape, dtype, skip_idxs=None, cluster_idxs=None, max_level=4, max_cluster_size=200, \
+def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, mmap_len, embed_dim=25, dtype=np.float16, skip_idxs=None, cluster_idxs=None, max_level=4, max_cluster_size=200, \
                                min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000):
   global device
   if skip_idxs is None: 
@@ -311,14 +311,14 @@ def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, shape, 
   for span, label in span2cluster_label.items():
     clusters[label] = clusters.get(label,[]) + [span]
   if prefered_leaf_node_size is None: prefered_leaf_node_size = max_cluster_size
-  cluster_vecs = np_memmap(mmap_file, shape=shape, dtype=dtype)
+  cluster_vecs = np_memmap(mmap_file, shape==[mmap_len, embed_dim], dtype=dtype)
   # first cluster leaves at level 0. 
   # the spans are the indexes themselves, so no need to map using all_spans
   all_spans = None
   for level in range(max_level):
     assert level == 0 or (all_spans is not None and cluster_idxs is not None)
     if cluster_idxs is None: 
-      len_spans = cluster_vecs.shape[0]
+      len_spans = mmap_len
     else:
       len_spans = len(cluster_idxs)
     # we are going to do a minimum of 6 times in case there are not already clustered items
@@ -344,7 +344,7 @@ def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, shape, 
           spans.extend(not_already_clustered)
         if len(spans) == 0: continue
         if level == 0:
-          already_clustered = [idx for idx in range(cluster_vecs.shape[0]) if idx in span2cluster_label]
+          already_clustered = [idx for idx in range(mmap_len) if idx in span2cluster_label]
         else:
           already_clustered = [idx for idx, span in enumerate(all_spans) if span in span2cluster_label]
         if len(already_clustered)  > int(.5*num_itmes_left):
@@ -508,15 +508,19 @@ class FileByLineIdx:
 
            
 class SearcherIdx:
-  def __init__(self,  mmap_file, shape, dtype=np.float16, parents=None, parent_levels=None, parent_labels=None, parent2idx=None, clusters=None, auto_create_embeddings_idx=False, \
-               filename=None, fobj=None,  bm25_field="text", filebyline=None, auto_create_bm25_idx=False):
+  def __init__(self,  filename, fobj=None, mmap_file=None, mmap_len=1, embed_dim=25, dtype=np.float16, parents=None, parent_levels=None, parent_labels=None, \
+               parent2idx=None, clusters=None,  \
+                bm25_field="text", filebyline=None, \
+               auto_create_embeddings_idx=False, auto_create_bm25_idx=False, use_tqdm=True):
     """
         Clusters and performs approximate nearest neighbor search on a memmap file. Also provides a wrapper for Whoosh BM25.
         :arg  mmap_file:      Optional, must be passed as a keyword argument.
                               This is the file name for the vectors representing 
                               each line in the gzip file. Used for embeddings search.
-        :arg shape             Optional, must be passed as a keyword argument.
-                              This is the shape of the mmap_file.                              
+        :arg mmap_len         Optional, must be passed as a keyword argument if mmap_file is passed.
+                              This is the shape of the mmap_file.     
+        :arg embed_dim         Optional, must be passed as a keyword argument if mmap_file is passed.
+                              This is the shape of the mmap_file.                       
         :arg dtype             Optional, must be passed as a keyword argument.
                               This is the dtype of the mmap_file.                              
         :arg  parents:      Optional, must be passed as a keyword argument.
@@ -543,7 +547,7 @@ class SearcherIdx:
                                
                                If mmap_file, shape, parents, parent_levels and parent2idx are not provided,
                                vector based search will not be available. 
-        :arg parent_labels: A user-friendly label for the parent_labels
+        :arg parent_labels: A tuple based label (level, idx) for the parent_labels
         NOTE: Either pass in the parents, parent_levels, parent2idx data or pass in clusters to create the prior three data. 
           if none of these are passed and auto_create_idx is set, then the data in the mmap file will be clustered and the 
           data structure will be created.
@@ -562,25 +566,15 @@ class SearcherIdx:
 
       """
     global device
-    if clusters is not None:
-      self.recreate_embeddings_idx(mmap_file, shape, dtype, clusters)
-    else:       
-     if parents is None and auto_create_embeddings_idx:
-      self.recreate_embeddings_idx(mmap_file, shape, dtype)
-     else:
-      self.mmap_file, self.shape, self.dtype, self.parents, self.parent_labels, self.parent_levels, self.parent2idx = \
-             mmap_file, shape, dtype, parents, parent_labels, parent_levels, parent2idx
-     if self.parent_levels is not None:
-       self.num_top_parents = len([a for a in self.parent_levels if a == max(self.parent_levels)])
-     else:
-       self.num_top_parents = 0
+    if type(filename) is not str:
+      fobj = filename
+      filename = None
+    if mmap_file is None:
+      mmap_file = f"{filename}_idx/index.mmap"
     self.fobj = fobj
     if filename or fobj:
       if filename is None:
-        if not hasattr(self, 'filename'): 
-          filename = self.filename = f"__tmp__{random.randint(0,1000000)}"
-        else:
-          filename = self.filename
+         filename =  f"__tmp__{random.randint(0,1000000)}"
       if not os.path.exists(filename+"_idx"):
             os.makedirs(filename+"_idx")   
       self.filebyline = filebyline
@@ -589,7 +583,6 @@ class SearcherIdx:
           self.filebyline = self.fobj 
         else:   
           self.filebyline = FileByLineIdx(fobj=fobj)
-      self.filename = filename
       if fobj is None:
         if filename.endswith(".gz"):
           fobj = self.fobj = IndexedGzipFileExt.open(filename)
@@ -597,10 +590,24 @@ class SearcherIdx:
           fobj = self.fobj = open(filename, "rb")  
       else:
         self.fobj = fobj
-    if auto_create_bm25_idx and (filename or fobj):
-       self.recreate_whoosh_idx(bm25_field, filename, fobj, filebyline, auto_create_bm25_idx)
+        
+    if clusters is not None:
+      self.recreate_embeddings_idx(mmap_file, mmap_len, embed_dim, dtype, clusters, filename=filename,  skip_idxs=skip_idxs,  embedder=embedder, chunk_size=chunk_size, use_tqdm=use_tqdm)
+    else:       
+     if parents is None and auto_create_embeddings_idx:
+      self.recreate_embeddings_idx(mmap_file, mmap_len, embed_dim, dtype, clusters=None, filename=filename,  skip_idxs=skip_idxs,  embedder=embedder, chunk_size=chunk_size, use_tqdm=use_tqdm)
+     else:
+      self.mmap_file, self.mmap_len, self.embed_dim, self.dtype, self.parents, self.parent_labels, self.parent_levels, self.parent2idx = \
+             mmap_file, mmap_len, embed_dim, dtype, parents, parent_labels, parent_levels, parent2idx
+     if self.parent_levels is not None:
+       self.num_top_parents = len([a for a in self.parent_levels if a == max(self.parent_levels)])
+     else:
+       self.num_top_parents = 0
     
-  def recreate_whoosh_idx(self, bm25_field="text", filename=None, fobj=None, filebyline=None, auto_create_bm25_idx=False):
+    if auto_create_bm25_idx and (filename or fobj):
+       self.recreate_whoosh_idx(bm25_field=bm25_field, filename=filename, fobj=fobj, filebyline=filebyline, auto_create_bm25_idx=auto_create_bm25_idx, use_tqdm=use_tqdm)
+    
+  def recreate_whoosh_idx(self, bm25_field="text", filename=None, fobj=None, filebyline=None, auto_create_bm25_idx=False, use_tqdm=True):
       assert filename is not None or fobj is not None
       self.bm25_field = bm25_field
       schema = Schema(id=ID(stored=True), content=TEXT(analyzer=StemmingAnalyzer()))
@@ -613,7 +620,11 @@ class SearcherIdx:
         writer = self.whoosh_ix.writer()
         pos = fobj.tell()
         fobj.seek(0, 0)
-        for idx, l in tqdm.tqdm(enumerate(fobj)):
+        if use_tqdm:
+          fobj2 = tqdm.tqdm(enumerate(fobj))
+        else:
+          fobj2 = fobj
+        for idx, l in fobj:
             l =l.decode().replace("\\n", "\n").replace("\\t", "\t").strip()
             if not l: continue
             if l[0] == "{" and l[-1] == "}":
@@ -654,7 +665,7 @@ class SearcherIdx:
                  idxs.append(int(r['id']))
                  n_chunks += 1
                  if n_chunks > chunk_size:
-                    vecs = torch.from_numpy(np_memmap(self.mmap_file, shape=self.shape, dtype=self.dtype)[idxs]).to(device)
+                    vecs = torch.from_numpy(np_memmap(self.mmap_file, shape=[self.mmap_len, self.embed_dim], dtype=self.dtype)[idxs]).to(device)
                     results = cosine_similarity(vec.unsqueeze(0), vecs)
                     results = results.sort()
                     for idx, score in zip(results.indexes, results.values):
@@ -663,7 +674,7 @@ class SearcherIdx:
                     idxs = []
                     n_chunk = 0
               if idxs:
-                  vecs = torch.from_numpy(np_memmap(self.mmap_file, shape=self.shape, dtype=self.dtype)[idxs]).to(device)
+                  vecs = torch.from_numpy(np_memmap(self.mmap_file, shape=[self.mmap_len, self.embed_dim], dtype=self.dtype)[idxs]).to(device)
                   results = cosine_similarity(vec.unsqueeze(0), vecs)
                   results = results.sort()
                   for idx, score in zip(results.indexes, results.values):
@@ -675,36 +686,43 @@ class SearcherIdx:
           if type(self.parents) is not torch.Tensor:
              self.parents = torch.from_numpy(self.parents).to(device)
           if hasattr(self, 'filebyline'):
-            for r in pytorch_embeddings_search(vec, self.mmap_file, self.shape,  self.dtype, \
-                                      self.parents, self.num_top_level_parents, self.parent_levels, self.parent2idx, k=k):
+            for r in embeddings_search(vec, mmap_file= self.mmap_file, mmap_len=self.mmap_len, embed_dim=self.embed_dim,  dtype=self.dtype, \
+                                      parents=self.parents, num_top_level_parents=self.num_top_level_parents, parent_levels=self.parent_levels, \
+                                       parent2idx=self.parent2idx, k=k):
               yield (r[0], self.filebyline[r[0]].decode().replace("\\n", "\n").replace("\\t", "\t").strip(), r[1])
           else:
-            for r in pytorch_embeddings_search(vec, self.mmap_file, self.shape,  self.dtype, \
-                                      self.parents, self.num_top_level_parents, self.parent_levels, self.parent2idx, k=k):
+            for r in embeddings_search(vec, mmap_file= self.mmap_file, mmap_len=self.mmap_len, embed_dim=self.embed_dim,  dtype=self.dtype, \
+                                      parents=self.parents, num_top_level_parents=self.num_top_level_parents, parent_levels=self.parent_levels, \
+                                       parent2idx=self.parent2idx, k=k):
               yield (r[0], r[1])
 
   def get_embeddings(self, sent,  embedder="minilm"):
     return get_embeddings(sent, downsampler=self.downsampler, dtype=self.dtype, embdder=embedder)
   
-  def embed_text(self, filename,  skip_idxs=None,  embedder="minilm", chunk_size=1000, use_tqdm=True):
+  def embed_text(self, filename,  embedder="minilm", chunk_size=1000, use_tqdm=True):
     assert self.fobj is not None
     fobj = self.fobj
     pos = fobj.tell()
     fobj.seek(0, 0)
-    self.downsampler, skip_idxs, self.dtype, mmap_len, embed_dim =  embed_text(self.fobj, filename + "_idx/index.mmap", downsampler=self.downsampler, \
-          mmap_len=self.shape[0], embed_dim=self.shape[1], embedder=embedder, chunk_size=chunk_size, use_tqdm=use_tqdm)
-    self.shape = [mmap_len, embed_dim]
+    self.downsampler, skip_idxs, self.dtype, self.mmap_len, self.embed_dim =  embed_text(self.fobj, filename + "_idx/index.mmap", downsampler=self.downsampler, \
+          mmap_len=self.mmap_len, embed_dim=self.embed_dim, embedder=embedder, chunk_size=chunk_size, use_tqdm=use_tqdm)
     fobj.seek(pos,0)
     return skip_idxs
 
-  def recreate_embeddings_idx(self,  mmap_file, shape, dtype, clusters=None):
+  def recreate_embeddings_idx(self,  mmap_file, mmap_len, embed_dim, dtype, filename=None, clusters=None,  skip_idxs=None,  embedder="minilm", chunk_size=1000, use_tqdm=True):
     global device
-    self.mmap_file, self.shape, self.dtype = mmap_file, shape, dtype
+    self.mmap_file, self.mmap_len, self.embed_dim, self.dtype = mmap_file, mmap_len, embed_dim, dtype
+    if filename is not None and self.fobj is not None:
+      skip_idxs2 = self.embed_text(filename,  embedder=embedder, chunk_size=chunk_size, use_tqdm=use_tqdm)
+      if skip_idxs is not None:
+        skip_idxs = set(skip_idxs2+skip_idxs)
+      else:
+        skip_idxs = skip_idxs2
     if clusters is None:
-      clusters, _ = self.cluster()
+      clusters, _ = self.cluster(skip_idxs=skip_idxs, use_tqdm=use_tqdm)
     cluster_info = list(clusters.items())
     cluster_info.sort(key=lambda a: a[0][0], reverse=True)
-    self.parents = torch.from_numpy(np_memmap(mmap_file, shape=shape, dtype=dtype)[[a[0][1] for a in cluster_info]]).to(device)
+    self.parents = torch.from_numpy(np_memmap(mmap_file, shape=[self.mmap_len, self.embed_dim], dtype=dtype)[[a[0][1] for a in cluster_info]]).to(device)
     self.parent_levels = [a[0][0] for a in cluster_info]
     self.num_top_parents = len([a for a in self.parent_levels if a == max(self.parent_levels)])
     label2idx = dict([(a[0], idx) for idx, a in enumerate(cluster_info)]) 
@@ -728,28 +746,38 @@ class SearcherIdx:
     return cluster, span2cluster_label
 
   def cluster(self, clusters=None, span2cluster_label=None, skip_idxs=None, cluster_idxs=None, max_level=4, max_cluster_size=200, \
-                               min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=10000):
+                               min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=10000, use_tqdm=True):
     if clusters is None: clusters = {}
     if span2cluster_label is None: span2cluster_label = {}
-    return create_hiearchical_clusters(clusters, span2cluster_label, self.mmap_file, self.shape, self.dtype, \
+    return create_hiearchical_clusters(clusters, span2cluster_label, self.mmap_file, self.mmap_len, self.embed_dim, self.dtype, \
                                       skip_idxs=skip_idxs, cluster_idxs=cluster_idxs, max_level=max_level, \
                                       max_cluster_size=max_cluster_size, min_overlap_merge_cluster=min_overlap_merge_cluster, \
-                                      prefered_leaf_node_size=prefered_leaf_node_size, kmeans_batch_size=kmeans_batch_size)
+                                      prefered_leaf_node_size=prefered_leaf_node_size, kmeans_batch_size=kmeans_batch_size, use_tqdm=use_tqdm)
   
   def save_pretrained(self, filename):
       os.system(f"mkdir -p {filename}_idx")
       fobj = self.fobj
+      if hasattr(self, 'filebyline') and self.filebyline is not None:
+        if type(self.filebyline) is IndexedGzipFile:
+          self.filebyline = None
+        else:
+          self.filebyline.fobj = None
       self.fobj = None
       pickle.dump(self, open(f"{filename}_idx/search_index.pickle", "wb"))
       self.fobj = fobj
+      if type(self.fobj) is IndexedGzipFile:
+        self.filebyline = self.fobj
+      else:
+        if hasattr(self, 'filebyline') and self.filebyline is not None: self.filebyline.fobj = self.fobj
 
   @staticmethod
   def from_pretrained(filename):
       self = pickle.load(open(f"{filename}_idx/search_index.pickle", "rb"))
       if filename.endswith(".gz"):
-        self.fobj = IndexedGzipFileExt.open(filename)
+        self.filebyline = self.fobj = IndexedGzipFileExt.open(filename)
       else:
         self.fobj = open(filename, "rb")
+        if hasattr(self, 'filebyline') and self.filebyline is not None: self.filebyline.fobj = self.fobj
       return self
 
 def _unpickle(state):
