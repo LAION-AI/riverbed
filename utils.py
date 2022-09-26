@@ -228,7 +228,7 @@ def embed_text(dat_iter, mmap_file, downsampler=None, skip_idxs=None,  dtype=np.
 def embeddings_search(vec, mmap_file,  parents, num_top_level_parents, parent_levels, parent2idx, mmap_len=0, embed_dim=25, dtype=np.float16, chunk_size=10000, k=5):
   vecs = parents[:num_top_level_parents]
   idx2idx = list(range(num_top_level_parents))
-  print (parent_levels, vecs)
+  #print (parent_levels, vecs)
   for _ in range(parent_levels[0]):
     results = cosine_similarity(vec.unsqueeze(0), vecs)
     results = results.top_k(k)
@@ -822,6 +822,8 @@ class SearcherIdx:
     if type(filename) is not str:
       fobj = filename
       filename = None
+    if filename is None:
+      filename =  f"__tmp__{random.randint(0,1000000)}"
     if mmap_file is None:
       mmap_file = f"{filename}_idx/search_index.mmap"
     if fobj is None:
@@ -831,11 +833,8 @@ class SearcherIdx:
         fobj = self.fobj = open(filename, "rb")  
     else:
       self.fobj = fobj
-    if filename or fobj:
-      if filename is None:
-         filename =  f"__tmp__{random.randint(0,1000000)}"
-      if not os.path.exists(filename+"_idx"):
-        os.makedirs(filename+"_idx")   
+    if not os.path.exists(filename+"_idx"):
+      os.makedirs(filename+"_idx")   
     self.filebyline = filebyline
     if self.filebyline is None: 
       if type(self.fobj) is GzipByLineIdx:
@@ -844,18 +843,15 @@ class SearcherIdx:
         self.filebyline = FileByLineIdx(fobj=fobj)  
     self.mmap_file, self.mmap_len, self.embed_dim, self.dtype, self.parents, self.parent_labels, self.parent_levels, self.parent2idx = \
              mmap_file, mmap_len, embed_dim, dtype, parents, parent_labels, parent_levels, parent2idx
-
     if skip_idxs is None: skip_idxs = []
     self.skip_idxs = skip_idxs
-    if auto_embed_text:
-      if filename is not None and self.fobj is not None:
-        self.embed_text(filename,  embedder=embedder, chunk_size=chunk_size, use_tqdm=use_tqdm)
-        
+    if auto_embed_text and filename is not None and self.fobj is not None:
+      self.embed_text(embedder=embedder, chunk_size=chunk_size, use_tqdm=use_tqdm)
     if clusters is not None:
-      self.recreate_embeddings_idx(mmap_file, mmap_len, embed_dim, dtype, clusters,  embedder=embedder, chunk_size=chunk_size, use_tqdm=use_tqdm)
+      self.recreate_embeddings_idx(clusters, embedder=embedder, chunk_size=chunk_size, use_tqdm=use_tqdm)
     else:       
      if parents is None and auto_create_embeddings_idx:
-      self.recreate_embeddings_idx(mmap_file, mmap_len, embed_dim, dtype, clusters=None, embedder=embedder, chunk_size=chunk_size, use_tqdm=use_tqdm)
+      self.recreate_embeddings_idx(embedder=embedder, chunk_size=chunk_size, use_tqdm=use_tqdm)
     if self.parent_levels is not None:
        self.num_top_level_parents = len([a for a in self.parent_levels if a == max(self.parent_levels)])
     else:
@@ -955,26 +951,30 @@ class SearcherIdx:
   def get_embeddings(self, sent,  embedder="minilm"):
     return get_embeddings(sent, downsampler=self.downsampler, dtype=self.dtype, embedder=embedder)
   
-  def embed_text(self, filename,  embedder="minilm", chunk_size=1000, use_tqdm=True):
+  def embed_text(self, embedder="minilm", chunk_size=1000, use_tqdm=True):
     assert self.fobj is not None
     if not hasattr(self, 'downsampler'): self.downsampler = None
     fobj = self.fobj
     pos = fobj.tell()
     fobj.seek(0, 0)
-    self.downsampler, skip_idxs, self.dtype, self.mmap_len, self.embed_dim =  embed_text(self.fobj, filename + "_idx/search_index.mmap", downsampler=self.downsampler, \
+    self.downsampler, skip_idxs, self.dtype, self.mmap_len, self.embed_dim =  embed_text(self.fobj, self.mmap_file, downsampler=self.downsampler, \
           mmap_len=self.mmap_len, embed_dim=self.embed_dim, embedder=embedder, chunk_size=chunk_size, use_tqdm=use_tqdm)
-    print (self.mmap_len)
+    #print (self.mmap_len)
     fobj.seek(pos,0)
     self.skip_idxs = set(list(self.skip_idxs)+skip_idxs)
     
 
-  def recreate_embeddings_idx(self,  mmap_file, mmap_len, embed_dim, dtype,  clusters=None,  embedder="minilm", chunk_size=1000, use_tqdm=True):
+  def recreate_embeddings_idx(self,  mmap_file=None, mmap_len=None, embed_dim=None, dtype=None,  clusters=None,  embedder="minilm", chunk_size=1000, use_tqdm=True):
     global device
+    if mmap_file is None: mmap_file = self.mmap_file
+    if mmap_len is None: mmap_len = self.mmap_len
+    if embed_dim is None: embed_dim = self.embed_dim
+    if dtype is None: dtype = self.dtype
     self.mmap_file, self.mmap_len, self.embed_dim, self.dtype = mmap_file, mmap_len, embed_dim, dtype
     skip_idxs = self.skip_idxs
     if clusters is None:
       clusters, _ = self.cluster(skip_idxs=self.skip_idxs, use_tqdm=use_tqdm)
-    print ('recreate_embeddings_idx', clusters)
+    #print ('recreate_embeddings_idx', clusters)
     cluster_info = list(clusters.items())
     cluster_info.sort(key=lambda a: a[0][0], reverse=True)
     self.parents = torch.from_numpy(np_memmap(mmap_file, shape=[self.mmap_len, self.embed_dim], dtype=dtype)[[a[0][1] for a in cluster_info]]).to(device)
