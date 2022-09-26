@@ -800,7 +800,9 @@ class SearcherIdx:
         :filebyline           Optional. The access for a file by lines.
         :arg bm25_field:      Optional. Defaults to "text". If the data is in jsonl format,
                              this is the field that is Whoosh/bm25 indexed.
-
+        :skip_idxs.         Optional. The indexes that are empty and should not be searched or clustered/
+        :filebyline           Optional. If not passed, will be created. Used to random access the file by line number.
+        :downsampler          Optional. The pythorch downsampler for mapping the output of the embedder to a lower dimension.
       NOTE: Either pass in the parents, parent_levels, parent_labels, and parent2idx data is pased or clusters is passed. 
           If none of these are passed and auto_create_embeddings_idx is set, then the data in the mmap file will be clustered and the 
           data structure will be created.
@@ -841,7 +843,7 @@ class SearcherIdx:
     self.mmap_file, self.mmap_len, self.embed_dim, self.dtype, self.parents, self.parent_labels, self.parent_levels, self.parent2idx = \
              mmap_file, mmap_len, embed_dim, dtype, parents, parent_labels, parent_levels, parent2idx
 
-    if skip_idxs is  None: skip_idxs = []
+    if skip_idxs is None: skip_idxs = []
     self.skip_idxs = skip_idxs
     if auto_embed_text:
       if filename is not None and self.fobj is not None:
@@ -893,13 +895,13 @@ class SearcherIdx:
   def whoosh_searcher(self):
       return self.whoosh_ix.searcher()
 
-  def search(self, query=None, vec=None, lookahead_cutoff=100, k=5, chunk_size=10000, embdder="minilm"):
+  def search(self, query=None, vec=None, lookahead_cutoff=100, k=5, chunk_size=10000, embedder="minilm"):
         if type(query) in (np.array, torch.Tensor):
           vec = query
           query = None
         assert vec is None or self.parents is not None
         if vec is None and query is not None and hasattr(self, 'downsampler') and self.downsampler is not None:
-          vec = self.get_embedding(query, embdder=embdder)
+          vec = self.get_embeddings(query, embedder=embedder)
           if not hasattr(self, 'whoosh_ix') or self.whoosh_ix is None:
             query = None
         if query is not None:        
@@ -1013,8 +1015,11 @@ class SearcherIdx:
         else:
           self.filebyline.fobj = None
       self.fobj = None
+      device2 = next(self.downsampler.parameters()).device
+      self.downsampler.cpu()
       pickle.dump(self, open(f"{filename}_idx/search_index.pickle", "wb"))
       self.fobj = fobj
+      self.downsampler.to(device2)
       if type(self.fobj) is GzipByLineIdx:
         self.filebyline = self.fobj
       else:
