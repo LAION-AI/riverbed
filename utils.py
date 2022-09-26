@@ -130,7 +130,8 @@ def mean_pooling(model_output, attention_mask):
       input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).to(token_embeddings.dtype)
       return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
 
-#create embeddings for all text in dat_iter. save to the mmap_file. returns downsampler, skip_idxs, dtype, mmap_len, embed_dim.
+#create embeddings for all text in dat_iter. data_iter can be an interable of just the text or a (text, idx) pair.
+#saves to the mmap_file. returns downsampler, skip_idxs, dtype, mmap_len, embed_dim.
 #skip_idxs are the lines/embeddings that are empty and should not be clustered search indexed.
 def embed_text(dat_iter, mmap_file, downsampler=None, skip_idxs=None,  dtype=np.float16, mmap_len=0, embed_dim=25,  embedder="minilm", chunk_size=1000, use_tqdm=True):
     global device, labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
@@ -160,11 +161,20 @@ def embed_text(dat_iter, mmap_file, downsampler=None, skip_idxs=None,  dtype=np.
         downsampler = downsampler.half()
     downsampler = downsampler.to(device)
     batch = []
+    idxs = []
     if use_tqdm:
       dat_iter2 = tqdm.tqdm(dat_iter)
     else:
       dat_iter2 = dat_iter
+    idx = mmap_len-1
     for l in dat_iter2:
+        idx += 1
+        if type(l) is tuple:
+          l, idx = l
+          mmap_len = max(mmap_len, idx+1)
+        else:
+          idx += 1
+          mmap_len += 1
         try:
           l = l.decode()
         except:
@@ -172,6 +182,7 @@ def embed_text(dat_iter, mmap_file, downsampler=None, skip_idxs=None,  dtype=np.
         l = l.replace("\\n", "\n").replace("\\t", "\t").replace("_", " ").strip()
         if l: 
           batch.append(l)
+          idxs.append(idx)
         if not l or len(batch) >= chunk_size:  
           if batch:
             with torch.no_grad():
@@ -192,12 +203,11 @@ def embed_text(dat_iter, mmap_file, downsampler=None, skip_idxs=None,  dtype=np.
               else:
                 dat = dat.float()
               dat = dat.cpu().numpy()
-            cluster_vecs = np_memmap(mmap_file, shape=[ len(batch)+mmap_len, embed_dim], dat=dat, idxs=range(mmap_len, len(batch)+mmap_len))  
-            mmap_len += len(batch)
+            cluster_vecs = np_memmap(mmap_file, shape=[mmap_len, embed_dim], dat=dat, idxs=idxs)  
             batch = []
+            idxs = []
           if not l:
-            skip_idxs.append(mmap_len) 
-            mmap_len += 1
+            skip_idxs.append(idx) 
     if batch:
       with torch.no_grad():
         if embedder == "clip":
@@ -217,10 +227,9 @@ def embed_text(dat_iter, mmap_file, downsampler=None, skip_idxs=None,  dtype=np.
         else:
           dat = dat.float()
         dat = dat.cpu().numpy()
-      cluster_vecs = np_memmap(mmap_file, shape=[ len(batch)+mmap_len, embed_dim], dat=dat, idxs=range(mmap_len, len(batch)+mmap_len))  
-      mmap_len += len(batch)
+      cluster_vecs = np_memmap(mmap_file, shape=[mmap_len, embed_dim], dat=dat, idxs=idxs)  
       batch = []
-
+      idxs = []
     return downsampler, skip_idxs, dtype, mmap_len, embed_dim 
     
   
