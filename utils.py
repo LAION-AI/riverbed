@@ -371,6 +371,31 @@ def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, mmap_le
         span2cluster_label[span] = label
   for span, label in span2cluster_label.items():
     clusters[label] = clusters.get(label,[]) + [span]
+
+  #remove the cluster_idxs from the clusters so we can re-compute the clusters
+  if cluster_idxs is not None:
+    recompute_parent_labels=False
+    for span in cluster_idxs:
+      label = span2cluster_label.get(span)
+      if label is not None:
+        if span in clusters[label]:
+           clusters[label].remove(span)
+           recompute_parent_labels = True
+        del span2cluster_label[span]
+    label2label = {}
+    for label, a_cluster in list(clusters.items()):
+      if not a_cluster and label in span2cluster_label: 
+        del span2cluster_label[label]
+
+      if label[0] == 0 and label[1] not in a_cluster:
+        del clusters[label]
+        label = (label[0], a_cluster[0])
+        clusers[label] = a_cluster
+        for span in a_cluster:
+          span2cluster_label[span] = label
+
+
+
   if prefered_leaf_node_size is None: prefered_leaf_node_size = max_cluster_size
   cluster_vecs = np_memmap(mmap_file, shape=[mmap_len, embed_dim], dtype=dtype)
   # first cluster leaves at level 0. 
