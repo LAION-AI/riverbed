@@ -748,7 +748,7 @@ class GzipByLineIdx(igzip.IndexedGzipFile):
 
            
 class SearcherIdx:
-  def __init__(self,  filename, fobj=None, mmap_file=None, mmap_len=1, embed_dim=25, dtype=np.float16, \
+  def __init__(self,  filename, fobj=None, mmap_file=None, mmap_len=0, embed_dim=25, dtype=np.float16, \
                parents=None, parent_levels=None, parent_labels=None, skip_idxs=None, \
                parent2idx=None, clusters=None,  embedder="minilm", chunk_size=1000, \
                bm25_field="text", filebyline=None, downsampler=None, auto_embed_text=False, \
@@ -838,6 +838,8 @@ class SearcherIdx:
         self.filebyline = self.fobj 
       else:   
         self.filebyline = FileByLineIdx(fobj=fobj)  
+    self.mmap_file, self.mmap_len, self.embed_dim, self.dtype, self.parents, self.parent_labels, self.parent_levels, self.parent2idx = \
+             mmap_file, mmap_len, embed_dim, dtype, parents, parent_labels, parent_levels, parent2idx
 
     if skip_idxs is  None: skip_idxs = []
     self.skip_idxs = skip_idxs
@@ -850,9 +852,7 @@ class SearcherIdx:
     else:       
      if parents is None and auto_create_embeddings_idx:
       self.recreate_embeddings_idx(mmap_file, mmap_len, embed_dim, dtype, clusters=None, filename=filename,  embedder=embedder, chunk_size=chunk_size, use_tqdm=use_tqdm)
-     else:
-      self.mmap_file, self.mmap_len, self.embed_dim, self.dtype, self.parents, self.parent_labels, self.parent_levels, self.parent2idx = \
-             mmap_file, mmap_len, embed_dim, dtype, parents, parent_labels, parent_levels, parent2idx
+
      if self.parent_levels is not None:
        self.num_top_parents = len([a for a in self.parent_levels if a == max(self.parent_levels)])
      else:
