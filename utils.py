@@ -1033,5 +1033,6 @@ class SearcherIdx:
       else:
         self.fobj = open(filename, "rb")
         if hasattr(self, 'filebyline') and self.filebyline is not None: self.filebyline.fobj = self.fobj
+      self.num_top_level_parents = len([a for a in self.parent_levels if a == max(self.parent_levels)])
       return self
         
