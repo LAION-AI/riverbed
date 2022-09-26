@@ -95,6 +95,7 @@ def get_embeddings(sent, downsampler, dtype=np.float16, embedder="minilm"):
     elif embedder == "labse":
       toks = labse_tokenizer(sent, padding=True, truncation=True, return_tensors="pt").to(device)
       dat = labse_model(**toks).pooler_output   
+    dat = torch.nn.functional.normalize(dat, dim=1)
     dat = downsampler(dat)
     if dtype == np.float16: 
       dat = dat.half()
@@ -183,6 +184,7 @@ def embed_text(dat_iter, mmap_file, downsampler=None, skip_idxs=None,  dtype=np.
               elif embedder == "labse":
                 toks = labse_tokenizer(batch, padding=True, truncation=True, return_tensors="pt").to(device)
                 dat = labse_model(**toks).pooler_output   
+              dat = torch.nn.functional.normalize(dat, dim=1)
               dat = downsampler(dat)
               if dtype == np.float16: 
                 dat = dat.half()
@@ -207,6 +209,7 @@ def embed_text(dat_iter, mmap_file, downsampler=None, skip_idxs=None,  dtype=np.
         elif embedder == "labse":
           toks = labse_tokenizer(batch, padding=True, truncation=True, return_tensors="pt").to(device)
           dat = labse_model(**toks).pooler_output   
+        dat = torch.nn.functional.normalize(dat, dim=1)
         dat = downsampler(dat)
         if dtype == np.float16: 
           dat = dat.half()
@@ -221,7 +224,7 @@ def embed_text(dat_iter, mmap_file, downsampler=None, skip_idxs=None,  dtype=np.
     
   
 #cluster pruning based approximate nearest neightbor search. See https://nlp.stanford.edu/IR-book/html/htmledition/cluster-pruning-1.html
-def embeddings_search(vec, mmap_file, mmap_len, parents, num_top_level_parents, parent_levels, parent2idx, embed_dim=25, dtype=np.float16, chunk_size=10000, k=5):
+def embeddings_search(vec, mmap_file, mmap_len=0, embed_dim=25, dtype=np.float16,  parents, num_top_level_parents, parent_levels, parent2idx, chunk_size=10000, k=5):
   vecs = parents[:num_top_level_parents]
   idx2idx = list(range(num_top_level_parents))
   for _ in range(parent_levels[0]):
@@ -299,7 +302,7 @@ def _cluster_one_batch(true_k,  spans, vector_idxs, clusters, span2cluster_label
 # span2cluster_label maps a span to a parent span. spans can be of the form int|(int,int).
 # leaf nodes are ints. non-leaf nodes are (int,int) tuples
 # clusters maps cluster_label => list of spans  
-def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, mmap_len, embed_dim=25, dtype=np.float16, skip_idxs=None, cluster_idxs=None, max_level=4, max_cluster_size=200, \
+def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, mmap_len=0, embed_dim=25, dtype=np.float16, skip_idxs=None, cluster_idxs=None, max_level=4, max_cluster_size=200, \
                                min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000):
   global device
   if skip_idxs is None: 
@@ -633,7 +636,7 @@ class GzipByLineIdx(igzip.IndexedGzipFile):
           self.export_index(filename+"_idx/igzip.pickle")
 
     def __reduce__(self):
-        """Used to pickle an ``LineIndexGzipFile``.
+        """Used to pickle an ``GzipByLineIdx``.
         Returns a tuple containing:
           - a reference to the ``unpickle`` function
           - a tuple containing a "state" object, which can be passed
@@ -644,7 +647,7 @@ class GzipByLineIdx(igzip.IndexedGzipFile):
 
         if (not fobj.drop_handles) or (not fobj.own_file):
             raise pickle.PicklingError(
-                'Cannot pickle IndexedGzipFile that has been created '
+                'Cannot pickle GzipByLineIdx that has been created '
                 'with an open file object, or that has been created '
                 'with drop_handles=False')
 
