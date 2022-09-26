@@ -852,16 +852,16 @@ class SearcherIdx:
         self.embed_text(filename,  embedder=embedder, chunk_size=chunk_size, use_tqdm=use_tqdm)
         
     if clusters is not None:
-      self.recreate_embeddings_idx(mmap_file, mmap_len, embed_dim, dtype, clusters, filename=filename,  embedder=embedder, chunk_size=chunk_size, use_tqdm=use_tqdm)
+      self.recreate_embeddings_idx(mmap_file, mmap_len, embed_dim, dtype, clusters,  embedder=embedder, chunk_size=chunk_size, use_tqdm=use_tqdm)
     else:       
      if parents is None and auto_create_embeddings_idx:
-      self.recreate_embeddings_idx(mmap_file, mmap_len, embed_dim, dtype, clusters=None, filename=filename,  embedder=embedder, chunk_size=chunk_size, use_tqdm=use_tqdm)
+      self.recreate_embeddings_idx(mmap_file, mmap_len, embed_dim, dtype, clusters=None, embedder=embedder, chunk_size=chunk_size, use_tqdm=use_tqdm)
     if self.parent_levels is not None:
        self.num_top_level_parents = len([a for a in self.parent_levels if a == max(self.parent_levels)])
     else:
        self.num_top_level_parents = 0
     if auto_create_bm25_idx and fobj:
-       self.recreate_whoosh_idx(bm25_field=bm25_field, fobj=fobj, filebyline=filebyline, auto_create_bm25_idx=auto_create_bm25_idx, use_tqdm=use_tqdm)
+       self.recreate_whoosh_idx(bm25_field=bm25_field, filename=filename, fobj=fobj, filebyline=filebyline, auto_create_bm25_idx=auto_create_bm25_idx, use_tqdm=use_tqdm)
     
   def recreate_whoosh_idx(self, bm25_field="text", filename=None, fobj=None, filebyline=None, auto_create_bm25_idx=False, use_tqdm=True):
     assert filename is not None or fobj is not None
