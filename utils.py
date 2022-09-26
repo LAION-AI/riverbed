@@ -130,7 +130,7 @@ def mean_pooling(model_output, attention_mask):
       return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
 
 
-def embed_text(dat_iter, mmap_file, downsampler=None, skip_idxs=None,  dtype=np.float16, embed_dim=25, mmap_len=0, embedder="minilm", chunk_size=1000, use_tqdm=True):
+def embed_text(dat_iter, mmap_file, downsampler=None, skip_idxs=None,  dtype=np.float16, mmap_len=0, embed_dim=25,  embedder="minilm", chunk_size=1000, use_tqdm=True):
     global device, labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
     init_models()
     if skip_idxs is None: skip_idxs = []
@@ -216,9 +216,8 @@ def embed_text(dat_iter, mmap_file, downsampler=None, skip_idxs=None,  dtype=np.
       cluster_vecs = np_memmap(mmap_file, shape=[ len(batch)+mmap_len, embed_dim], dat=dat, idxs=range(mmap_len, len(batch)+mmap_len))  
       mmap_len += len(batch)
       batch = []
-      
-          
-    return downsampler, skip_idxs, mmap_len, dtype, embed_dim 
+
+    return downsampler, skip_idxs, dtype, mmap_len, embed_dim 
     
   
 #cluster pruning based approximate nearest neightbor search. See https://nlp.stanford.edu/IR-book/html/htmledition/cluster-pruning-1.html
@@ -509,7 +508,7 @@ class FileByLineIdx:
 
            
 class SearcherIdx:
-  def __init__(self,  mmap_file, shape, dtype=np.float16, parents=None, parent_levels=None, parent2idx=None, clusters=None, auto_create_ann_idx=False, \
+  def __init__(self,  mmap_file, shape, dtype=np.float16, parents=None, parent_levels=None, parent_labels=None, parent2idx=None, clusters=None, auto_create_ann_idx=False, \
                filename=None, fobj=None,  bm25_field="text", filebyline=None, auto_create_bm25_idx=False):
     """
         Clusters and performs approximate nearest neighbor search on a memmap file. Also provides a wrapper for Whoosh BM25.
@@ -544,6 +543,7 @@ class SearcherIdx:
                                
                                If mmap_file, shape, parents, parent_levels and parent2idx are not provided,
                                vector based search will not be available. 
+        :arg parent_labels: A user-friendly label for the parent_labels
         NOTE: Either pass in the parents, parent_levels, parent2idx data or pass in clusters to create the prior three data. 
           if none of these are passed and auto_create_idx is set, then the data in the mmap file will be clustered and the 
           data structure will be created.
@@ -568,25 +568,27 @@ class SearcherIdx:
      if parents is None and auto_create_ann_idx:
       self.recreate_ann_idx(mmap_file, shape, dtype)
      else:
-      self.mmap_file, self.shape, self.dtype, self.parents, self.parent_levels, self.parent2idx = \
-             mmap_file, shape, dtype, parents, parent_levels, parent2idx
+      self.mmap_file, self.shape, self.dtype, self.parents, self.parent_labels, self.parent_levels, self.parent2idx = \
+             mmap_file, shape, dtype, parents, parent_labels, parent_levels, parent2idx
      if self.parent_levels is not None:
        self.num_top_parents = len([a for a in self.parent_levels if a == max(self.parent_levels)])
      else:
        self.num_top_parents = 0
-    if auto_create_bm25_idx and (filename or fobj):
-       self.recreate_whoosh_idx(bm25_field, filename, fobj, filebyline, auto_create_bm25_idx)
-    
-  def recreate_whoosh_idx(self, bm25_field="text", filename=None, fobj=None, filebyline=None, auto_create_bm25_idx=False):
-      assert filename is not None or fobj is not None
+    self.fobj = fobj
+    if filename or fobj:
       if filename is None:
         if not hasattr(self, 'filename'): 
           filename = self.filename = f"__tmp__{random.randint(0,1000000)}"
         else:
           filename = self.filename
       if not os.path.exists(filename+"_idx"):
-            os.makedirs(filename+"_idx")    
-      self.bm25_field = bm25_field
+            os.makedirs(filename+"_idx")   
+      self.filebyline = filebyline
+      if self.filebyline is None: 
+        if type(self.fobj) is IndexedGzipFileExt:
+          self.filebyline = self.fobj 
+        else:   
+          self.filebyline = FileByLineIdx(fobj=fobj)
       self.filename = filename
       if fobj is None:
         if filename.endswith(".gz"):
@@ -595,9 +597,14 @@ class SearcherIdx:
           fobj = self.fobj = open(filename, "rb")  
       else:
         self.fobj = fobj
+    if auto_create_bm25_idx and (filename or fobj):
+       self.recreate_whoosh_idx(bm25_field, filename, fobj, filebyline, auto_create_bm25_idx)
+    
+  def recreate_whoosh_idx(self, bm25_field="text", filename=None, fobj=None, filebyline=None, auto_create_bm25_idx=False):
+      assert filename is not None or fobj is not None
+      self.bm25_field = bm25_field
       schema = Schema(id=ID(stored=True), content=TEXT(analyzer=StemmingAnalyzer()))
       #TODO determine how to clear out the whoosh index besides rm -rf _M* MAIN*
-      fobj.seek(0, os.SEEK_END)
       need_reindex = auto_create_bm25_idx or not os.path.exists(filename+"_idx/_MAIN_1.toc") 
       if not need_reindex:
         self.whoosh_ix = whoosh_index.open_dir(filename+"_idx")
@@ -617,17 +624,20 @@ class SearcherIdx:
             writer.add_document(id=str(idx), content=content)  
         writer.commit()
         fobj.seek(pos,0)
-      self.filebyline = filebyline
-      if self.filebyline is None: self.filebyline = FileByLineIdx(fobj=fobj)
+
                
   def whoosh_searcher(self):
       return self.whoosh_ix.searcher()
 
-  def search(self, query=None, vec=None, lookahead_cutoff=100, k=5, chunk_size=10000):
+  def search(self, query=None, vec=None, lookahead_cutoff=100, k=5, chunk_size=10000, embdder="minilm"):
         if type(query) in (np.array, torch.Tensor):
           vec = query
           query = None
         assert vec is None or self.parents is not None
+        if vec is None and query is not None and hasattr(self, 'downsampler') and self.downsampler is not None:
+          vec = self.get_embedding(query, embdder=embdder)
+          if not hasattr(self, 'whoosh_ix') or self.whoosh_ix is None:
+            query = None
         if query is not None:        
           assert hasattr(self, 'whoosh_ix'), "must be created with bm25 search set"
           with self.whoosh_searcher() as searcher:
@@ -660,19 +670,30 @@ class SearcherIdx:
                      idx = idxs[idx]
                      yield (idx, self[idx].decode().replace("\\n", "\n").replace("\\t", "\t").strip(), score)
         else:
-                assert vec is not None        
-                #do ANN search
-                if type(self.parents) is not torch.Tensor:
-                   self.parents = torch.from_numpy(self.parents).to(device)
-                if hasattr(self, 'filebyline'):
-                  for r in pytorch_ann_search(vec, self.mmap_file, self.shape,  self.dtype, \
-                                            self.parents, self.num_top_level_parents, self.parent_levels, self.parent2idx):
-                    yield (r[0], self.filebyline[r[0]].decode().replace("\\n", "\n").replace("\\t", "\t").strip(), r[1])
-                else:
-                  for r in pytorch_ann_search(vec, self.mmap_file, self.shape,  self.dtype, \
-                                            self.parents, self.num_top_level_parents, self.parent_levels, self.parent2idx):
-                    yield (r[0], r[1])
-                  
+          #do ANN search
+          assert vec is not None        
+          if type(self.parents) is not torch.Tensor:
+             self.parents = torch.from_numpy(self.parents).to(device)
+          if hasattr(self, 'filebyline'):
+            for r in pytorch_ann_search(vec, self.mmap_file, self.shape,  self.dtype, \
+                                      self.parents, self.num_top_level_parents, self.parent_levels, self.parent2idx):
+              yield (r[0], self.filebyline[r[0]].decode().replace("\\n", "\n").replace("\\t", "\t").strip(), r[1])
+          else:
+            for r in pytorch_ann_search(vec, self.mmap_file, self.shape,  self.dtype, \
+                                      self.parents, self.num_top_level_parents, self.parent_levels, self.parent2idx):
+              yield (r[0], r[1])
+
+  def embed_text(self, filename,  skip_idxs=None,  embedder="minilm", chunk_size=1000, use_tqdm=True):
+    assert self.fobj is not None
+    fobj = self.fobj
+    pos = fobj.tell()
+    fobj.seek(0, 0)
+    self.downsampler, skip_idxs, self.dtype, mmap_len, embed_dim =  embed_text(self.fobj, filename + "_idx/index.mmap", downsampler=self.downsampler, \
+          mmap_len=self.shape[0], embed_dim=self.shape[1], embedder=embedder, chunk_size=chunk_size, use_tqdm=use_tqdm)
+    self.shape = [mmap_len, embed_dim]
+    fobj.seek(pos,0)
+    return skip_idxs
+
   def recreate_ann_idx(self,  mmap_file, shape, dtype, clusters=None):
     global device
     self.mmap_file, self.shape, self.dtype = mmap_file, shape, dtype
@@ -703,11 +724,12 @@ class SearcherIdx:
       cluster[label] = cluster.get(label,[]) + [span]
     return cluster, span2cluster_label
 
-  def cluster(self, clusters=None, span2cluster_label=None, cluster_idxs=None, max_level=4, max_cluster_size=200, \
+  def cluster(self, clusters=None, span2cluster_label=None, skip_idxs=None, cluster_idxs=None, max_level=4, max_cluster_size=200, \
                                min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=10000):
-    if clusters is None: cluster = {}
+    if clusters is None: clusters = {}
     if span2cluster_label is None: span2cluster_label = {}
-    return create_hiearchical_clusters(clusters, span2cluster_label, self.mmap_file, self.shape, self.dtype, cluster_idxs=cluster_idxs, max_level=max_level, \
+    return create_hiearchical_clusters(clusters, span2cluster_label, self.mmap_file, self.shape, self.dtype, \
+                                      skip_idxs=skip_idxs, cluster_idxs=cluster_idxs, max_level=max_level, \
                                       max_cluster_size=max_cluster_size, min_overlap_merge_cluster=min_overlap_merge_cluster, \
                                       prefered_leaf_node_size=prefered_leaf_node_size, kmeans_batch_size=kmeans_batch_size)
   
