@@ -356,7 +356,11 @@ def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, mmap_le
   else:
     skip_idxs = set(skip_idxs)
   if clusters is None: clusters = {}
-  if span2cluster_label is None: span2cluster_label = {}
+  if span2cluster_label is None: 
+    span2cluster_label = {}
+    for label, a_cluster in clusters:
+      for span in a_cluster:
+        span2cluster_label[span] = label
   for span, label in span2cluster_label.items():
     clusters[label] = clusters.get(label,[]) + [span]
   if prefered_leaf_node_size is None: prefered_leaf_node_size = max_cluster_size
@@ -799,7 +803,10 @@ class SearcherIdx:
                parents=None, parent_levels=None, parent_labels=None, skip_idxs=None, \
                parent2idx=None, top_parents=None, top_parent_idxs=None, clusters=None,  embedder="minilm", chunk_size=1000, \
                bm25_field="text", filebyline=None, downsampler=None, auto_embed_text=False, \
-               auto_create_embeddings_idx=False, auto_create_bm25_idx=False, use_tqdm=True):
+               auto_create_embeddings_idx=False, auto_create_bm25_idx=False,  \
+               span2cluster_label=None, cluster_idxs=None, max_level=4, max_cluster_size=200, \
+               min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000, use_tqdm=True
+              ):
     """
         Cluster indexes and performs approximate nearest neighbor search on a memmap file. 
         Also provides a wrapper for Whoosh BM25.
@@ -879,15 +886,9 @@ class SearcherIdx:
     self.skip_idxs = skip_idxs
     if auto_embed_text and filename is not None and self.fobj is not None:
       self.embed_text(chunk_size=chunk_size, use_tqdm=use_tqdm)
-    if clusters is not None:
-      self.recreate_embeddings_idx(clusters, chunk_size=chunk_size, use_tqdm=use_tqdm)
-    else:       
-     if parents is None and auto_create_embeddings_idx:
-      self.recreate_embeddings_idx(chunk_size=chunk_size, use_tqdm=use_tqdm)
-    if self.parent_levels is not None:
-       self.num_top_level_parents = len([a for a in self.parent_levels if a == max(self.parent_levels)])
-    else:
-       self.num_top_level_parents = 0
+    if clusters is not None or cluster_idxs is not None or auto_create_embeddings_idx:
+      self.recreate_embeddings_idx(clusters=clusters, span2cluster_label=span2cluster_label, cluster_idxs=cluster_idxs, max_level=max_level, max_cluster_size=max_cluster_size, \
+                               min_overlap_merge_cluster=min_overlap_merge_cluster, prefered_leaf_node_size=prefered_leaf_node_size, kmeans_batch_size=kmeans_batch_size)
     if auto_create_bm25_idx and fobj:
        self.recreate_whoosh_idx(bm25_field=bm25_field, filename=filename, fobj=fobj, filebyline=filebyline, auto_create_bm25_idx=auto_create_bm25_idx, use_tqdm=use_tqdm)
     
@@ -997,23 +998,21 @@ class SearcherIdx:
     self.skip_idxs = set(list(self.skip_idxs)+skip_idxs)
     
 
-  def recreate_embeddings_idx(self,  mmap_file=None, mmap_len=None, embed_dim=None, dtype=None,  clusters=None,  chunk_size=1000, use_tqdm=True):
+  def recreate_embeddings_idx(self,  clusters=None, span2cluster_label=None, cluster_idxs=None, max_level=4, max_cluster_size=200, \
+                               min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000,):
     global device
-    if mmap_file is None: mmap_file = self.mmap_file
-    if mmap_len is None: mmap_len = self.mmap_len
-    if embed_dim is None: embed_dim = self.embed_dim
-    if dtype is None: dtype = self.dtype
-    self.mmap_file, self.mmap_len, self.embed_dim, self.dtype = mmap_file, mmap_len, embed_dim, dtype
-    if clusters is None:
-      clusters, _ = self.cluster(chunk_size=chunk_size, use_tqdm=use_tqdm)
+    if clusters is None or cluster_idxs is not None:
+      clusters, _ = self.cluster(clusters=clusters, span2cluster_label=span2cluster_label, cluster_idxs=cluster_idxs, max_level=max_level, max_cluster_size=max_cluster_size, \
+                               min_overlap_merge_cluster=min_overlap_merge_cluster, prefered_leaf_node_size=prefered_leaf_node_size, kmeans_batch_size=kmeans_batch_size)
     self.clusters = clusters
+    #the below is probably in-efficient
     all_parents = list(clusters.keys())
     all_parents.sort(key=lambda a: a[0], reverse=True)
     max_level = all_parents[0][0]
     self.top_parents =  [a for a in enumerate(all_parents) if a[0] == max_level]
     self.top_parent_idxs = [idx for idx, a in enumerate(all_parents) if a[0] == max_level]
-    self.parent2idx = OrderedDict([(a,idx) for idx, a in enumerate(all_parents)])
-    self.parents = torch.from_numpy(np_memmap(mmap_file, shape=[self.mmap_len, self.embed_dim], dtype=dtype)[[a[1] for a in all_parents]]).to(device)
+    self.parent2idx = dict([(a,idx) for idx, a in enumerate(all_parents)])
+    self.parents = torch.from_numpy(np_memmap(self.mmap_file, shape=[self.mmap_len, self.embed_dim], dtype=self.dtype)[[a[1] for a in all_parents]]).to(device)
     
   def get_cluster_and_span2cluster_label(self):
     span2cluster_label = {}
@@ -1028,8 +1027,6 @@ class SearcherIdx:
 
   def cluster(self, clusters=None, span2cluster_label=None, cluster_idxs=None, max_level=4, max_cluster_size=200, \
                                min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000, use_tqdm=True):
-    if clusters is None: clusters = {}
-    if span2cluster_label is None: span2cluster_label = {}
     return create_hiearchical_clusters(clusters=clusters, span2cluster_label=span2cluster_label, mmap_file=self.mmap_file, mmap_len=self.mmap_len, embed_dim=self.embed_dim, dtype=self.dtype, \
                                       skip_idxs=self.skip_idxs, cluster_idxs=cluster_idxs, max_level=max_level, \
                                       max_cluster_size=max_cluster_size, min_overlap_merge_cluster=min_overlap_merge_cluster, \
@@ -1065,7 +1062,6 @@ class SearcherIdx:
       else:
         self.fobj = open(filename, "rb")
         if hasattr(self, 'filebyline') and self.filebyline is not None: self.filebyline.fobj = self.fobj
-      self.num_top_level_parents = len([a for a in self.parent_levels if a == max(self.parent_levels)])
       self.parents.to(device)
       self.downsampler.to(device)
       return self
