@@ -931,25 +931,31 @@ class SearcherIdx:
     setattr(self,f'downsampler_{self.search_field}_{self.embedder}_{self.embed_dim}', self.downsampler)
     self.skip_idxs = set(list(self.skip_idxs)+skip_idxs)
     
-  def switch_search_context(self, downsampler = None, mmap_file=None, search_field="text", embedder="minilm", embed_dim=25, clusters=None, idxs=None, \
+  def switch_search_context(self, downsampler = None, clusters=None, mmap_file=None, search_field="text", embedder="minilm", embed_dim=25, clusters=None, idxs=None, \
                             span2cluster_label=None, idxs=None, max_level=4, max_cluster_size=200, \
                             min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000, use_tqdm=True
                           ):
     global device
     if hasattr(self,f'downsampler_{self.search_field}_{self.embedder}_{self.embed_dim}'): getattr(self,f'downsampler_{self.search_field}_{self.embedder}_{self.embed_dim}').cpu()
     if hasattr(self, 'downsampler') and self.dowsampler is not None: self.downsampler.cpu()
-    self.embedder = embedder
     fobj = self.fobj
     if mmap_file is None:
       mmap_file = f"{self.idx_dir}/search_index_{search_field}_{embedder}_{embed_dim}.mmap"
-    self.downsampler, self.mmap_file, self.search_field, self.embedder, self.embed_dim = downsampler, mmap_file, search_field, embedder, embed_dim
+    self.clusters, self.downsampler, self.mmap_file, self.search_field, self.embedder, self.embed_dim = clusters, downsampler, mmap_file, search_field, embedder, embed_dim
+    
+    if hasattr(self,f'downsampler_{self.search_field}_{self.embedder}_{self.embed_dim}'): 
+      self.downsampler = getattr(self,f'downsampler_{self.search_field}_{self.embedder}_{self.embed_dim}').to(device)
+    if hasattr(self,f'clusters_{self.search_field}_{self.embedder}_{self.embed_dim}'): 
+      self.clusters = getattr(self,f'clusters_{self.search_field}_{self.embedder}_{self.embed_dim}')
+      
     if self.fobj is not None:
       self.embed_text(chunk_size=chunk_size, use_tqdm=use_tqdm)
     self.recreate_embeddings_idx(clusters=clusters, span2cluster_label=span2cluster_label, idxs=idxs, max_level=max_level, max_cluster_size=max_cluster_size, \
                                min_overlap_merge_cluster=min_overlap_merge_cluster, prefered_leaf_node_size=prefered_leaf_node_size, kmeans_batch_size=kmeans_batch_size)
     if self.fobj is not None:
        self.recreate_whoosh_idx(auto_create_bm25_idx=False, idxs=idxs, use_tqdm=use_tqdm)
-    setattr(self,f'downsampler_{search_field}_{embedder}_{embed_dim}', self.downsampler)
+    setattr(self,f'downsampler_{self.search_field}_{embedder}_{self.embed_dim}', self.downsampler)
+    setattr(self,f'clusters_{self.search_field}_{self.embedder}_{self.embed_dim}', self.clusters)
     
   def recreate_whoosh_idx(self, auto_create_bm25_idx=False, idxs=None, use_tqdm=True):
     assert self.fobj is not None
