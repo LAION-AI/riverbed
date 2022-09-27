@@ -873,7 +873,7 @@ class SearcherIdx:
     assert filename is not None
     self.idx_dir = f"{filename}_idx"
     if mmap_file is None:
-      mmap_file = f"{self.idx_dir}/search_index.mmap"
+      mmap_file = f"{self.idx_dir}/search_index_{search_field}_{embedder}_{embed_dim}.mmap"
     if fobj is None:
       if filename.endswith(".gz"):
         fobj = self.fobj = GzipByLineIdx.open(filename)
@@ -900,9 +900,10 @@ class SearcherIdx:
                                min_overlap_merge_cluster=min_overlap_merge_cluster, prefered_leaf_node_size=prefered_leaf_node_size, kmeans_batch_size=kmeans_batch_size)
     if auto_create_bm25_idx and fobj:
        self.recreate_whoosh_idx(auto_create_bm25_idx=auto_create_bm25_idx, idxs=idxs, use_tqdm=use_tqdm)
-  
+    setattr(self,f'downsampler_{search_field}_{embedder}_{embed_dim}', self.downsampler)
+      
   #embed all of self.fobj or (idx, content) for idx in idxs for the row/content from fobj
-  def embed_text(self, chunk_size=1000, idxs=None, use_tqdm=True):
+  def embed_text(self, chunk_size=1000, idxs=None, use_tqdm=True, auto_create_bm25_idx=False):
     assert self.fobj is not None
     search_field = self.search_field 
     def fobj_data_reader():
@@ -927,11 +928,29 @@ class SearcherIdx:
       dat_iter = fobj_data_reader()  
     self.downsampler, skip_idxs, self.dtype, self.mmap_len, self.embed_dim =  embed_text(dat_iter, self.mmap_file, downsampler=self.downsampler, \
           mmap_len=self.mmap_len, embed_dim=self.embed_dim, embedder=self.embedder, chunk_size=chunk_size, use_tqdm=use_tqdm)
-    #print (self.mmap_len)
-    
+    setattr(self,f'downsampler_{self.search_field}_{self.embedder}_{self.embed_dim}', self.downsampler)
     self.skip_idxs = set(list(self.skip_idxs)+skip_idxs)
     
-
+  def switch_search_context(self, downsampler = None, mmap_file=None, search_field="text", embedder="minilm", embed_dim=25, clusters=None, idxs=None, \
+                            span2cluster_label=None, idxs=None, max_level=4, max_cluster_size=200, \
+                            min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000, use_tqdm=True
+                          ):
+    global device
+    if hasattr(self,f'downsampler_{self.search_field}_{self.embedder}_{self.embed_dim}'): getattr(self,f'downsampler_{self.search_field}_{self.embedder}_{self.embed_dim}').cpu()
+    if hasattr(self, 'downsampler') and self.dowsampler is not None: self.downsampler.cpu()
+    self.embedder = embedder
+    fobj = self.fobj
+    if mmap_file is None:
+      mmap_file = f"{self.idx_dir}/search_index_{search_field}_{embedder}_{embed_dim}.mmap"
+    self.downsampler, self.mmap_file, self.search_field, self.embedder, self.embed_dim = downsampler, mmap_file, search_field, embedder, embed_dim
+    if self.fobj is not None:
+      self.embed_text(chunk_size=chunk_size, use_tqdm=use_tqdm)
+    self.recreate_embeddings_idx(clusters=clusters, span2cluster_label=span2cluster_label, idxs=idxs, max_level=max_level, max_cluster_size=max_cluster_size, \
+                               min_overlap_merge_cluster=min_overlap_merge_cluster, prefered_leaf_node_size=prefered_leaf_node_size, kmeans_batch_size=kmeans_batch_size)
+    if self.fobj is not None:
+       self.recreate_whoosh_idx(auto_create_bm25_idx=False, idxs=idxs, use_tqdm=use_tqdm)
+    setattr(self,f'downsampler_{search_field}_{embedder}_{embed_dim}', self.downsampler)
+    
   def recreate_whoosh_idx(self, auto_create_bm25_idx=False, idxs=None, use_tqdm=True):
     assert self.fobj is not None
     fobj = self.fobj
@@ -939,11 +958,12 @@ class SearcherIdx:
     schema = Schema(id=ID(stored=True), content=TEXT(analyzer=StemmingAnalyzer()))
     #TODO determine how to clear out the whoosh index besides rm -rf _M* MAIN*
     idx_dir = self.idx_dir
-    need_reindex = auto_create_bm25_idx or not os.path.exists(f"{idx_dir}/_MAIN_1.toc") #CHECK IF THIS IS RIGHT 
+    os.system(f"mkdir -p {idx_dir}_{search_field})
+    need_reindex = auto_create_bm25_idx or not os.path.exists(f"{idx_dir}_{search_field}/_MAIN_1.toc") #CHECK IF THIS IS RIGHT 
     if not need_reindex:
-      self.whoosh_ix = whoosh_index.open_dir(idx_dir)
+      self.whoosh_ix = whoosh_index.open_dir(f"{idx_dir}_{search_field}")
     else:
-      self.whoosh_ix = create_in(idx_dir, schema)
+      self.whoosh_ix = create_in(f"{idx_dir}_{search_field}", schema)
       writer = self.whoosh_ix.writer(multisegment=True, limitmb=1024, procs=multiprocessing.cpu_count())      
       #writer = self.whoosh_ix.writer(multisegment=True,  procs=multiprocessing.cpu_count())      
       pos = fobj.tell()
@@ -1091,16 +1111,10 @@ class SearcherIdx:
           
   def get_embeddings(self, sent):
     return get_embeddings(sent, downsampler=self.downsampler, dtype=self.dtype, embedder=self.embedder)
-  
-
-  def recreate_embeddings_idx(self,  clusters=None, span2cluster_label=None, idxs=None, max_level=4, max_cluster_size=200, \
-                               min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000,):
-    global device
-    if clusters is None or idxs is not None:
-      clusters, _ = self.cluster(clusters=clusters, span2cluster_label=span2cluster_label, cluster_idxs=idxs, max_level=max_level, max_cluster_size=max_cluster_size, \
-                               min_overlap_merge_cluster=min_overlap_merge_cluster, prefered_leaf_node_size=prefered_leaf_node_size, kmeans_batch_size=kmeans_batch_size)
-    self.clusters = clusters
-    #the below is probably in-efficient
+              
+  #the below is probably in-efficient
+  def recreate_parents_data(self):
+    global device          
     all_parents = list(clusters.keys())
     all_parents.sort(key=lambda a: a[0], reverse=True)
     max_level = all_parents[0][0]
@@ -1108,7 +1122,16 @@ class SearcherIdx:
     self.top_parent_idxs = [idx for idx, a in enumerate(all_parents) if a[0] == max_level]
     self.parent2idx = dict([(a,idx) for idx, a in enumerate(all_parents)])
     self.parents = torch.from_numpy(np_memmap(self.mmap_file, shape=[self.mmap_len, self.embed_dim], dtype=self.dtype)[[a[1] for a in all_parents]]).to(device)
-    
+             
+  def recreate_embeddings_idx(self,  clusters=None, span2cluster_label=None, idxs=None, max_level=4, max_cluster_size=200, \
+                               min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000,):
+    global device
+    if clusters is None or idxs is not None:
+      clusters, _ = self.cluster(clusters=clusters, span2cluster_label=span2cluster_label, cluster_idxs=idxs, max_level=max_level, max_cluster_size=max_cluster_size, \
+                               min_overlap_merge_cluster=min_overlap_merge_cluster, prefered_leaf_node_size=prefered_leaf_node_size, kmeans_batch_size=kmeans_batch_size)
+    self.clusters = clusters
+    self.recreate_parents_data()
+              
   def get_cluster_and_span2cluster_label(self):
     span2cluster_label = {}
     for label, a_cluster in self.clusters:
@@ -1145,17 +1168,20 @@ class SearcherIdx:
       if self.downsampler is not None:
         device2 = next(self.downsampler.parameters()).device
         self.downsampler.cpu()
-      if self.parents is not None:
-        device2 = self.parents.device
-        self.parents.cpu()
+      for field in dir(self):
+        if field.startswith("downsampler_"):
+              downsampler = getattr(self, field)
+              if downsampler is not None:
+                setattr(self, field, downsampler.cpu())
+      parents = self.parents
+      self.parents = None
       pickle.dump(self, open(f"{filename}_idx/search_index.pickle", "wb"))
       self.mmap_file = mmap_file
       self.idx_dir = idx_dir
       self.fobj = fobj
       if self.downsampler is not None:
         self.downsampler.to(device2)
-      if self.parents is not None:
-        self.parents.to(device2)
+      self.parents = parents
       if type(self.fobj) is GzipByLineIdx:
         self.filebyline = self.fobj
       else:
@@ -1174,7 +1200,7 @@ class SearcherIdx:
       else:
         self.fobj = open(filename, "rb")
         if hasattr(self, 'filebyline') and self.filebyline is not None: self.filebyline.fobj = self.fobj
-      self.parents.to(device)
       self.downsampler.eval().to(device)
+      self.recreate_parents_data()
       return self
         
