@@ -1014,7 +1014,7 @@ class SearcherIdx:
   def whoosh_searcher(self):
       return self.whoosh_ix.searcher()
 
-  def search(self, query=None, vec=None, lookahead_cutoff=100, do_bm25_only=False, k=5, chunk_size=100):
+  def search(self, query=None, vec=None, lookahead_cutoff=100, do_bm25_only=False, k=5, chunk_size=100, limit=None):
     embedder = self.embedder
     if type(query) in (np.array, torch.Tensor):
       vec = query
@@ -1027,16 +1027,22 @@ class SearcherIdx:
     vec_search_results = embeddings_search(vec, mmap_file= self.mmap_file, mmap_len=self.mmap_len, embed_dim=self.embed_dim,  dtype=self.dtype, \
                                   parents=self.parents, clusters=self.clusters, top_parent_idxs=self.top_parent_idxs, \
                                   top_parents=self.top_parents, parent2idx=self.parent2idx, k=k)
-    
+    if limit is None: 
+      cnt = 10^6
+    else:
+      cnt = limit
     if query is not None:        
       assert hasattr(self, 'whoosh_ix'), "must be created with bm25 indexing"
       with self.whoosh_searcher() as searcher:
         if type(query) is str:
            query = QueryParser("content", self.whoosh_ix.schema).parse(query)
-        results = searcher.search(query, limit=None)
+        results = searcher.search(query, limit=limit)
+
         if vec is None or do_bm25_only:
           for r in results:
            yield (int(r['id']), self.filebyline[int(r['id'])].decode().replace("\\n", "\n").replace("\\t", "\t").strip())
+           cnt -= 1
+           if cnt <= 0: return
         else:
           idxs = []
           n_chunks = 0
@@ -1050,36 +1056,46 @@ class SearcherIdx:
                 idxs = [idx for idx in idxs if idx not in vec_results]
                 vecs = torch.from_numpy(np_memmap(self.mmap_file, shape=[self.mmap_len, self.embed_dim], dtype=self.dtype)[idxs]).to(device)
                 results = cosine_similarity(vec, vecs)
-                for idx, score in zip(results.indices.tolist(), results.values.tolist()):
-                   idx = idxs[idx]
-                   vec_results[idx] = score
+                for idx, score in zip(idxs, results):
+                   vec_results[idx] = score.item()
                 vec_results = list(vec_results.items())
                 vec_results.sort(key=lambda a: a[1], reverse=True)
                 for idx, score in vec_results:
                    yield (idx, self.filebyline[idx].decode().replace("\\n", "\n").replace("\\t", "\t").strip(), score)
+                   cnt -= 1
+                   if cnt <= 0: return
                 idxs = []
                 n_chunk = 0
           if idxs:
-                vec_results = {}
-                for _, r in zip(range(chunk_size), vec_search_results):
-                  vec_results[r[0]] = r[1]
-                idxs = [idx for idx in idxs if idx not in vec_results]
-                vecs = torch.from_numpy(np_memmap(self.mmap_file, shape=[self.mmap_len, self.embed_dim], dtype=self.dtype)[idxs]).to(device)
-                results = cosine_similarity(vec, vecs)
-                for idx, score in zip(results.indices.tolist(), results.values.tolist()):
-                   idx = idxs[idx]
-                   vec_results[idx] = score
-                vec_results = list(vec_results.items())
-                vec_results.sort(key=lambda a: a[1], reverse=True)
-                for idx, score in vec_results:
-                   yield (idx, self.filebyline[idx].decode().replace("\\n", "\n").replace("\\t", "\t").strip(), score)
+            vec_results = {}
+            for _, r in zip(range(chunk_size), vec_search_results):
+              vec_results[r[0]] = r[1]
+            idxs = [idx for idx in idxs if idx not in vec_results]
+            vecs = torch.from_numpy(np_memmap(self.mmap_file, shape=[self.mmap_len, self.embed_dim], dtype=self.dtype)[idxs]).to(device)
+            results = cosine_similarity(vec, vecs)
+            for idx, score in zip(idxs, results):
+               vec_results[idx] = score.item()
+            vec_results = list(vec_results.items())
+            vec_results.sort(key=lambda a: a[1], reverse=True)
+            for idx, score in vec_results:
+               yield (idx, self.filebyline[idx].decode().replace("\\n", "\n").replace("\\t", "\t").strip(), score)
+               cnt -= 1
+               if cnt <= 0: return
+          for r in vec_search_results:
+            yield (r[0], self.filebyline[r[0]].decode().replace("\\n", "\n").replace("\\t", "\t").strip(), r[1])
+            cnt -= 1
+            if cnt <= 0: return
     else:
       if hasattr(self, 'filebyline'):
         for r in vec_search_results:
           yield (r[0], self.filebyline[r[0]].decode().replace("\\n", "\n").replace("\\t", "\t").strip(), r[1])
+          cnt -= 1
+          if cnt <= 0: return
       else:
         for r in vec_search_results:
           yield (r[0], r[1])
+          cnt -= 1
+          if cnt <= 0: return
           
   def get_embeddings(self, sent):
     return get_embeddings(sent, downsampler=self.downsampler, dtype=self.dtype, embedder=self.embedder)
