@@ -37,7 +37,7 @@ from nltk.corpus import stopwords as nltk_stopwords
 from torch import nn
 import spacy
 from collections import OrderedDict
-
+import multiprocessing
 import math        
 if torch.cuda.is_available():
   device = 'cuda'
@@ -926,8 +926,8 @@ class SearcherIdx:
         self.filebyline = self.fobj 
       else:   
         self.filebyline = FileByLineIdx(fobj=fobj)  
-    self.mmap_file, self.mmap_len, self.embed_dim, self.dtype, self.clusers, self.parent2idx,  self.parents, self.top_parents, self.top_parent_idxs, self.search_field   = \
-             mmap_file, mmap_len, embed_dim, dtype, clusters, parent2idx, parents, top_parents, top_parent_idxs, search_field
+    self.mmap_file, self.mmap_len, self.embed_dim, self.dtype, self.clusers, self.parent2idx,  self.parents, self.top_parents, self.top_parent_idxs, self.search_field, self.downsampler  = \
+             mmap_file, mmap_len, embed_dim, dtype, clusters, parent2idx, parents, top_parents, top_parent_idxs, search_field, downsampler
     if skip_idxs is None: skip_idxs = []
     self.skip_idxs = skip_idxs
     if auto_embed_text and filename is not None and self.fobj is not None:
@@ -940,7 +940,6 @@ class SearcherIdx:
 
   def embed_text(self, chunk_size=1000, idxs=None, use_tqdm=True):
     assert self.fobj is not None
-    if not hasattr(self, 'downsampler'): self.downsampler = None
     search_field = self.search_field 
     def fobj_data_reader():
       fobj = self.fobj
@@ -981,21 +980,22 @@ class SearcherIdx:
       self.whoosh_ix = whoosh_index.open_dir(idx_dir)
     else:
       self.whoosh_ix = create_in(idx_dir, schema)
-      writer = self.whoosh_ix.writer()
+      #writer = self.whoosh_ix.writer(multisegment=True, limitmb=1024, procs=multiprocessing.cpu_count())      
+      writer = self.whoosh_ix.writer(multisegment=True,  procs=multiprocessing.cpu_count())      
       pos = fobj.tell()
       fobj.seek(0, 0)
       if idxs is not None:
         idx_text_pairs = [(idx, self.filebyline[idx]) for idx in idxs]
         if use_tqdm:
-          iter_obj =  tqdm.tqdm(idx_text_pairs)
+          dat_iter =  tqdm.tqdm(idx_text_pairs)
         else:
-          iter_obj = idx_text_pairs
+          dat_iter = idx_text_pairs
       else:
         if use_tqdm:
-          iter_obj = tqdm.tqdm(enumerate(fobj))
+          dat_iter = tqdm.tqdm(enumerate(fobj))
         else:
-          iter_obj = fobj
-      for idx, l in fobj:
+          dat_iter = enumerate(fobj)
+      for idx, l in dat_iter:
           l =l.decode().replace("\\n", "\n").replace("\\t", "\t").strip()
           if not l: continue
           if l[0] == "{" and l[-1] == "}":
