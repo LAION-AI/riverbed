@@ -980,8 +980,8 @@ class SearcherIdx:
       self.whoosh_ix = whoosh_index.open_dir(idx_dir)
     else:
       self.whoosh_ix = create_in(idx_dir, schema)
-      #writer = self.whoosh_ix.writer(multisegment=True, limitmb=1024, procs=multiprocessing.cpu_count())      
-      writer = self.whoosh_ix.writer(multisegment=True,  procs=multiprocessing.cpu_count())      
+      writer = self.whoosh_ix.writer(multisegment=True, limitmb=1024, procs=multiprocessing.cpu_count())      
+      #writer = self.whoosh_ix.writer(multisegment=True,  procs=multiprocessing.cpu_count())      
       pos = fobj.tell()
       fobj.seek(0, 0)
       if idxs is not None:
@@ -1120,15 +1120,21 @@ class SearcherIdx:
         else:
           self.filebyline.fobj = None
       self.fobj = None
-      device2 = next(self.downsampler.parameters()).device
-      self.downsampler.cpu()
-      self.parents.cpu()
+      device2 = "cpu"
+      if self.downsampler is not None:
+        device2 = next(self.downsampler.parameters()).device
+        self.downsampler.cpu()
+      if self.parents is not None:
+        device2 = self.parents.device
+        self.parents.cpu()
       pickle.dump(self, open(f"{filename}_idx/search_index.pickle", "wb"))
       self.mmap_file = mmap_file
       self.idx_dir = idx_dir
       self.fobj = fobj
-      self.downsampler.to(device2)
-      self.parents.to(device2)
+      if self.downsampler is not None:
+        self.downsampler.to(device2)
+      if self.parents is not None:
+        self.parents.to(device2)
       if type(self.fobj) is GzipByLineIdx:
         self.filebyline = self.fobj
       else:
