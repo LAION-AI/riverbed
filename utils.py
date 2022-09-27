@@ -981,7 +981,7 @@ class SearcherIdx:
     if not need_reindex:
       self.whoosh_ix = whoosh_index.open_dir(f"{idx_dir}/bm25_{search_field}")
     else:
-      self.whoosh_ix = create_in(f"{idx_dir}_{search_field}", schema)
+      self.whoosh_ix = create_in(f"{idx_dir}/bm25_{search_field}", schema)
       writer = self.whoosh_ix.writer(multisegment=True, limitmb=1024, procs=multiprocessing.cpu_count())      
       #writer = self.whoosh_ix.writer(multisegment=True,  procs=multiprocessing.cpu_count())      
       pos = fobj.tell()
