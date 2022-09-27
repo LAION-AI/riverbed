@@ -850,7 +850,7 @@ class SearcherIdx:
   def __init__(self,  filename, fobj=None, mmap_file=None, mmap_len=0, embed_dim=25, dtype=np.float16, \
                parents=None, parent_levels=None, parent_labels=None, skip_idxs=None, \
                parent2idx=None, top_parents=None, top_parent_idxs=None, clusters=None,  embedder="minilm", chunk_size=1000, \
-               bm25_field="text", filebyline=None, downsampler=None, auto_embed_text=False, \
+               search_field="text", filebyline=None, downsampler=None, auto_embed_text=False, \
                auto_create_embeddings_idx=False, auto_create_bm25_idx=False,  \
                span2cluster_label=None, cluster_idxs=None, max_level=4, max_cluster_size=200, \
                min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000, use_tqdm=True
@@ -885,7 +885,7 @@ class SearcherIdx:
         :arg auto_embed_text. Optional. Will populate the mmap_file from the data from filename/fobj. 
         :arg auto_create_bm25_idx: Optional. Will do BM25 indexing of the contents of the file using whoosh, with stemming.
         :filebyline           Optional. The access for a file by lines.
-        :arg bm25_field:      Optional. Defaults to "text". If the data is in jsonl format,
+        :arg search_field:      Optional. Defaults to "text". If the data is in jsonl format,
                               this is the field that is Whoosh/bm25 indexed.
         :skip_idxs.           Optional. The indexes that are empty and should not be searched or clustered/
         :filebyline           Optional. If not passed, will be created. Used to random access the file by line number.
@@ -938,30 +938,70 @@ class SearcherIdx:
       self.recreate_embeddings_idx(clusters=clusters, span2cluster_label=span2cluster_label, cluster_idxs=cluster_idxs, max_level=max_level, max_cluster_size=max_cluster_size, \
                                min_overlap_merge_cluster=min_overlap_merge_cluster, prefered_leaf_node_size=prefered_leaf_node_size, kmeans_batch_size=kmeans_batch_size)
     if auto_create_bm25_idx and fobj:
-       self.recreate_whoosh_idx(bm25_field=bm25_field, filename=filename, fobj=fobj, filebyline=filebyline, auto_create_bm25_idx=auto_create_bm25_idx, use_tqdm=use_tqdm)
+       self.recreate_whoosh_idx(auto_create_bm25_idx=auto_create_bm25_idx, use_tqdm=use_tqdm)
+
+  def embed_text(self, chunk_size=1000, idxs=None, use_tqdm=True):
+    assert self.fobj is not None
+    if not hasattr(self, 'downsampler'): self.downsampler = None
+    search_field = self.search_field 
+    def fobj_data_reader():
+      fobj = self.fobj
+      pos = fobj.tell()
+      fobj.seek(0, 0)
+      for line in fobj:
+        l =l.decode().replace("\\n", "\n").replace("\\t", "\t").strip()
+        if not l: 
+          yield ''
+        else:
+          if l[0] == "{" and l[-1] == "}":
+            content = l.split(search_field+'": "')[1]
+            content = content.split('", "')[0].replace("_", " ")
+          else:
+            content = l.replace("_", " ")
+          yield content
+      fobj.seek(pos,0)
+    if idxs is not None:
+      dat_iter = [(idx, self.filebyline[idx]) for idx in idxs]
+    else:
+      dat_iter = fobj_data_reader()  
+    self.downsampler, skip_idxs, self.dtype, self.mmap_len, self.embed_dim =  embed_text(dat_iter, self.mmap_file, downsampler=self.downsampler, \
+          mmap_len=self.mmap_len, embed_dim=self.embed_dim, embedder=self.embedder, chunk_size=chunk_size, use_tqdm=use_tqdm)
+    #print (self.mmap_len)
     
-  def recreate_whoosh_idx(self, bm25_field="text", filename=None, fobj=None, filebyline=None, auto_create_bm25_idx=False, use_tqdm=True):
-    assert filename is not None or fobj is not None
-    self.bm25_field = bm25_field
+    self.skip_idxs = set(list(self.skip_idxs)+skip_idxs)
+    
+
+  def recreate_whoosh_idx(self, auto_create_bm25_idx=False, idxs=None, use_tqdm=True):
+    assert self.fobj is not None
+    fobj = self.fobj
+    search_field = self.search_field 
     schema = Schema(id=ID(stored=True), content=TEXT(analyzer=StemmingAnalyzer()))
     #TODO determine how to clear out the whoosh index besides rm -rf _M* MAIN*
-    need_reindex = auto_create_bm25_idx or not os.path.exists(filename+"_idx/_MAIN_1.toc") 
+    idx_dir = "/".join(self.mmap_file.split("/")[:-1])
+    need_reindex = auto_create_bm25_idx or not os.path.exists(f"{idx_dir}/_MAIN_1.toc") 
     if not need_reindex:
-      self.whoosh_ix = whoosh_index.open_dir(filename+"_idx")
+      self.whoosh_ix = whoosh_index.open_dir(idx_dir)
     else:
-      self.whoosh_ix = create_in(filename+"_idx", schema)
+      self.whoosh_ix = create_in(idx_dir, schema)
       writer = self.whoosh_ix.writer()
       pos = fobj.tell()
       fobj.seek(0, 0)
-      if use_tqdm:
-        fobj2 = tqdm.tqdm(enumerate(fobj))
+      if idxs is not None:
+        idx_text_pairs = [(idx, self.filebyline[idx]) for idx in idxs]
+        if use_tqdm:
+          iter_obj =  tqdm.tqdm(idx_text_pairs)
+        else:
+          iter_obj = idx_text_pairs
       else:
-        fobj2 = fobj
+        if use_tqdm:
+          iter_obj = tqdm.tqdm(enumerate(fobj))
+        else:
+          iter_obj = fobj
       for idx, l in fobj:
           l =l.decode().replace("\\n", "\n").replace("\\t", "\t").strip()
           if not l: continue
           if l[0] == "{" and l[-1] == "}":
-            content = l.split(self.bm25_field+'": "')[1]
+            content = l.split(search_field+'": "')[1]
             content = content.split('", "')[0].replace("_", " ")
           else:
             content = l.replace("_", " ")
@@ -1033,18 +1073,6 @@ class SearcherIdx:
   def get_embeddings(self, sent):
     return get_embeddings(sent, downsampler=self.downsampler, dtype=self.dtype, embedder=self.embedder)
   
-  def embed_text(self, chunk_size=1000, use_tqdm=True):
-    assert self.fobj is not None
-    if not hasattr(self, 'downsampler'): self.downsampler = None
-    fobj = self.fobj
-    pos = fobj.tell()
-    fobj.seek(0, 0)
-    self.downsampler, skip_idxs, self.dtype, self.mmap_len, self.embed_dim =  embed_text(self.fobj, self.mmap_file, downsampler=self.downsampler, \
-          mmap_len=self.mmap_len, embed_dim=self.embed_dim, embedder=self.embedder, chunk_size=chunk_size, use_tqdm=use_tqdm)
-    #print (self.mmap_len)
-    fobj.seek(pos,0)
-    self.skip_idxs = set(list(self.skip_idxs)+skip_idxs)
-    
 
   def recreate_embeddings_idx(self,  clusters=None, span2cluster_label=None, cluster_idxs=None, max_level=4, max_cluster_size=200, \
                                min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000,):
