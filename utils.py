@@ -976,10 +976,21 @@ class SearcherIdx:
   def whoosh_searcher(self):
       return self.whoosh_ix.searcher()
     
-  #search using vector based and/or bm25 search. returns generator of (id, text_row, key_terms, score). depending 
-  #on the search, text_row, key_terms, or score may not be available.
+  #search using vector based and/or bm25 search. returns generator of a dict obj containing the results in 'id', 'text',and 'score. 
+  #if the underlying data is jsonl, then the result of the data will also be returned in the dict.
+  #WARNING: we overwrite the 'id', 'score', and 'text' field, so we might want to use a different field name like f'{field_prefix}_score'
   #key_terms. TODO: See https://whoosh.readthedocs.io/en/latest/keywords.html
   def search(self, query=None, vec=None, do_bm25_only=False, k=5, chunk_size=100, limit=None):
+    def _get_data(idx):
+      l  = self.filebyline[idx]
+      dat = l.decode().replace("\\n", "\n").replace("\\t", "\t").strip()
+      if dat[0] == "{" and dat[-1] == "}":
+        try:
+          dat = json.loads(l)
+        except:
+          pass
+      return dat
+    
     embedder = self.embedder
     if type(query) in (np.array, torch.Tensor):
       vec = query
@@ -1004,7 +1015,12 @@ class SearcherIdx:
         results = searcher.search(query, limit=limit)
         if vec is None or do_bm25_only:
           for r in results:
-           yield (int(r['id']), self.filebyline[int(r['id'])].decode().replace("\\n", "\n").replace("\\t", "\t").strip(), r.key_terms(), 0.0)
+            data = _get_data(int(r['id']))
+            if type(data) is dict:
+              data['id'] = int(r['id'])
+              yield data
+            else:
+              yield {'id': int(r['id']), 'text': data}
            cnt -= 1
            if cnt <= 0: return
         else:
@@ -1027,14 +1043,15 @@ class SearcherIdx:
                 vec_results = list(vec_results.items())
                 vec_results.sort(key=lambda a: a[1][1], reverse=True)
                 for idx, score_keyterm in vec_results:
-                   dat = self.filebyline[idx].decode()#
-                   try:
-                    dat = json.loads(dat)
-                   except:
-                    dat = dat.replace("\\n", "\n").replace("\\t", "\t").strip()
-                   yield (idx, dat, score_keyterm[0], score_keyterm[1])
-                   cnt -= 1
-                   if cnt <= 0: return
+                  data = _get_data(idx)
+                  if type(data) is dict:
+                    data['id'] = idx
+                    data['score'] = score_keyterm[1]
+                    yield data
+                  else:
+                    yield {'id': idx, 'text': data, 'score': score_keyterm[1]}
+                  cnt -= 1
+                  if cnt <= 0: return
                 idxs = []
                 key_terms = []
                 n_chunk = 0
@@ -1046,43 +1063,31 @@ class SearcherIdx:
             vecs = torch.from_numpy(np_memmap(self.mmap_file, shape=[self.mmap_len, self.embed_dim], dtype=self.dtype)[idxs]).to(device)
             results = cosine_similarity(vec, vecs)
             for idx, score, key_term in zip(idxs, results, key_terms):
-                   vec_results[idx] = (key_term, score.item())
+               vec_results[idx] = (key_term, score.item())
             vec_results = list(vec_results.items())
             vec_results.sort(key=lambda a: a[1][1], reverse=True)
             for idx, score_keyterm in vec_results:
-               dat = self.filebyline[idx].decode()#
-               try:
-                dat = json.loads(dat)
-               except:
-                dat = dat.replace("\\n", "\n").replace("\\t", "\t").strip()
-               yield (idx, dat, score_keyterm[0], score_keyterm[1])
+               data = _get_data(idx)
+               if type(data) is dict:
+                 data['id'] = idx
+                 data['score'] = score_keyterm[1]
+                 yield data
+               else:
+                 yield {'id': idx, 'text': data, 'score': score_keyterm[1]}
                cnt -= 1
                if cnt <= 0: return
-          for r in vec_search_results:
-            dat = self.filebyline[r[0]].decode()#
-            try:
-                dat = json.loads(dat)
-            except:
-                dat = dat.replace("\\n", "\n").replace("\\t", "\t").strip()
-            yield (r[0], dat, [], r[1])
-            cnt -= 1
-            if cnt <= 0: return
-    else: #no bm25/whoosh - vector based search only
-      if hasattr(self, 'filebyline'):
-        for r in vec_search_results:
-          dat = self.filebyline[r[0]].decode()#
-          try:
-                dat = json.loads(dat)
-          except:
-                dat = dat.replace("\\n", "\n").replace("\\t", "\t").strip()      
-          yield (r[0], dat, [], r[1])
-          cnt -= 1
-          if cnt <= 0: return
-      else:
-        for r in vec_search_results:
-          yield (r[0], "", [], r[1])
-          cnt -= 1
-          if cnt <= 0: return
+    #return any stragglers         
+    for r in vec_search_results:
+      data = _get_data(idx)
+      if type(data) is dict:
+         data['id'] = r[0]
+         data['score'] = r[1]
+         yield data
+       else:
+         yield {'id': r[0], 'text': data, 'score': r[1]}
+      cnt -= 1
+      if cnt <= 0: return
+    
           
   def get_embeddings(self, sent):
     return get_embeddings(sent, downsampler=self.downsampler, dtype=self.dtype, embedder=self.embedder)
