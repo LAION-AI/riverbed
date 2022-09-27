@@ -38,7 +38,8 @@ from torch import nn
 import spacy
 from collections import OrderedDict
 import multiprocessing
-import math        
+import math 
+import json
 if torch.cuda.is_available():
   device = 'cuda'
 else:
@@ -1026,7 +1027,12 @@ class SearcherIdx:
                 vec_results = list(vec_results.items())
                 vec_results.sort(key=lambda a: a[1][1], reverse=True)
                 for idx, score_keyterm in vec_results:
-                   yield (idx, self.filebyline[idx].decode().replace("\\n", "\n").replace("\\t", "\t").strip(), score_keyterm[0], score_keyterm[1])
+                   dat = self.filebyline[idx].decode()#
+                   try:
+                    dat = json.loads(dat)
+                   except:
+                    dat = dat.replace("\\n", "\n").replace("\\t", "\t").strip()
+                   yield (idx, dat, score_keyterm[0], score_keyterm[1])
                    cnt -= 1
                    if cnt <= 0: return
                 idxs = []
@@ -1044,17 +1050,32 @@ class SearcherIdx:
             vec_results = list(vec_results.items())
             vec_results.sort(key=lambda a: a[1][1], reverse=True)
             for idx, score_keyterm in vec_results:
-               yield (idx, self.filebyline[idx].decode().replace("\\n", "\n").replace("\\t", "\t").strip(), score_keyterm[0], score_keyterm[1])
+               dat = self.filebyline[idx].decode()#
+               try:
+                dat = json.loads(dat)
+               except:
+                dat = dat.replace("\\n", "\n").replace("\\t", "\t").strip()
+               yield (idx, dat, score_keyterm[0], score_keyterm[1])
                cnt -= 1
                if cnt <= 0: return
           for r in vec_search_results:
-            yield (r[0], self.filebyline[r[0]].decode().replace("\\n", "\n").replace("\\t", "\t").strip(), [], r[1])
+            dat = self.filebyline[r[0]].decode()#
+            try:
+                dat = json.loads(dat)
+            except:
+                dat = dat.replace("\\n", "\n").replace("\\t", "\t").strip()
+            yield (r[0], dat, [], r[1])
             cnt -= 1
             if cnt <= 0: return
     else: #no bm25/whoosh - vector based search only
       if hasattr(self, 'filebyline'):
         for r in vec_search_results:
-          yield (r[0], self.filebyline[r[0]].decode().replace("\\n", "\n").replace("\\t", "\t").strip(), [], r[1])
+          dat = self.filebyline[r[0]].decode()#
+          try:
+                dat = json.loads(dat)
+          except:
+                dat = dat.replace("\\n", "\n").replace("\\t", "\t").strip()      
+          yield (r[0], dat, [], r[1])
           cnt -= 1
           if cnt <= 0: return
       else:
