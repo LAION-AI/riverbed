@@ -134,9 +134,10 @@ def mean_pooling(model_output, attention_mask):
 #create embeddings for all text in dat_iter. data_iter can be an interable of just the text or a (idx, text) pair.
 #saves to the mmap_file. returns downsampler, skip_idxs, dtype, mmap_len, embed_dim.
 #skip_idxs are the lines/embeddings that are empty and should not be clustered search indexed.
-def embed_text(dat_iter, mmap_file, downsampler=None, skip_idxs=None,  dtype=np.float16, mmap_len=0, embed_dim=25,  embedder="minilm", chunk_size=1000, use_tqdm=True):
+def embed_text(dat_iter, mmap_file, start_idx=None, downsampler=None, skip_idxs=None,  dtype=np.float16, mmap_len=0, embed_dim=25,  embedder="minilm", chunk_size=1000, use_tqdm=True):
     global device, labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
     init_models()
+    if start_idx is None: start_idx = mmap_len
     if skip_idxs is None: skip_idxs = []
     if embedder == "clip":
       clip_model = clip_model.to(device)
@@ -167,14 +168,13 @@ def embed_text(dat_iter, mmap_file, downsampler=None, skip_idxs=None,  dtype=np.
       dat_iter2 = tqdm.tqdm(dat_iter)
     else:
       dat_iter2 = dat_iter
-    idx = mmap_len-1
+    idx = start_idx-1
     for l in dat_iter2:
         if type(l) is tuple:
           idx, l = l
-          mmap_len = max(mmap_len, idx+1)
         else:
           idx += 1
-          mmap_len += 1
+        mmap_len = max(mmap_len, idx+1)
         try:
           l = l.decode()
         except:
@@ -909,37 +909,9 @@ class SearcherIdx:
        self.recreate_whoosh_idx(auto_create_bm25_idx=auto_create_bm25_idx, idxs=idxs, use_tqdm=use_tqdm)
     setattr(self,f'downsampler_{search_field}_{embedder}_{embed_dim}', self.downsampler)
       
-  #embed all of self.fobj or (idx, content) for idx in idxs for the row/content from fobj
-  def embed_text(self, chunk_size=1000, idxs=None, use_tqdm=True, auto_create_bm25_idx=False):
-    assert self.fobj is not None
-    search_field = self.search_field 
-    def fobj_data_reader():
-      fobj = self.fobj
-      pos = fobj.tell()
-      fobj.seek(0, 0)
-      for l in fobj:
-        l =l.decode().replace("\\n", "\n").replace("\\t", "\t").strip()
-        if not l: 
-          yield ''
-        else:
-          if l[0] == "{" and l[-1] == "}":
-            content = l.split(search_field+'": "')[1]
-            content = content.split('", "')[0].replace("_", " ")
-          else:
-            content = l.replace("_", " ")
-          yield content
-      fobj.seek(pos,0)
-    if idxs is not None:
-      dat_iter = [(idx, self.filebyline[idx]) for idx in idxs]
-    else:
-      dat_iter = fobj_data_reader()  
-    self.downsampler, skip_idxs, self.dtype, self.mmap_len, self.embed_dim =  embed_text(dat_iter, self.mmap_file, downsampler=self.downsampler, \
-          mmap_len=self.mmap_len, embed_dim=self.embed_dim, embedder=self.embedder, chunk_size=chunk_size, use_tqdm=use_tqdm)
-    setattr(self,f'downsampler_{self.search_field}_{self.embedder}_{self.embed_dim}', self.downsampler)
-    self.skip_idxs = set(list(self.skip_idxs)+skip_idxs)
-    
+  
   def switch_search_context(self, downsampler = None, mmap_file=None, search_field="text", embedder="minilm", embed_dim=25, clusters=None, \
-                            span2cluster_label=None, idxs=None, max_level=4, max_cluster_size=200, \
+                            span2cluster_label=None, idxs=None, max_level=4, max_cluster_size=200, chunk_size=1000, \
                             min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000, use_tqdm=True
                           ):
     global device
@@ -961,13 +933,43 @@ class SearcherIdx:
       self.clusters = getattr(self,f'clusters_{self.search_field}_{self.embedder}_{self.embed_dim}')
       
     if self.fobj is not None:
-      self.embed_text(chunk_size=chunk_size, use_tqdm=use_tqdm)
+      self.embed_text(start_idx=0, chunk_size=chunk_size, use_tqdm=use_tqdm)
     self.recreate_embeddings_idx(clusters=self.clusters, span2cluster_label=span2cluster_label, idxs=idxs, max_level=max_level, max_cluster_size=max_cluster_size, \
                                min_overlap_merge_cluster=min_overlap_merge_cluster, prefered_leaf_node_size=prefered_leaf_node_size, kmeans_batch_size=kmeans_batch_size)
     if self.fobj is not None:
        self.recreate_whoosh_idx(auto_create_bm25_idx=False, idxs=idxs, use_tqdm=use_tqdm)
     setattr(self,f'downsampler_{self.search_field}_{embedder}_{self.embed_dim}', self.downsampler)
     setattr(self,f'clusters_{self.search_field}_{self.embedder}_{self.embed_dim}', self.clusters)
+    
+  #embed all of self.fobj or (idx, content) for idx in idxs for the row/content from fobj
+  def embed_text(self, start_idx=None, chunk_size=1000, idxs=None, use_tqdm=True, auto_create_bm25_idx=False):
+    assert self.fobj is not None
+    if start_idx is None: start_idx = self.mmap_len
+    search_field = self.search_field 
+    def fobj_data_reader():
+      fobj = self.fobj
+      pos = fobj.tell()
+      fobj.seek(0, 0)
+      for l in fobj:
+        l =l.decode().replace("\\n", "\n").replace("\\t", "\t").strip()
+        if not l: 
+          yield ''
+        else:
+          if l[0] == "{" and l[-1] == "}":
+            content = l.split(search_field+'": "')[1]
+            content = content.split('", "')[0].replace("_", " ")
+          else:
+            content = l.replace("_", " ")
+          yield content
+      fobj.seek(pos,0)
+    if idxs is not None:
+      dat_iter = [(idx, self.filebyline[idx]) for idx in idxs]
+    else:
+      dat_iter = fobj_data_reader()  
+    self.downsampler, skip_idxs, self.dtype, self.mmap_len, self.embed_dim =  embed_text(dat_iter, self.mmap_file, start_idx=start_idx, downsampler=self.downsampler, \
+          mmap_len=self.mmap_len, embed_dim=self.embed_dim, embedder=self.embedder, chunk_size=chunk_size, use_tqdm=use_tqdm)
+    setattr(self,f'downsampler_{self.search_field}_{self.embedder}_{self.embed_dim}', self.downsampler)
+    self.skip_idxs = set(list(self.skip_idxs)+skip_idxs)
     
   def recreate_whoosh_idx(self, auto_create_bm25_idx=False, idxs=None, use_tqdm=True):
     assert self.fobj is not None
