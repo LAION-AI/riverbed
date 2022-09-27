@@ -977,6 +977,7 @@ class SearcherIdx:
     
   #search using vector based and/or bm25 search. returns generator of (id, text_row, key_terms, score). depending 
   #on the search, text_row, key_terms, or score may not be available.
+  #key_terms. TODO: See https://whoosh.readthedocs.io/en/latest/keywords.html
   def search(self, query=None, vec=None, do_bm25_only=False, k=5, chunk_size=100, limit=None):
     embedder = self.embedder
     if type(query) in (np.array, torch.Tensor):
@@ -1011,7 +1012,7 @@ class SearcherIdx:
           n_chunks = 0
           for r in results:
              idxs.append(int(r['id']))
-             key_terms.append(r.key_terms())
+             key_terms.append([]) # r.key_terms())
              n_chunks += 1
              if n_chunks > chunk_size:
                 vec_results = {}
