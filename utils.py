@@ -274,14 +274,17 @@ def embeddings_search_old(vec, mmap_file,  parents, num_top_level_parents, paren
  
 #cluster pruning based approximate nearest neightbor search. See https://nlp.stanford.edu/IR-book/html/htmledition/cluster-pruning-1.html
 #assumes the embeddings are stored in the mmap_file and the clustered index has been created.
-def embeddings_search(vec, mmap_file, top_parents,  top_parents_idxs, parent2idx, parents, clusters, mmap_len=0, embed_dim=25, dtype=np.float16, chunk_size=10000, k=5):
+def embeddings_search(vec, mmap_file, top_parents,  top_parent_idxs, parent2idx, parents, clusters, mmap_len=0, embed_dim=25, dtype=np.float16, chunk_size=10000, k=5):
   curr_parents = top_parents
-  vecs = parents[top_parents_idxs] 
-  max_level = top_parents[0][1]
+  vecs = parents[top_parent_idxs] 
+  max_level = top_parents[0][0]
+  print (max_level, top_parents)
+
   #print (parent_levels, vecs)
   for _ in range(max_level+1):
     results = cosine_similarity(vec, vecs)
     results = results.topk(k)
+    print (results)
     children = list(itertools.chain(*[clusters[curr_parents[idx]] for idx in results.indices[0]]))
     if type(children[0]) is int: #we are at the leaf nodes
       idxs = []
@@ -1011,16 +1014,16 @@ class SearcherIdx:
   def whoosh_searcher(self):
       return self.whoosh_ix.searcher()
 
-  def search(self, query=None, vec=None, lookahead_cutoff=100, k=5, chunk_size=10000):
+  def search(self, query=None, vec=None, lookahead_cutoff=100, do_reranking=False, k=5, chunk_size=10000):
     embedder = self.embedder
     if type(query) in (np.array, torch.Tensor):
       vec = query
       query = None
     assert vec is None or self.parents is not None
     if vec is None and query is not None and hasattr(self, 'downsampler') and self.downsampler is not None:
-      vec = self.get_embeddings(query, embedder=embedder)
-      if not hasattr(self, 'whoosh_ix') or self.whoosh_ix is None:
-        query = None
+      vec = self.get_embeddings(query)
+      #if not hasattr(self, 'whoosh_ix') or self.whoosh_ix is None:
+      query = None
     if query is not None:        
       assert hasattr(self, 'whoosh_ix'), "must be created with bm25 search set"
       with self.whoosh_searcher() as searcher:
@@ -1040,7 +1043,7 @@ class SearcherIdx:
                 vecs = torch.from_numpy(np_memmap(self.mmap_file, shape=[self.mmap_len, self.embed_dim], dtype=self.dtype)[idxs]).to(device)
                 results = cosine_similarity(vec.unsqueeze(0), vecs)
                 results = results.sort(descending=True)
-                for idx, score in zip(results.indexes[0].tolist(), results.values[0].tolist()):
+                for idx, score in zip(results.indices[0].tolist(), results.values[0].tolist()):
                    idx = idxs[idx]
                    yield (idx, self.filebyline[idx].decode().replace("\\n", "\n").replace("\\t", "\t").strip(), score)
                 idxs = []
@@ -1049,7 +1052,7 @@ class SearcherIdx:
               vecs = torch.from_numpy(np_memmap(self.mmap_file, shape=[self.mmap_len, self.embed_dim], dtype=self.dtype)[idxs]).to(device)
               results = cosine_similarity(vec.unsqueeze(0), vecs)
               results = results.sort(descending=True)
-              for idx, score in zip(results.indexes[0].tolist(), results.values[0].tolist()):
+              for idx, score in zip(results.indices[0].tolist(), results.values[0].tolist()):
                  idx = idxs[idx]
                  yield (idx, self[idx].decode().replace("\\n", "\n").replace("\\t", "\t").strip(), score)
     else:
@@ -1058,8 +1061,9 @@ class SearcherIdx:
       if type(self.parents) is not torch.Tensor:
          self.parents = torch.from_numpy(self.parents).to(device)
       if hasattr(self, 'filebyline'):
+
         for r in embeddings_search(vec, mmap_file= self.mmap_file, mmap_len=self.mmap_len, embed_dim=self.embed_dim,  dtype=self.dtype, \
-                                  parents=self.parents, top_parent_idxs=self.top_parent_idxs, \
+                                  parents=self.parents, clusters=self.clusters, top_parent_idxs=self.top_parent_idxs, \
                                   top_parents=self.top_parents, parent2idx=self.parent2idx, k=k):
           yield (r[0], self.filebyline[r[0]].decode().replace("\\n", "\n").replace("\\t", "\t").strip(), r[1])
       else:
@@ -1083,7 +1087,7 @@ class SearcherIdx:
     all_parents = list(clusters.keys())
     all_parents.sort(key=lambda a: a[0], reverse=True)
     max_level = all_parents[0][0]
-    self.top_parents =  [a for a in enumerate(all_parents) if a[0] == max_level]
+    self.top_parents =  [a for a in all_parents if a[0] == max_level]
     self.top_parent_idxs = [idx for idx, a in enumerate(all_parents) if a[0] == max_level]
     self.parent2idx = dict([(a,idx) for idx, a in enumerate(all_parents)])
     self.parents = torch.from_numpy(np_memmap(self.mmap_file, shape=[self.mmap_len, self.embed_dim], dtype=self.dtype)[[a[1] for a in all_parents]]).to(device)
