@@ -816,7 +816,9 @@ class SearcherIdx:
                search_field="text", filebyline=None, downsampler=None, auto_embed_text=False, \
                auto_create_embeddings_idx=False, auto_create_bm25_idx=False,  \
                span2cluster_label=None, idxs=None, max_level=4, max_cluster_size=200, \
-               min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000, use_tqdm=True
+               min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000, \
+               do_universal_embed = False, prototype_idxs=None,  prototypes=None, universal_downsampler =None, \
+               use_tqdm=True
               ):
     """
         Cluster indexes and performs approximate nearest neighbor search on a memmap file. 
@@ -854,7 +856,14 @@ class SearcherIdx:
         :arg skip_idxs:           Optional. The indexes that are empty and should not be searched or clustered.
         :arg filebyline:           Optional. If not passed, will be created. Used to random access the file by line number.
         :arg downsampler:          Optional. The pythorch downsampler for mapping the output of the embedder to a lower dimension.
-
+        :arg do_universal_embed.  Optional. If we should do universal embedding as described below.
+        :arg prototype_idxs:          Optional. The indexes that represents the protoypes for embeddings space. If do_universal_embed is set and prototypes
+                                  are not provided,then this will be the level 0 parents of the current clustering.
+                                  To get universal embedding, we do cosine(target, prototypes_vec), then normalize and then run through a universial_downsampler
+        :arg protoypes:         Optional. The vectors in the embeddeing or (downsampled embedding) space that corresponds to the prototype_idxs.
+        :arg universal_downsampler Optional. The pythorch downsampler for mapping the output described above to a lower dimension that works across embedders
+                                  and concept drift in the same embedder.
+        
       NOTE: Either pass in the parents, parent_levels, parent_labels, and parent2idx data is pased or clusters is passed. 
           If none of these are passed and auto_create_embeddings_idx is set, then the data in the mmap file will be clustered and the 
           data structure will be created.
@@ -891,15 +900,29 @@ class SearcherIdx:
         self.filebyline = FileByLineIdx(fobj=fobj)  
     self.mmap_file, self.mmap_len, self.embed_dim, self.dtype, self.clusters, self.parent2idx,  self.parents, self.top_parents, self.top_parent_idxs, self.search_field, self.downsampler  = \
              mmap_file, mmap_len, embed_dim, dtype, clusters, parent2idx, parents, top_parents, top_parent_idxs, search_field, downsampler
+    self.do_universal_embed, self.prototype_idxs,  self.prototypes, self.universal_downsampler = do_universal_embed, prototype_idxs,  prototypes, universal_downsampler
     if self.downsampler is not None: 
       if self.dtype == np.float16:
         self.downsampler.eval().to(device)
       else:
         self.downsampler.half().eval().to(device)
+    if self.universal_downsampler is not None: 
+      if self.dtype == np.float16:
+        self.universal_downsampler.eval().to(device)
+      else:
+        self.universal_downsampler.half().eval().to(device)
     if self.parents is not None: 
-      self.parents.to(device)  
+      if self.dtype == np.float16:
+        self.parents = self.parents.half().to(device)
+      else:
+        self.parents = self.parents.to(device)
+    if self.prototypes is not None: 
+      if self.dtype == np.float16:
+        self.prototypes = self.prototypes.half().to(device)
+      else:
+        self.prototypes = self.prototypes.to(device)
     if skip_idxs is None: skip_idxs = []
-    self.skip_idxs = skip_idxs
+    self.skip_idxs = set(list(self.skip_idxs if hasattr(self, 'skip_idxs') and self.skip_idxs else []) + list(skip_idxs))
     if auto_embed_text and self.fobj is not None:
       self.embed_text(chunk_size=chunk_size, use_tqdm=use_tqdm)
     if os.path.exists(self.mmap_file) and (clusters is not None or idxs is not None or auto_create_embeddings_idx):
@@ -913,25 +936,41 @@ class SearcherIdx:
   
   def switch_search_context(self, downsampler = None, mmap_file=None, search_field="text", embedder="minilm", embed_dim=25, clusters=None, \
                             span2cluster_label=None, idxs=None, max_level=4, max_cluster_size=200, chunk_size=1000,  \
-                            parent2idx=None, parents=None, top_parents=None, top_parent_idxs=None, \
+                            parent2idx=None, parents=None, top_parents=None, top_parent_idxs=None, skip_idxs=None, \
                             auto_embed_text=False,auto_create_embeddings_idx=False, auto_create_bm25_idx=False,  \
-                            min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000, use_tqdm=True
+                            do_universal_embed = False, prototype_idxs=None,  prototypes=None, universal_downsampler =None, \
+                            reuse_clusters=False, min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000, use_tqdm=True
                           ):
     global device
     if hasattr(self,f'downsampler_{self.search_field}_{self.embedder}_{self.embed_dim}'): getattr(self,f'downsampler_{self.search_field}_{self.embedder}_{self.embed_dim}').cpu()
     if hasattr(self, 'downsampler') and self.downsampler is not None: self.downsampler.cpu()
     fobj = self.fobj
-    self.mmap_file, self.embed_dim,  self.clusters, self.parent2idx,  self.parents, self.top_parents, self.top_parent_idxs, self.search_field, self.downsampler  = \
-             mmap_file, embed_dim, clusters, parent2idx, parents, top_parents, top_parent_idxs, search_field, downsampler
+    if clusters is None and reuse_clusters: clusters = self.clusters
+    self.mmap_file, self.mmap_len, self.embed_dim, self.dtype, self.clusters, self.parent2idx,  self.parents, self.top_parents, self.top_parent_idxs, self.search_field, self.downsampler  = \
+             mmap_file, mmap_len, embed_dim, dtype, clusters, parent2idx, parents, top_parents, top_parent_idxs, search_field, downsampler
+    self.do_universal_embed, self.prototype_idxs,  self.prototypes, self.universal_downsampler = do_universal_embed, prototype_idxs,  prototypes, universal_downsampler
     if self.downsampler is not None: 
       if self.dtype == np.float16:
         self.downsampler.eval().to(device)
       else:
         self.downsampler.half().eval().to(device)
+    if self.universal_downsampler is not None: 
+      if self.dtype == np.float16:
+        self.universal_downsampler.eval().to(device)
+      else:
+        self.universal_downsampler.half().eval().to(device)
     if self.parents is not None: 
-      self.parents.to(device)  
+      if self.dtype == np.float16:
+        self.parents = self.parents.half().to(device)
+      else:
+        self.parents = self.parents.to(device)
+    if self.prototypes is not None: 
+      if self.dtype == np.float16:
+        self.prototypes = self.prototypes.half().to(device)
+      else:
+        self.prototypes = self.prototypes.to(device)
     if skip_idxs is None: skip_idxs = []
-    self.skip_idxs = skip_idxs
+    self.skip_idxs = set(list(self.skip_idxs if hasattr(self, 'skip_idxs') and self.skip_idxs else []) + list(skip_idxs))
     if auto_embed_text and self.fobj is not None:
       self.embed_text(chunk_size=chunk_size, use_tqdm=use_tqdm)
     if os.path.exists(self.mmap_file) and (clusters is not None or idxs is not None or auto_create_embeddings_idx):
@@ -941,6 +980,7 @@ class SearcherIdx:
        self.recreate_whoosh_idx(auto_create_bm25_idx=auto_create_bm25_idx, idxs=idxs, use_tqdm=use_tqdm)
     setattr(self,f'downsampler_{self.search_field}_{embedder}_{self.embed_dim}', self.downsampler)
     setattr(self,f'clusters_{self.search_field}_{self.embedder}_{self.embed_dim}', self.clusters)
+      
       
   #embed all of self.fobj or (idx, content) for idx in idxs for the row/content from fobj
   def embed_text(self, start_idx=None, chunk_size=1000, idxs=None, use_tqdm=True, auto_create_bm25_idx=False):
