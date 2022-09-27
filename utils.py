@@ -891,6 +891,13 @@ class SearcherIdx:
         self.filebyline = FileByLineIdx(fobj=fobj)  
     self.mmap_file, self.mmap_len, self.embed_dim, self.dtype, self.clusers, self.parent2idx,  self.parents, self.top_parents, self.top_parent_idxs, self.search_field, self.downsampler  = \
              mmap_file, mmap_len, embed_dim, dtype, clusters, parent2idx, parents, top_parents, top_parent_idxs, search_field, downsampler
+    if self.downsampler is not None: 
+      if self.dtype == np.float16:
+        self.downsampler.eval().to(device)
+      else:
+        self.downsampler.half().eval().to(device)
+    if self.parents is not None: 
+      self.parents.to(device)  
     if skip_idxs is None: skip_idxs = []
     self.skip_idxs = skip_idxs
     if auto_embed_text and filename is not None and self.fobj is not None:
@@ -931,7 +938,7 @@ class SearcherIdx:
     setattr(self,f'downsampler_{self.search_field}_{self.embedder}_{self.embed_dim}', self.downsampler)
     self.skip_idxs = set(list(self.skip_idxs)+skip_idxs)
     
-  def switch_search_context(self, downsampler = None, clusters=None, mmap_file=None, search_field="text", embedder="minilm", embed_dim=25, clusters=None, idxs=None, \
+  def switch_search_context(self, downsampler = None, mmap_file=None, search_field="text", embedder="minilm", embed_dim=25, clusters=None, idxs=None, \
                             span2cluster_label=None, idxs=None, max_level=4, max_cluster_size=200, \
                             min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000, use_tqdm=True
                           ):
@@ -943,9 +950,14 @@ class SearcherIdx:
       mmap_file = f"{self.idx_dir}/search_index_{search_field}_{embedder}_{embed_dim}.mmap"
     self.clusters, self.downsampler, self.mmap_file, self.search_field, self.embedder, self.embed_dim = clusters, downsampler, mmap_file, search_field, embedder, embed_dim
     
-    if hasattr(self,f'downsampler_{self.search_field}_{self.embedder}_{self.embed_dim}'): 
+    if self.downsampler is not None: 
+      if self.dtype == np.float16:
+        self.downsampler.eval().to(device)
+      else:
+        self.downsampler.half().eval().to(device)
+    elif downsampler is None and hasattr(self,f'downsampler_{self.search_field}_{self.embedder}_{self.embed_dim}'): 
       self.downsampler = getattr(self,f'downsampler_{self.search_field}_{self.embedder}_{self.embed_dim}').to(device)
-    if hasattr(self,f'clusters_{self.search_field}_{self.embedder}_{self.embed_dim}'): 
+    if clusters is None and hasattr(self,f'clusters_{self.search_field}_{self.embedder}_{self.embed_dim}'): 
       self.clusters = getattr(self,f'clusters_{self.search_field}_{self.embedder}_{self.embed_dim}')
       
     if self.fobj is not None:
