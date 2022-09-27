@@ -285,7 +285,7 @@ def embeddings_search(vec, mmap_file, top_parents,  top_parent_idxs, parent2idx,
     results = cosine_similarity(vec, vecs)
     results = results.topk(k)
     print (results)
-    children = list(itertools.chain(*[clusters[curr_parents[idx]] for idx in results.indices[0]]))
+    children = list(itertools.chain(*[clusters[curr_parents[idx]] for idx in results.indices]))
     if type(children[0]) is int: #we are at the leaf nodes
       idxs = []
       n_chunks = 0
@@ -296,7 +296,7 @@ def embeddings_search(vec, mmap_file, top_parents,  top_parent_idxs, parent2idx,
             vecs = torch.from_numpy(np_memmap(mmap_file, shape=[mmap_len, embed_dim], dtype=dtype)[idxs]).to(device)
             results = cosine_similarity(vec, vecs)
             results = results.sort(descending=True)
-            for idx, score in zip(results.indices[0].tolist(), results.values[0].tolist()):
+            for idx, score in zip(results.indices.tolist(), results.values.tolist()):
                idx = idxs[idx]
                yield (idx, score)
             idxs = []
@@ -305,7 +305,7 @@ def embeddings_search(vec, mmap_file, top_parents,  top_parent_idxs, parent2idx,
          vecs = torch.from_numpy(np_memmap(mmap_file, shape=[mmap_len, embed_dim], dtype=dtype)[idxs]).to(device)
          results = cosine_similarity(vec, vecs)
          results = results.sort(descending=True)
-         for idx, score in zip(results.indices[0].tolist(), results.values[0].tolist()):
+         for idx, score in zip(results.indices.tolist(), results.values.tolist()):
             idx = idxs[idx]
             yield (idx, score)
       break
