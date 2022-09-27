@@ -130,7 +130,7 @@ def mean_pooling(model_output, attention_mask):
       input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).to(token_embeddings.dtype)
       return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
 
-#create embeddings for all text in dat_iter. data_iter can be an interable of just the text or a (text, idx) pair.
+#create embeddings for all text in dat_iter. data_iter can be an interable of just the text or a (idx, text) pair.
 #saves to the mmap_file. returns downsampler, skip_idxs, dtype, mmap_len, embed_dim.
 #skip_idxs are the lines/embeddings that are empty and should not be clustered search indexed.
 def embed_text(dat_iter, mmap_file, downsampler=None, skip_idxs=None,  dtype=np.float16, mmap_len=0, embed_dim=25,  embedder="minilm", chunk_size=1000, use_tqdm=True):
@@ -169,7 +169,7 @@ def embed_text(dat_iter, mmap_file, downsampler=None, skip_idxs=None,  dtype=np.
     idx = mmap_len-1
     for l in dat_iter2:
         if type(l) is tuple:
-          l, idx = l
+          idx, l = l
           mmap_len = max(mmap_len, idx+1)
         else:
           idx += 1
@@ -231,47 +231,6 @@ def embed_text(dat_iter, mmap_file, downsampler=None, skip_idxs=None,  dtype=np.
       idxs = []
     return downsampler, skip_idxs, dtype, mmap_len, embed_dim 
     
-  
-#cluster pruning based approximate nearest neightbor search. See https://nlp.stanford.edu/IR-book/html/htmledition/cluster-pruning-1.html
-#assumes the embeddings are stored in the mmap_file and the clustered index has been created.
-def embeddings_search_old(vec, mmap_file,  parents, num_top_level_parents, parent_levels, parent2idx, mmap_len=0, embed_dim=25, dtype=np.float16, chunk_size=10000, k=5):
-  vecs = parents[:num_top_level_parents]
-  idx2idx = list(range(num_top_level_parents))
-  vec = vec.unsqueeze(0)
-  #print (parent_levels, vecs)
-  for _ in range(parent_levels[0]+1):
-    results = cosine_similarity(vec, vecs)
-    results = results.topk(k)
-    children = list(itertools.chain(*[parent2idx[idx2idx[idx]] for idx in results.indices[0]]))
-    idx = results.indices[0][0]
-    if parent_levels[idx2idx[idx]] == 0: #we are at the leaf nodes
-      idxs = []
-      n_chunks = 0
-      for child_id in children:
-         idxs.append(child_id)
-         n_chunks += 1
-         if n_chunks > chunk_size:
-            vecs = torch.from_numpy(np_memmap(mmap_file, shape=[mmap_len, embed_dim], dtype=dtype)[idxs]).to(device)
-            results = cosine_similarity(vec, vecs)
-            results = results.sort(descending=True)
-            for idx, score in zip(results.indices[0].tolist(), results.values[0].tolist()):
-               idx = idxs[idx]
-               yield (idx, score)
-            idxs = []
-            n_chunk = 0
-      if idxs:
-         vecs = torch.from_numpy(np_memmap(mmap_file, shape=[mmap_len, embed_dim], dtype=dtype)[idxs]).to(device)
-         results = cosine_similarity(vec, vecs)
-         results = results.sort(descending=True)
-         for idx, score in zip(results.indices[0].tolist(), results.values[0].tolist()):
-            idx = idxs[idx]
-            yield (idx, score)
-      break
-    else:
-      vecs = parents[children]
-      idx2idx = children 
-
- 
 #cluster pruning based approximate nearest neightbor search. See https://nlp.stanford.edu/IR-book/html/htmledition/cluster-pruning-1.html
 #assumes the embeddings are stored in the mmap_file and the clustered index has been created.
 def embeddings_search(vec, mmap_file, top_parents,  top_parent_idxs, parent2idx, parents, clusters, mmap_len=0, embed_dim=25, dtype=np.float16, chunk_size=10000, k=5):
@@ -940,7 +899,8 @@ class SearcherIdx:
                                min_overlap_merge_cluster=min_overlap_merge_cluster, prefered_leaf_node_size=prefered_leaf_node_size, kmeans_batch_size=kmeans_batch_size)
     if auto_create_bm25_idx and fobj:
        self.recreate_whoosh_idx(auto_create_bm25_idx=auto_create_bm25_idx, idxs=idxs, use_tqdm=use_tqdm)
-
+  
+  #embed all of self.fobj or (idx, content) for idx in idxs for the row/content from fobj
   def embed_text(self, chunk_size=1000, idxs=None, use_tqdm=True):
     assert self.fobj is not None
     search_field = self.search_field 
@@ -978,7 +938,7 @@ class SearcherIdx:
     schema = Schema(id=ID(stored=True), content=TEXT(analyzer=StemmingAnalyzer()))
     #TODO determine how to clear out the whoosh index besides rm -rf _M* MAIN*
     idx_dir = self.idx_dir
-    need_reindex = auto_create_bm25_idx or not os.path.exists(f"{idx_dir}/_MAIN_1.toc") 
+    need_reindex = auto_create_bm25_idx or not os.path.exists(f"{idx_dir}/_MAIN_1.toc") #CHECK IF THIS IS RIGHT 
     if not need_reindex:
       self.whoosh_ix = whoosh_index.open_dir(idx_dir)
     else:
@@ -1001,6 +961,7 @@ class SearcherIdx:
       for idx, l in dat_iter:
           l =l.decode().replace("\\n", "\n").replace("\\t", "\t").strip()
           if not l: continue
+          #hack to speed up processing and avoiding json.loads
           if l[0] == "{" and l[-1] == "}":
             content = l.split(search_field+'": "')[1]
             content = content.split('", "')[0].replace("_", " ")
@@ -1013,8 +974,10 @@ class SearcherIdx:
                
   def whoosh_searcher(self):
       return self.whoosh_ix.searcher()
-
-  def search(self, query=None, vec=None, lookahead_cutoff=100, do_bm25_only=False, k=5, chunk_size=100, limit=None):
+    
+  #search using vector based and/or bm25 search. returns generator of (id, text_row, key_terms, score). depending 
+  #on the search, text_row, key_terms, or score may not be available.
+  def search(self, query=None, vec=None, do_bm25_only=False, k=5, chunk_size=100, limit=None):
     embedder = self.embedder
     if type(query) in (np.array, torch.Tensor):
       vec = query
@@ -1037,63 +1000,65 @@ class SearcherIdx:
         if type(query) is str:
            query = QueryParser("content", self.whoosh_ix.schema).parse(query)
         results = searcher.search(query, limit=limit)
-
         if vec is None or do_bm25_only:
           for r in results:
-           yield (int(r['id']), self.filebyline[int(r['id'])].decode().replace("\\n", "\n").replace("\\t", "\t").strip())
+           yield (int(r['id']), self.filebyline[int(r['id'])].decode().replace("\\n", "\n").replace("\\t", "\t").strip(), r.key_terms(), 0.0)
            cnt -= 1
            if cnt <= 0: return
         else:
           idxs = []
+          key_terms = []
           n_chunks = 0
           for r in results:
              idxs.append(int(r['id']))
+             key_terms.append(r.key_terms())
              n_chunks += 1
              if n_chunks > chunk_size:
                 vec_results = {}
                 for _, r in zip(range(chunk_size), vec_search_results):
-                  vec_results[r[0]] = r[1]
+                  vec_results[r[0]] = ([], r[1])
                 idxs = [idx for idx in idxs if idx not in vec_results]
                 vecs = torch.from_numpy(np_memmap(self.mmap_file, shape=[self.mmap_len, self.embed_dim], dtype=self.dtype)[idxs]).to(device)
                 results = cosine_similarity(vec, vecs)
-                for idx, score in zip(idxs, results):
-                   vec_results[idx] = score.item()
+                for idx, score, key_term in zip(idxs, results, key_terms):
+                   vec_results[idx] = (key_term, score.item())
                 vec_results = list(vec_results.items())
-                vec_results.sort(key=lambda a: a[1], reverse=True)
-                for idx, score in vec_results:
-                   yield (idx, self.filebyline[idx].decode().replace("\\n", "\n").replace("\\t", "\t").strip(), score)
+                vec_results.sort(key=lambda a: a[1][1], reverse=True)
+                for idx, score_keyterm in vec_results:
+                   yield (idx, self.filebyline[idx].decode().replace("\\n", "\n").replace("\\t", "\t").strip(), score_keyterm[0], score_keyterm[1])
                    cnt -= 1
                    if cnt <= 0: return
                 idxs = []
+                key_terms = []
                 n_chunk = 0
           if idxs:
             vec_results = {}
             for _, r in zip(range(chunk_size), vec_search_results):
-              vec_results[r[0]] = r[1]
+              vec_results[r[0]] =  ([], r[1])
             idxs = [idx for idx in idxs if idx not in vec_results]
             vecs = torch.from_numpy(np_memmap(self.mmap_file, shape=[self.mmap_len, self.embed_dim], dtype=self.dtype)[idxs]).to(device)
             results = cosine_similarity(vec, vecs)
-            for idx, score in zip(idxs, results):
-               vec_results[idx] = score.item()
+            for idx, score, key_term in zip(idxs, results, key_terms):
+                   vec_results[idx] = (key_term, score.item())
             vec_results = list(vec_results.items())
-            vec_results.sort(key=lambda a: a[1], reverse=True)
-            for idx, score in vec_results:
-               yield (idx, self.filebyline[idx].decode().replace("\\n", "\n").replace("\\t", "\t").strip(), score)
+            vec_results.sort(key=lambda a: a[1][1], reverse=True)
+            for idx, score_keyterm in vec_results:
+               yield (idx, self.filebyline[idx].decode().replace("\\n", "\n").replace("\\t", "\t").strip(), score_keyterm[0], score_keyterm[1])
                cnt -= 1
                if cnt <= 0: return
           for r in vec_search_results:
-            yield (r[0], self.filebyline[r[0]].decode().replace("\\n", "\n").replace("\\t", "\t").strip(), r[1])
+            yield (r[0], self.filebyline[r[0]].decode().replace("\\n", "\n").replace("\\t", "\t").strip(), [], r[1])
             cnt -= 1
             if cnt <= 0: return
-    else:
+    else: #no bm25/whoosh - vector based search only
       if hasattr(self, 'filebyline'):
         for r in vec_search_results:
-          yield (r[0], self.filebyline[r[0]].decode().replace("\\n", "\n").replace("\\t", "\t").strip(), r[1])
+          yield (r[0], self.filebyline[r[0]].decode().replace("\\n", "\n").replace("\\t", "\t").strip(), [], r[1])
           cnt -= 1
           if cnt <= 0: return
       else:
         for r in vec_search_results:
-          yield (r[0], r[1])
+          yield (r[0], "", [], r[1])
           cnt -= 1
           if cnt <= 0: return
           
