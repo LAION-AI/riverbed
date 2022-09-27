@@ -1078,15 +1078,15 @@ class SearcherIdx:
                if cnt <= 0: return
     #return any stragglers         
     for r in vec_search_results:
-      data = _get_data(idx)
-      if type(data) is dict:
+       data = _get_data(idx)
+       if type(data) is dict:
          data['id'] = r[0]
          data['score'] = r[1]
          yield data
        else:
          yield {'id': r[0], 'text': data, 'score': r[1]}
-      cnt -= 1
-      if cnt <= 0: return
+       cnt -= 1
+       if cnt <= 0: return
     
           
   def get_embeddings(self, sent):
