@@ -932,7 +932,7 @@ class SearcherIdx:
     self.skip_idxs = skip_idxs
     if auto_embed_text and filename is not None and self.fobj is not None:
       self.embed_text(chunk_size=chunk_size, use_tqdm=use_tqdm)
-    if clusters is not None or cluster_idxs is not None or auto_create_embeddings_idx:
+    if clusters is not None or idxs is not None or auto_create_embeddings_idx:
       self.recreate_embeddings_idx(clusters=clusters, span2cluster_label=span2cluster_label, idxs=idxs, max_level=max_level, max_cluster_size=max_cluster_size, \
                                min_overlap_merge_cluster=min_overlap_merge_cluster, prefered_leaf_node_size=prefered_leaf_node_size, kmeans_batch_size=kmeans_batch_size)
     if auto_create_bm25_idx and fobj:
