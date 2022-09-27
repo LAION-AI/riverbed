@@ -1078,7 +1078,7 @@ class SearcherIdx:
         for r in vec_search_results:
           yield (r[0], self.filebyline[r[0]].decode().replace("\\n", "\n").replace("\\t", "\t").strip(), r[1])
       else:
-        for r in vec_search_results
+        for r in vec_search_results:
           yield (r[0], r[1])
           
   def get_embeddings(self, sent):
