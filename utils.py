@@ -852,7 +852,7 @@ class SearcherIdx:
                parent2idx=None, top_parents=None, top_parent_idxs=None, clusters=None,  embedder="minilm", chunk_size=1000, \
                search_field="text", filebyline=None, downsampler=None, auto_embed_text=False, \
                auto_create_embeddings_idx=False, auto_create_bm25_idx=False,  \
-               span2cluster_label=None, cluster_idxs=None, max_level=4, max_cluster_size=200, \
+               span2cluster_label=None, idxs=None, max_level=4, max_cluster_size=200, \
                min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000, use_tqdm=True
               ):
     """
@@ -884,12 +884,13 @@ class SearcherIdx:
                                 Assumes the mmap_file is populated.
         :arg auto_embed_text. Optional. Will populate the mmap_file from the data from filename/fobj. 
         :arg auto_create_bm25_idx: Optional. Will do BM25 indexing of the contents of the file using whoosh, with stemming.
-        :filebyline           Optional. The access for a file by lines.
+        :arg filebyline           Optional. The access for a file by lines.
         :arg search_field:      Optional. Defaults to "text". If the data is in jsonl format,
                               this is the field that is Whoosh/bm25 indexed.
-        :skip_idxs.           Optional. The indexes that are empty and should not be searched or clustered/
-        :filebyline           Optional. If not passed, will be created. Used to random access the file by line number.
-        :downsampler          Optional. The pythorch downsampler for mapping the output of the embedder to a lower dimension.
+        :arg idxs:                Optional. Only these idxs should be indexed and searched.
+        :arg skip_idxs:           Optional. The indexes that are empty and should not be searched or clustered.
+        :arg filebyline:           Optional. If not passed, will be created. Used to random access the file by line number.
+        :arg downsampler:          Optional. The pythorch downsampler for mapping the output of the embedder to a lower dimension.
 
       NOTE: Either pass in the parents, parent_levels, parent_labels, and parent2idx data is pased or clusters is passed. 
           If none of these are passed and auto_create_embeddings_idx is set, then the data in the mmap file will be clustered and the 
@@ -932,10 +933,10 @@ class SearcherIdx:
     if auto_embed_text and filename is not None and self.fobj is not None:
       self.embed_text(chunk_size=chunk_size, use_tqdm=use_tqdm)
     if clusters is not None or cluster_idxs is not None or auto_create_embeddings_idx:
-      self.recreate_embeddings_idx(clusters=clusters, span2cluster_label=span2cluster_label, cluster_idxs=cluster_idxs, max_level=max_level, max_cluster_size=max_cluster_size, \
+      self.recreate_embeddings_idx(clusters=clusters, span2cluster_label=span2cluster_label, idxs=idxs, max_level=max_level, max_cluster_size=max_cluster_size, \
                                min_overlap_merge_cluster=min_overlap_merge_cluster, prefered_leaf_node_size=prefered_leaf_node_size, kmeans_batch_size=kmeans_batch_size)
     if auto_create_bm25_idx and fobj:
-       self.recreate_whoosh_idx(auto_create_bm25_idx=auto_create_bm25_idx, use_tqdm=use_tqdm)
+       self.recreate_whoosh_idx(auto_create_bm25_idx=auto_create_bm25_idx, idxs=idxs, use_tqdm=use_tqdm)
 
   def embed_text(self, chunk_size=1000, idxs=None, use_tqdm=True):
     assert self.fobj is not None
@@ -1071,11 +1072,11 @@ class SearcherIdx:
     return get_embeddings(sent, downsampler=self.downsampler, dtype=self.dtype, embedder=self.embedder)
   
 
-  def recreate_embeddings_idx(self,  clusters=None, span2cluster_label=None, cluster_idxs=None, max_level=4, max_cluster_size=200, \
+  def recreate_embeddings_idx(self,  clusters=None, span2cluster_label=None, idxs=None, max_level=4, max_cluster_size=200, \
                                min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000,):
     global device
-    if clusters is None or cluster_idxs is not None:
-      clusters, _ = self.cluster(clusters=clusters, span2cluster_label=span2cluster_label, cluster_idxs=cluster_idxs, max_level=max_level, max_cluster_size=max_cluster_size, \
+    if clusters is None or idxs is not None:
+      clusters, _ = self.cluster(clusters=clusters, span2cluster_label=span2cluster_label, cluster_idxs=idxs, max_level=max_level, max_cluster_size=max_cluster_size, \
                                min_overlap_merge_cluster=min_overlap_merge_cluster, prefered_leaf_node_size=prefered_leaf_node_size, kmeans_batch_size=kmeans_batch_size)
     self.clusters = clusters
     #the below is probably in-efficient
