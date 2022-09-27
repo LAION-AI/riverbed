@@ -976,10 +976,10 @@ class SearcherIdx:
     schema = Schema(id=ID(stored=True), content=TEXT(analyzer=StemmingAnalyzer()))
     #TODO determine how to clear out the whoosh index besides rm -rf _M* MAIN*
     idx_dir = self.idx_dir
-    os.system(f"mkdir -p {idx_dir}_{search_field}")
-    need_reindex = auto_create_bm25_idx or not os.path.exists(f"{idx_dir}_{search_field}/_MAIN_1.toc") #CHECK IF THIS IS RIGHT 
+    os.system(f"mkdir -p {idx_dir}/bm25_{search_field}")
+    need_reindex = auto_create_bm25_idx or not os.path.exists(f"{idx_dir}/bm25_{search_field}/_MAIN_1.toc") #CHECK IF THIS IS RIGHT 
     if not need_reindex:
-      self.whoosh_ix = whoosh_index.open_dir(f"{idx_dir}_{search_field}")
+      self.whoosh_ix = whoosh_index.open_dir(f"{idx_dir}/bm25_{search_field}")
     else:
       self.whoosh_ix = create_in(f"{idx_dir}_{search_field}", schema)
       writer = self.whoosh_ix.writer(multisegment=True, limitmb=1024, procs=multiprocessing.cpu_count())      
