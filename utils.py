@@ -889,7 +889,7 @@ class SearcherIdx:
         self.filebyline = self.fobj 
       else:   
         self.filebyline = FileByLineIdx(fobj=fobj)  
-    self.mmap_file, self.mmap_len, self.embed_dim, self.dtype, self.clusers, self.parent2idx,  self.parents, self.top_parents, self.top_parent_idxs, self.search_field, self.downsampler  = \
+    self.mmap_file, self.mmap_len, self.embed_dim, self.dtype, self.clusters, self.parent2idx,  self.parents, self.top_parents, self.top_parent_idxs, self.search_field, self.downsampler  = \
              mmap_file, mmap_len, embed_dim, dtype, clusters, parent2idx, parents, top_parents, top_parent_idxs, search_field, downsampler
     if self.downsampler is not None: 
       if self.dtype == np.float16:
@@ -903,7 +903,7 @@ class SearcherIdx:
     if auto_embed_text and filename is not None and self.fobj is not None:
       self.embed_text(chunk_size=chunk_size, use_tqdm=use_tqdm)
     if clusters is not None or idxs is not None or auto_create_embeddings_idx:
-      self.recreate_embeddings_idx(clusters=clusters, span2cluster_label=span2cluster_label, idxs=idxs, max_level=max_level, max_cluster_size=max_cluster_size, \
+      self.recreate_embeddings_idx(clusters=self.clusters, span2cluster_label=span2cluster_label, idxs=idxs, max_level=max_level, max_cluster_size=max_cluster_size, \
                                min_overlap_merge_cluster=min_overlap_merge_cluster, prefered_leaf_node_size=prefered_leaf_node_size, kmeans_batch_size=kmeans_batch_size)
     if auto_create_bm25_idx and fobj:
        self.recreate_whoosh_idx(auto_create_bm25_idx=auto_create_bm25_idx, idxs=idxs, use_tqdm=use_tqdm)
@@ -962,7 +962,7 @@ class SearcherIdx:
       
     if self.fobj is not None:
       self.embed_text(chunk_size=chunk_size, use_tqdm=use_tqdm)
-    self.recreate_embeddings_idx(clusters=clusters, span2cluster_label=span2cluster_label, idxs=idxs, max_level=max_level, max_cluster_size=max_cluster_size, \
+    self.recreate_embeddings_idx(clusters=self.clusters, span2cluster_label=span2cluster_label, idxs=idxs, max_level=max_level, max_cluster_size=max_cluster_size, \
                                min_overlap_merge_cluster=min_overlap_merge_cluster, prefered_leaf_node_size=prefered_leaf_node_size, kmeans_batch_size=kmeans_batch_size)
     if self.fobj is not None:
        self.recreate_whoosh_idx(auto_create_bm25_idx=False, idxs=idxs, use_tqdm=use_tqdm)
@@ -1133,7 +1133,7 @@ class SearcherIdx:
   #the below is probably in-efficient
   def recreate_parents_data(self):
     global device          
-    all_parents = list(clusters.keys())
+    all_parents = list(self.clusters.keys())
     all_parents.sort(key=lambda a: a[0], reverse=True)
     max_level = all_parents[0][0]
     self.top_parents =  [a for a in all_parents if a[0] == max_level]
