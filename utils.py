@@ -906,13 +906,10 @@ class SearcherIdx:
       """
     global device
     self.embedder = embedder
-    if type(filename) is not str:
-      fobj = filename
-      filename = None
-    if filename is None:
-      filename =  f"__tmp__{random.randint(0,1000000)}"
+    assert filename is not None
+    self.idx_dir = f"{filename}_idx"
     if mmap_file is None:
-      mmap_file = f"{filename}_idx/search_index.mmap"
+      mmap_file = f"{self.idx_dir}/search_index.mmap"
     if fobj is None:
       if filename.endswith(".gz"):
         fobj = self.fobj = GzipByLineIdx.open(filename)
@@ -928,8 +925,8 @@ class SearcherIdx:
         self.filebyline = self.fobj 
       else:   
         self.filebyline = FileByLineIdx(fobj=fobj)  
-    self.mmap_file, self.mmap_len, self.embed_dim, self.dtype, self.clusers, self.parent2idx,  self.parents, self.top_parents, self.top_parent_idxs   = \
-             mmap_file, mmap_len, embed_dim, dtype, clusters, parent2idx, parents, top_parents, top_parent_idxs
+    self.mmap_file, self.mmap_len, self.embed_dim, self.dtype, self.clusers, self.parent2idx,  self.parents, self.top_parents, self.top_parent_idxs, self.search_field   = \
+             mmap_file, mmap_len, embed_dim, dtype, clusters, parent2idx, parents, top_parents, top_parent_idxs, search_field
     if skip_idxs is None: skip_idxs = []
     self.skip_idxs = skip_idxs
     if auto_embed_text and filename is not None and self.fobj is not None:
@@ -977,7 +974,7 @@ class SearcherIdx:
     search_field = self.search_field 
     schema = Schema(id=ID(stored=True), content=TEXT(analyzer=StemmingAnalyzer()))
     #TODO determine how to clear out the whoosh index besides rm -rf _M* MAIN*
-    idx_dir = "/".join(self.mmap_file.split("/")[:-1])
+    idx_dir = self.idx_dir
     need_reindex = auto_create_bm25_idx or not os.path.exists(f"{idx_dir}/_MAIN_1.toc") 
     if not need_reindex:
       self.whoosh_ix = whoosh_index.open_dir(idx_dir)
@@ -1111,6 +1108,11 @@ class SearcherIdx:
   def save_pretrained(self, filename):
       os.system(f"mkdir -p {filename}_idx")
       fobj = self.fobj
+      mmap_file = self.mmap_file
+      idx_dir = self.idx_dir 
+      self.idx_dir = None
+      if self.mmap_file.startswith(idx_dir):
+        self.mmap_file = self.mmap_file.split("/")[-1]
       if hasattr(self, 'filebyline') and self.filebyline is not None:
         if type(self.filebyline) is GzipByLineIdx:
           self.filebyline = None
@@ -1121,6 +1123,8 @@ class SearcherIdx:
       self.downsampler.cpu()
       self.parents.cpu()
       pickle.dump(self, open(f"{filename}_idx/search_index.pickle", "wb"))
+      self.mmap_file = mmap_file
+      self.idx_dir = idx_dir
       self.fobj = fobj
       self.downsampler.to(device2)
       self.parents.to(device2)
@@ -1132,7 +1136,11 @@ class SearcherIdx:
   @staticmethod
   def from_pretrained(filename):
       global device
-      self = pickle.load(open(f"{filename}_idx/search_index.pickle", "rb"))
+      idx_dir = f"{filename}_idx"
+      self = pickle.load(open(f"{idx_dir}/search_index.pickle", "rb"))
+      self.idx_dir = idx_dir
+      if os.path.exists(f"{idx_dir}/{self.mmap_file}"):
+        self.mmap_file = f"{idx_dir}/{self.mmap_file}"
       if filename.endswith(".gz"):
         self.filebyline = self.fobj = GzipByLineIdx.open(filename)
       else:
