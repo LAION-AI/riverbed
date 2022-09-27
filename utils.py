@@ -1021,8 +1021,8 @@ class SearcherIdx:
               yield data
             else:
               yield {'id': int(r['id']), 'text': data}
-           cnt -= 1
-           if cnt <= 0: return
+            cnt -= 1
+            if cnt <= 0: return
         else:
           idxs = []
           key_terms = []
