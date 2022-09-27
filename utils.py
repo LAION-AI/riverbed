@@ -945,7 +945,7 @@ class SearcherIdx:
       fobj = self.fobj
       pos = fobj.tell()
       fobj.seek(0, 0)
-      for line in fobj:
+      for l in fobj:
         l =l.decode().replace("\\n", "\n").replace("\\t", "\t").strip()
         if not l: 
           yield ''
