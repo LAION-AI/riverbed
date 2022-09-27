@@ -944,7 +944,7 @@ class SearcherIdx:
                           ):
     global device
     if hasattr(self,f'downsampler_{self.search_field}_{self.embedder}_{self.embed_dim}'): getattr(self,f'downsampler_{self.search_field}_{self.embedder}_{self.embed_dim}').cpu()
-    if hasattr(self, 'downsampler') and self.dowsampler is not None: self.downsampler.cpu()
+    if hasattr(self, 'downsampler') and self.downsampler is not None: self.downsampler.cpu()
     fobj = self.fobj
     if mmap_file is None:
       mmap_file = f"{self.idx_dir}/search_index_{search_field}_{embedder}_{embed_dim}.mmap"
