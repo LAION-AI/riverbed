@@ -1175,6 +1175,6 @@ class SearcherIdx:
         self.fobj = open(filename, "rb")
         if hasattr(self, 'filebyline') and self.filebyline is not None: self.filebyline.fobj = self.fobj
       self.parents.to(device)
-      self.downsampler.to(device)
+      self.downsampler.eval().to(device)
       return self
         
