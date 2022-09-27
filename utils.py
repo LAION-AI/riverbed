@@ -278,13 +278,13 @@ def embeddings_search(vec, mmap_file, top_parents,  top_parent_idxs, parent2idx,
   curr_parents = top_parents
   vecs = parents[top_parent_idxs] 
   max_level = top_parents[0][0]
-  print (max_level, top_parents)
+  #print (max_level, top_parents)
 
   #print (parent_levels, vecs)
   for _ in range(max_level+1):
     results = cosine_similarity(vec, vecs)
     results = results.topk(k)
-    print (results)
+    #print (results)
     children = list(itertools.chain(*[clusters[curr_parents[idx]] for idx in results.indices]))
     if type(children[0]) is int: #we are at the leaf nodes
       idxs = []
@@ -1014,7 +1014,7 @@ class SearcherIdx:
   def whoosh_searcher(self):
       return self.whoosh_ix.searcher()
 
-  def search(self, query=None, vec=None, lookahead_cutoff=100, do_reranking=False, k=5, chunk_size=10000):
+  def search(self, query=None, vec=None, lookahead_cutoff=100, do_bm25_only=False, k=5, chunk_size=100):
     embedder = self.embedder
     if type(query) in (np.array, torch.Tensor):
       vec = query
@@ -1022,15 +1022,19 @@ class SearcherIdx:
     assert vec is None or self.parents is not None
     if vec is None and query is not None and hasattr(self, 'downsampler') and self.downsampler is not None:
       vec = self.get_embeddings(query)
-      #if not hasattr(self, 'whoosh_ix') or self.whoosh_ix is None:
-      query = None
+      if not hasattr(self, 'whoosh_ix') or self.whoosh_ix is None:
+        query = None
+    vec_search_results = embeddings_search(vec, mmap_file= self.mmap_file, mmap_len=self.mmap_len, embed_dim=self.embed_dim,  dtype=self.dtype, \
+                                  parents=self.parents, clusters=self.clusters, top_parent_idxs=self.top_parent_idxs, \
+                                  top_parents=self.top_parents, parent2idx=self.parent2idx, k=k)
+    
     if query is not None:        
-      assert hasattr(self, 'whoosh_ix'), "must be created with bm25 search set"
+      assert hasattr(self, 'whoosh_ix'), "must be created with bm25 indexing"
       with self.whoosh_searcher() as searcher:
         if type(query) is str:
            query = QueryParser("content", self.whoosh_ix.schema).parse(query)
         results = searcher.search(query, limit=None)
-        if vec is None:
+        if vec is None or do_bm25_only:
           for r in results:
            yield (int(r['id']), self.filebyline[int(r['id'])].decode().replace("\\n", "\n").replace("\\t", "\t").strip())
         else:
@@ -1040,36 +1044,41 @@ class SearcherIdx:
              idxs.append(int(r['id']))
              n_chunks += 1
              if n_chunks > chunk_size:
+                vec_results = {}
+                for _, r in zip(range(chunk_size), vec_search_results):
+                  vec_results[r[0]] = r[1]
+                idxs = [idx for idx in idxs if idx not in vec_results]
                 vecs = torch.from_numpy(np_memmap(self.mmap_file, shape=[self.mmap_len, self.embed_dim], dtype=self.dtype)[idxs]).to(device)
-                results = cosine_similarity(vec.unsqueeze(0), vecs)
-                results = results.sort(descending=True)
-                for idx, score in zip(results.indices[0].tolist(), results.values[0].tolist()):
+                results = cosine_similarity(vec, vecs)
+                for idx, score in zip(results.indices.tolist(), results.values.tolist()):
                    idx = idxs[idx]
+                   vec_results[idx] = score
+                vec_results = list(vec_results.items())
+                vec_results.sort(key=lambda a: a[1], reverse=True)
+                for idx, score in vec_results:
                    yield (idx, self.filebyline[idx].decode().replace("\\n", "\n").replace("\\t", "\t").strip(), score)
                 idxs = []
                 n_chunk = 0
           if idxs:
-              vecs = torch.from_numpy(np_memmap(self.mmap_file, shape=[self.mmap_len, self.embed_dim], dtype=self.dtype)[idxs]).to(device)
-              results = cosine_similarity(vec.unsqueeze(0), vecs)
-              results = results.sort(descending=True)
-              for idx, score in zip(results.indices[0].tolist(), results.values[0].tolist()):
-                 idx = idxs[idx]
-                 yield (idx, self[idx].decode().replace("\\n", "\n").replace("\\t", "\t").strip(), score)
+                vec_results = {}
+                for _, r in zip(range(chunk_size), vec_search_results):
+                  vec_results[r[0]] = r[1]
+                idxs = [idx for idx in idxs if idx not in vec_results]
+                vecs = torch.from_numpy(np_memmap(self.mmap_file, shape=[self.mmap_len, self.embed_dim], dtype=self.dtype)[idxs]).to(device)
+                results = cosine_similarity(vec, vecs)
+                for idx, score in zip(results.indices.tolist(), results.values.tolist()):
+                   idx = idxs[idx]
+                   vec_results[idx] = score
+                vec_results = list(vec_results.items())
+                vec_results.sort(key=lambda a: a[1], reverse=True)
+                for idx, score in vec_results:
+                   yield (idx, self.filebyline[idx].decode().replace("\\n", "\n").replace("\\t", "\t").strip(), score)
     else:
-      #do approximate nearest neighbor search of embeddings 
-      assert vec is not None        
-      if type(self.parents) is not torch.Tensor:
-         self.parents = torch.from_numpy(self.parents).to(device)
       if hasattr(self, 'filebyline'):
-
-        for r in embeddings_search(vec, mmap_file= self.mmap_file, mmap_len=self.mmap_len, embed_dim=self.embed_dim,  dtype=self.dtype, \
-                                  parents=self.parents, clusters=self.clusters, top_parent_idxs=self.top_parent_idxs, \
-                                  top_parents=self.top_parents, parent2idx=self.parent2idx, k=k):
+        for r in vec_search_results:
           yield (r[0], self.filebyline[r[0]].decode().replace("\\n", "\n").replace("\\t", "\t").strip(), r[1])
       else:
-        for r in embeddings_search( vec, mmap_file= self.mmap_file, mmap_len=self.mmap_len, embed_dim=self.embed_dim,  dtype=self.dtype, \
-                                  parents=self.parents, top_parent_idxs=self.top_parent_idxs, \
-                                  top_parents=self.top_parents, parent2idx=self.parent2idx, k=k):
+        for r in vec_search_results
           yield (r[0], r[1])
           
   def get_embeddings(self, sent):
