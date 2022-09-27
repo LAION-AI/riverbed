@@ -1078,7 +1078,7 @@ class SearcherIdx:
                if cnt <= 0: return
     #return any stragglers         
     for r in vec_search_results:
-       data = _get_data(idx)
+       data = _get_data(r[0])
        if type(data) is dict:
          data['id'] = r[0]
          data['score'] = r[1]
