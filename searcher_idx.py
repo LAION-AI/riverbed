@@ -121,7 +121,6 @@ class SearcherIdx(nn.Module):
                                   To get universal embedding, we do cosine(target, prototypes_vec), then normalize and then run through a universial_downsampler
         :arg protoypes:         Optional. The vectors in the embeddeing or (downsampled embedding) space that corresponds to the prototype_sentences.
         :arg min_num_prorotypes Optional. Will control the number of prototypes.
-        :arg create_prototypes_from_clusters. Will create the prototype_sentences from the level 0 parents.
         :arg universal_downsampler Optional. The pythorch downsampler for mapping the output described above to a lower dimension that works across embedders
                                   and concept drift in the same embedder. maps from # of prototypes -> embed_dim. 
         
@@ -163,7 +162,6 @@ class SearcherIdx(nn.Module):
         self.filebyline = FileByLineIdx(fobj=fobj) 
     labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set = init_models()
     if downsampler is None:
-     
       if embedder == "clip":
         model_embed_dim = clip_model.config.text_config.hidden_size
       elif embedder == "minilm":
@@ -283,10 +281,17 @@ class SearcherIdx(nn.Module):
       if hasattr(self,f'downsampler_{self.search_field}_{embedder}_{self.embed_dim}'):
         downsampler = getattr(self,f'downsampler_{self.search_field}_{embedder}_{self.embed_dim}')
       else:
+        if embedder == "clip":
+          model_embed_dim = clip_model.config.text_config.hidden_size
+        elif embedder == "minilm":
+          model_embed_dim = minilm_model.config.hidden_size
+        elif embedder == "labse":
+          model_embed_dim = labse_model.config.hidden_size   
         downsampler = nn.Linear(model_embed_dim, embed_dim, bias=False).eval() 
+
     
-    self.embedder, self.mmap_file, self.mmap_len, self.embed_dim, self.dtype, self.clusters, self.parent2idx,  self.parents, self.top_parents, self.top_parent_idxs,  self.downsampler  = \
-             embedder, mmap_file, mmap_len, embed_dim, dtype, clusters, parent2idx, parents, top_parents, top_parent_idxs, downsampler
+    self.embedder, self.mmap_file, self.embed_dim,  self.clusters, self.parent2idx,  self.parents, self.top_parents, self.top_parent_idxs,  self.downsampler  = \
+             embedder, mmap_file, embed_dim,  clusters, parent2idx, parents, top_parents, top_parent_idxs, downsampler
     if skip_idxs is None: skip_idxs = []
     self.skip_idxs = set(list(self.skip_idxs if hasattr(self, 'skip_idxs') and self.skip_idxs else []) + list(skip_idxs))
     if auto_embed_text and self.fobj is not None:
