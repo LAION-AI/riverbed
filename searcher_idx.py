@@ -164,6 +164,7 @@ class SearcherIdx(nn.Module):
     if bm25_field is None: bm25_field = search_field
     self.universal_embed_mode, self.mmap_file, self.mmap_len, self.embed_dim, self.dtype, self.clusters, self.parent2idx,  self.parents, self.top_parents, self.top_parent_idxs, self.search_field, self.bm25_field, self.downsampler  = \
              universal_embed_mode, mmap_file, mmap_len, embed_dim, dtype, clusters, parent2idx, parents, top_parents, top_parent_idxs, search_field, bm25_field, downsampler
+    self.prototype_sentences,  self.prototypes, self.universal_downsampler = prototype_sentences,  prototypes, universal_downsampler
     if self.downsampler is not None: 
       if self.dtype == np.float16:
         self.downsampler.eval().to(device)
@@ -200,10 +201,10 @@ class SearcherIdx(nn.Module):
         level_0_parents = [span[1] for span in self.parent2idx.keys() if span[0] == 0]
         prototype_sentences = [self.filebyline[span[1]] for span in level_0_parents]
       assert prototype_sentences
-      if len(prorotype_senences) > min_num_prorotypes:
+      if len(prototype_senences) > min_num_prorotypes:
          assert universal_embed_mode != "assigned"
          prototype_senences = random.sample(prototype_senences,min_num_prorotypes)
-      elif len(prorotype_senences) < min_num_prorotypes:
+      elif len(prototype_senences) < min_num_prorotypes:
          assert universal_embed_mode != "assigned"
          prototype_sentences.extend([self.filebyline[i] for i in random.sample(list(range(len(self.filebyline)), min_num_prorotypes-len(prorotype_senences)))])
       prototypes = self.get_embeddings(prototype_sentences)
