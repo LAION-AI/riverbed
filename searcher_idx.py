@@ -218,9 +218,9 @@ class SearcherIdx(nn.Module):
         else:
           self.prototypes = self.prototypes.to(device)
       #now re-create the embeddings, and remove the old embedder based embeddings since we won't use those anymore.
+      os.system(f"rm -rf {self.mmap_file}")
+      self.mmap_file = f"{self.idx_dir}/search_index_{search_field}_universal_{embed_dim}.mmap"
       if auto_embed_text and self.fobj is not None:
-        os.system("rm -rf {self.mmap_file}")
-        self.mmap_file = f"{self.idx_dir}/search_index_{search_field}_universal_{embed_dim}.mmap"
         self.embed_text(chunk_size=chunk_size, use_tqdm=use_tqdm)
       self.register_buffer('parents', self.parents)
       self.register_buffer('prototypes', self.prototypes)
