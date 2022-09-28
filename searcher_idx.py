@@ -176,11 +176,11 @@ class SearcherIdx(nn.Module):
         self.parents = self.parents.to(device)
     if skip_idxs is None: skip_idxs = []
     self.skip_idxs = set(list(self.skip_idxs if hasattr(self, 'skip_idxs') and self.skip_idxs else []) + list(skip_idxs))
-    if universal_embed_mode is not in (None, "assigned"):
+    if universal_embed_mode not in (None, "assigned"):
       auto_embed_text = True
     if auto_embed_text and self.fobj is not None:
       self.embed_text(chunk_size=chunk_size, use_tqdm=use_tqdm)
-    if universal_embed_mode is not in (None, "assigned") and clusters is None:
+    if universal_embed_mode not in (None, "assigned") and clusters is None:
       auto_create_embeddings_idx = True
     if os.path.exists(self.mmap_file) and (idxs is not None or auto_create_embeddings_idx):
       self.recreate_embeddings_idx(clusters=self.clusters, span2cluster_label=span2cluster_label, idxs=idxs, max_level=max_level, max_cluster_size=max_cluster_size, \
