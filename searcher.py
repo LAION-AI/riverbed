@@ -341,7 +341,7 @@ class Searcher(nn.Module):
                           universal_embed_mode=self.universal_embed_mode, prototypes=self.prototypes, universal_downsampler=self.universal_downsampler)
               
   #embed all of self.fobj or (idx, content) for idx in idxs for the row/content from fobj
-  def embed_text(self, start_idx=None, chunk_size=10000, idxs=None, use_tqdm=True, auto_create_bm25_idx=False):
+  def embed_text(self, start_idx=None, chunk_size=1000, idxs=None, use_tqdm=True, auto_create_bm25_idx=False):
     assert self.fobj is not None
     if start_idx is None: start_idx = 0
     search_field = self.search_field 
