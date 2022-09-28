@@ -60,7 +60,7 @@ class SearcherIdx(nn.Module):
   def __init__(self,  filename, fobj=None, mmap_file=None, mmap_len=0, embed_dim=25, dtype=np.float16, \
                parents=None, parent_levels=None, parent_labels=None, skip_idxs=None, \
                parent2idx=None, top_parents=None, top_parent_idxs=None, clusters=None,  embedder="minilm", chunk_size=1000, \
-               search_field="text", filebyline=None, downsampler=None, auto_embed_text=False, \
+               search_field="text", bm25_field=None, filebyline=None, downsampler=None, auto_embed_text=False, \
                auto_create_embeddings_idx=False, auto_create_bm25_idx=False,  \
                span2cluster_label=None, idxs=None, max_level=4, max_cluster_size=200, \
                min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000, \
@@ -99,6 +99,7 @@ class SearcherIdx(nn.Module):
         :arg filebyline           Optional. The access for a file by lines.
         :arg search_field:      Optional. Defaults to "text". If the data is in jsonl format,
                               this is the field that is Whoosh/bm25 indexed.
+        :arg bm25_field:        Optional. Can be different than the search_field. If none, then will be set to the search_field.
         :arg idxs:                Optional. Only these idxs should be indexed and searched.
         :arg skip_idxs:           Optional. The indexes that are empty and should not be searched or clustered.
         :arg filebyline:           Optional. If not passed, will be created. Used to random access the file by line number.
@@ -160,8 +161,9 @@ class SearcherIdx(nn.Module):
       elif embedder == "labse":
         model_embed_dim = labse_model.config.hidden_size   
       downsampler = nn.Linear(model_embed_dim, embed_dim, bias=False).eval() 
-    self.mmap_file, self.mmap_len, self.embed_dim, self.dtype, self.clusters, self.parent2idx,  self.parents, self.top_parents, self.top_parent_idxs, self.search_field, self.downsampler  = \
-             mmap_file, mmap_len, embed_dim, dtype, clusters, parent2idx, parents, top_parents, top_parent_idxs, search_field, downsampler
+    if bm25_field is None: bm25_field = search_field
+    self.mmap_file, self.mmap_len, self.embed_dim, self.dtype, self.clusters, self.parent2idx,  self.parents, self.top_parents, self.top_parent_idxs, self.search_field, self.bm25_field, self.downsampler  = \
+             mmap_file, mmap_len, embed_dim, dtype, clusters, parent2idx, parents, top_parents, top_parent_idxs, search_field, bm25_field, downsampler
     if self.downsampler is not None: 
       if self.dtype == np.float16:
         self.downsampler.eval().to(device)
@@ -244,7 +246,7 @@ class SearcherIdx(nn.Module):
       dat = self.universal_downsampler(dat)
     return dat
   
-  def switch_search_context(self, downsampler = None, mmap_file=None, search_field="text", embedder="minilm", embed_dim=25, clusters=None, \
+  def switch_search_context(self, downsampler = None, mmap_file=None,embedder="minilm", embed_dim=25, clusters=None, \
                             span2cluster_label=None, idxs=None, max_level=4, max_cluster_size=200, chunk_size=1000,  \
                             parent2idx=None, parents=None, top_parents=None, top_parent_idxs=None, skip_idxs=None, \
                             auto_embed_text=False,auto_create_embeddings_idx=False, auto_create_bm25_idx=False,  \
@@ -261,12 +263,12 @@ class SearcherIdx(nn.Module):
       clusters = self.clusters
     if mmap_file is None:
       if  self.universal_embed_mode:
-        mmap_file = f"{self.idx_dir}/search_index_{search_field}_universal_{embed_dim}.mmap"
+        mmap_file = f"{self.idx_dir}/search_index_{self.search_field}_universal_{embed_dim}.mmap"
         auto_embed_text=not os.path.exists(self.mmap_file) # the universal embeddings are created once. 
       else:
-        mmap_file = f"{self.idx_dir}/search_index_{search_field}_{embedder}_{embed_dim}.mmap"
-    self.embedder, self.mmap_file, self.mmap_len, self.embed_dim, self.dtype, self.clusters, self.parent2idx,  self.parents, self.top_parents, self.top_parent_idxs, self.search_field, self.downsampler  = \
-             embedder, mmap_file, mmap_len, embed_dim, dtype, clusters, parent2idx, parents, top_parents, top_parent_idxs, search_field, downsampler
+        mmap_file = f"{self.idx_dir}/search_index_{self.search_field}_{embedder}_{embed_dim}.mmap"
+    self.embedder, self.mmap_file, self.mmap_len, self.embed_dim, self.dtype, self.clusters, self.parent2idx,  self.parents, self.top_parents, self.top_parent_idxs,  self.downsampler  = \
+             embedder, mmap_file, mmap_len, embed_dim, dtype, clusters, parent2idx, parents, top_parents, top_parent_idxs, downsampler
     if skip_idxs is None: skip_idxs = []
     self.skip_idxs = set(list(self.skip_idxs if hasattr(self, 'skip_idxs') and self.skip_idxs else []) + list(skip_idxs))
     if auto_embed_text and self.fobj is not None:
@@ -339,16 +341,16 @@ class SearcherIdx(nn.Module):
   def recreate_whoosh_idx(self, auto_create_bm25_idx=False, idxs=None, use_tqdm=True):
     assert self.fobj is not None
     fobj = self.fobj
-    search_field = self.search_field 
+    bm25_field = self.bm25_field 
     schema = Schema(id=ID(stored=True), content=TEXT(analyzer=StemmingAnalyzer()))
     #TODO determine how to clear out the whoosh index besides rm -rf _M* MAIN*
     idx_dir = self.idx_dir
-    os.system(f"mkdir -p {idx_dir}/bm25_{search_field}")
-    need_reindex = auto_create_bm25_idx or not os.path.exists(f"{idx_dir}/bm25_{search_field}/_MAIN_1.toc") #CHECK IF THIS IS RIGHT 
+    os.system(f"mkdir -p {idx_dir}/bm25_{bm25_field}")
+    need_reindex = auto_create_bm25_idx or not os.path.exists(f"{idx_dir}/bm25_{bm25_field}/_MAIN_1.toc") #CHECK IF THIS IS RIGHT 
     if not need_reindex:
-      self.whoosh_ix = whoosh_index.open_dir(f"{idx_dir}/bm25_{search_field}")
+      self.whoosh_ix = whoosh_index.open_dir(f"{idx_dir}/bm25_{bm25_field}")
     else:
-      self.whoosh_ix = create_in(f"{idx_dir}/bm25_{search_field}", schema)
+      self.whoosh_ix = create_in(f"{idx_dir}/bm25_{bm25_field}", schema)
       writer = self.whoosh_ix.writer(multisegment=True, limitmb=1024, procs=multiprocessing.cpu_count())      
       #writer = self.whoosh_ix.writer(multisegment=True,  procs=multiprocessing.cpu_count())      
       pos = fobj.tell()
@@ -369,7 +371,7 @@ class SearcherIdx(nn.Module):
           if not l: continue
           #hack to speed up processing and avoiding json.loads
           if l[0] == "{" and l[-1] == "}":
-            content = l.split(search_field+'": "')[1]
+            content = l.split(bm25_field+'": "')[1]
             content = content.split('", "')[0].replace("_", " ")
           else:
             content = l.replace("_", " ")
