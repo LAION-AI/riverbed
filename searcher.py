@@ -278,10 +278,10 @@ class Searcher(nn.Module):
       clusters = self.clusters
     if mmap_file is None:
       if  self.universal_embed_mode:
-        mmap_file = f"{self.idx_dir}/search_index_{self.search_field}_universal_{embed_dim}.mmap"
+        mmap_file = f"{self.idx_dir}/search_index_{self.search_field}_universal_{self.embed_dim}.mmap"
         auto_embed_text=not os.path.exists(self.mmap_file) # the universal embeddings are created once. 
       else:
-        mmap_file = f"{self.idx_dir}/search_index_{self.search_field}_{embedder}_{embed_dim}.mmap"
+        mmap_file = f"{self.idx_dir}/search_index_{self.search_field}_{embedder}_{self.embed_dim}.mmap"
     if downsampler is None:
       if hasattr(self,f'downsampler_{self.search_field}_{embedder}_{self.embed_dim}'):
         downsampler = getattr(self,f'downsampler_{self.search_field}_{embedder}_{self.embed_dim}')
