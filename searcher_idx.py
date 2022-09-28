@@ -225,7 +225,6 @@ class SearcherIdx(nn.Module):
       self.mmap_file = f"{self.idx_dir}/search_index_{search_field}_universal_{embed_dim}.mmap"
       if auto_embed_text and self.fobj is not None:
         self.embed_text(chunk_size=chunk_size, use_tqdm=use_tqdm)
-      self.recreate_parents_data()
       self.register_buffer('parents', self.parents)
       self.register_buffer('prototypes', self.prototypes)
       
@@ -269,12 +268,6 @@ class SearcherIdx(nn.Module):
         auto_embed_text=not os.path.exists(self.mmap_file) # the universal embeddings are created once. 
       else:
         mmap_file = f"{self.idx_dir}/search_index_{self.search_field}_{embedder}_{embed_dim}.mmap"
-    if downsampler is None:
-      if hasattr(self,f'downsampler_{self.search_field}_{embedder}_{self.embed_dim}'):
-        downsampler = getattr(self,f'downsampler_{self.search_field}_{embedder}_{self.embed_dim}')
-      else:
-        downsampler = nn.Linear(model_embed_dim, embed_dim, bias=False).eval() 
-    
     self.embedder, self.mmap_file, self.mmap_len, self.embed_dim, self.dtype, self.clusters, self.parent2idx,  self.parents, self.top_parents, self.top_parent_idxs,  self.downsampler  = \
              embedder, mmap_file, mmap_len, embed_dim, dtype, clusters, parent2idx, parents, top_parents, top_parent_idxs, downsampler
     if skip_idxs is None: skip_idxs = []
@@ -523,6 +516,7 @@ class SearcherIdx(nn.Module):
       clusters, _ = self.cluster(clusters=clusters, span2cluster_label=span2cluster_label, cluster_idxs=idxs, max_level=max_level, max_cluster_size=max_cluster_size, \
                                min_overlap_merge_cluster=min_overlap_merge_cluster, prefered_leaf_node_size=prefered_leaf_node_size, kmeans_batch_size=kmeans_batch_size)
     self.clusters = clusters
+    print (clusters)
     self.recreate_parents_data()
               
   def get_cluster_and_span2cluster_label(self):
