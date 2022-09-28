@@ -218,7 +218,7 @@ def embed_text(dat_iter, mmap_file, start_idx=None, downsampler=None, skip_idxs=
       cluster_vecs = np_memmap(mmap_file, shape=[mmap_len, embed_dim], dat=dat, idxs=idxs)  
       batch = []
       idxs = []
-    return skip_idxs
+    return mmap_len, skip_idxs
     
 #cluster pruning based approximate nearest neightbor search. See https://nlp.stanford.edu/IR-book/html/htmledition/cluster-pruning-1.html
 #assumes the embeddings are stored in the mmap_file and the clustered index has been created.
@@ -362,6 +362,7 @@ def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, mmap_le
       clusters.clear()
       for span, label in span2cluster_label.items():
         clusters[label] = clusters.get(label, []) + [span]
+  #print (mmap_len, clusters, span2cluster_label)
 
   if prefered_leaf_node_size is None: prefered_leaf_node_size = max_cluster_size
   cluster_vecs = np_memmap(mmap_file, shape=[mmap_len, embed_dim], dtype=dtype)
@@ -369,6 +370,7 @@ def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, mmap_le
   all_spans = None
   for level in range(max_level):
     assert level == 0 or (all_spans is not None and cluster_idxs is not None)
+    #print ("got here")
     if cluster_idxs is None: 
       len_spans = mmap_len
     else:
@@ -415,6 +417,7 @@ def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, mmap_le
           spans = [all_spans[idx] for idx in spans]
           spans = [span for span in spans  if span[1] not in skip_idxs] 
           vector_idxs = [span[1] for span in spans]
+        #print (spans)
         #do kmeans clustering in batches with the vector indexes
         if level == 0:
           true_k = int(len(vector_idxs)/prefered_leaf_node_size)
