@@ -53,8 +53,7 @@ try:
 except:
    labse_tokenizer= labse_model=  clip_processor = minilm_tokenizer= clip_model= minilm_model= spacy_nlp= stopwords_set = None
 
-#this class is used for searching a single (large) file of text, using embeddings and bm25 based search.
-#this class also creates a hiearchical cluster of the embeddings.
+           
 class Searcher(nn.Module):
   #TODO. Change this to inherit from a transformers.PretrainedModel.
   @staticmethod
@@ -336,14 +335,15 @@ class Searcher(nn.Module):
     assert self.fobj is not None
     if start_idx is None: start_idx = self.mmap_len
     search_field = self.search_field 
+    ###
     def fobj_data_reader():
       fobj = self.fobj
       pos = fobj.tell()
       fobj.seek(0, 0)
       for l in fobj:
         yield self._get_content_from_line(l, search_field)
-        
       fobj.seek(pos,0)
+    ###  
     if idxs is not None:
       dat_iter = [(idx, self.filebyline[idx]) for idx in idxs]
     else:
