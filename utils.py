@@ -808,7 +808,7 @@ class SearcherIdx:
                auto_create_embeddings_idx=False, auto_create_bm25_idx=False,  \
                span2cluster_label=None, idxs=None, max_level=4, max_cluster_size=200, \
                min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000, \
-               do_universal_embed = False, prototype_idxs=None,  prototypes=None, universal_downsampler =None, \
+               do_universal_embed = False, prototype_sents=None,  prototypes=None, universal_downsampler =None, min_num_prorotypes=50000, \
                use_tqdm=True
               ):
     """
@@ -847,13 +847,16 @@ class SearcherIdx:
         :arg skip_idxs:           Optional. The indexes that are empty and should not be searched or clustered.
         :arg filebyline:           Optional. If not passed, will be created. Used to random access the file by line number.
         :arg downsampler:          Optional. The pythorch downsampler for mapping the output of the embedder to a lower dimension.
-        :arg do_universal_embed.  Optional. If we should do universal embedding as described below.
-        :arg prototype_idxs:          Optional. The indexes that represents the protoypes for embeddings space. If do_universal_embed is set and prototypes
-                                  are not provided,then this will be the level 0 parents of the current clustering.
+        :arg universal_embed_mode.  Optional. Either None, "assigned", "random", or "clusters". If we should do universal embedding as described below, this will control
+                                    how the prototypes are assigned. 
+        :arg prototype_sents:     Optional. A sorted list of sentences that represents the protoypes for embeddings space. If do_universal_embed is set and prototypes
+                                  are not provided,then this will be the level 0 parents sentences of the current clustering.
                                   To get universal embedding, we do cosine(target, prototypes_vec), then normalize and then run through a universial_downsampler
-        :arg protoypes:         Optional. The vectors in the embeddeing or (downsampled embedding) space that corresponds to the prototype_idxs.
+        :arg protoypes:         Optional. The vectors in the embeddeing or (downsampled embedding) space that corresponds to the prototype_sentences.
+        :arg min_num_prorotypes Optional. Will control the number of prototypes.
+        :arg create_prototypes_from_clusters. Will create the prototype_sents from the level 0 parents.
         :arg universal_downsampler Optional. The pythorch downsampler for mapping the output described above to a lower dimension that works across embedders
-                                  and concept drift in the same embedder.
+                                  and concept drift in the same embedder. maps from # of prototypes -> embed_dim. 
         
       NOTE: Either pass in the parents, parent_levels, parent_labels, and parent2idx data is pased or clusters is passed. 
           If none of these are passed and auto_create_embeddings_idx is set, then the data in the mmap file will be clustered and the 
@@ -891,31 +894,22 @@ class SearcherIdx:
         self.filebyline = FileByLineIdx(fobj=fobj)  
     self.mmap_file, self.mmap_len, self.embed_dim, self.dtype, self.clusters, self.parent2idx,  self.parents, self.top_parents, self.top_parent_idxs, self.search_field, self.downsampler  = \
              mmap_file, mmap_len, embed_dim, dtype, clusters, parent2idx, parents, top_parents, top_parent_idxs, search_field, downsampler
-    self.do_universal_embed, self.prototype_idxs,  self.prototypes, self.universal_downsampler = do_universal_embed, prototype_idxs,  prototypes, universal_downsampler
     if self.downsampler is not None: 
       if self.dtype == np.float16:
         self.downsampler.eval().to(device)
       else:
         self.downsampler.half().eval().to(device)
-    if self.universal_downsampler is not None: 
-      if self.dtype == np.float16:
-        self.universal_downsampler.eval().to(device)
-      else:
-        self.universal_downsampler.half().eval().to(device)
     if self.parents is not None: 
       if self.dtype == np.float16:
         self.parents = self.parents.half().to(device)
       else:
         self.parents = self.parents.to(device)
-    if self.prototypes is not None: 
-      if self.dtype == np.float16:
-        self.prototypes = self.prototypes.half().to(device)
-      else:
-        self.prototypes = self.prototypes.to(device)
     if skip_idxs is None: skip_idxs = []
     self.skip_idxs = set(list(self.skip_idxs if hasattr(self, 'skip_idxs') and self.skip_idxs else []) + list(skip_idxs))
     if auto_embed_text and self.fobj is not None:
       self.embed_text(chunk_size=chunk_size, use_tqdm=use_tqdm)
+    if universal_embed_mode is not in (None, "assigned"):
+      auto_create_embeddings_idx = True
     if os.path.exists(self.mmap_file) and (clusters is not None or idxs is not None or auto_create_embeddings_idx):
       self.recreate_embeddings_idx(clusters=self.clusters, span2cluster_label=span2cluster_label, idxs=idxs, max_level=max_level, max_cluster_size=max_cluster_size, \
                                min_overlap_merge_cluster=min_overlap_merge_cluster, prefered_leaf_node_size=prefered_leaf_node_size, kmeans_batch_size=kmeans_batch_size)
@@ -923,33 +917,67 @@ class SearcherIdx:
        self.recreate_whoosh_idx(auto_create_bm25_idx=auto_create_bm25_idx, idxs=idxs, use_tqdm=use_tqdm)
     setattr(self,f'downsampler_{self.search_field}_{embedder}_{self.embed_dim}', self.downsampler)
     setattr(self,f'clusters_{self.search_field}_{self.embedder}_{self.embed_dim}', self.clusters)
-      
-  
+    self.universal_embed_mode = universal_embed_mode
+    if universal_embed_mode:
+      assert (prototypes is None and prototype_sents is None and universal_downsample is None) or universal_embed_mode == "assigned"
+      if universal_embed_mode == "random":
+        prototype_sentences = [self.filebyline[i] for i in random.sample(list(range(len(self.filebyline)), min_num_prorotypes))]
+      elif universal_embed_mode == "cluster":
+        level_0_parents = [span[1] for span in self.parent2idx.keys() if span[0] == 0]
+        prototype_sentences = [self.filebyline[span[1]] for span in level_0_parents]
+      assert prototype_sentences
+      if len(prorotype_senences) > min_num_prorotypes:
+         assert universal_embed_mode != "assigned"
+         prototype_senences = random.sample(prototype_senences,min_num_prorotypes)
+      elif len(prorotype_senences) < min_num_prorotypes:
+         assert universal_embed_mode != "assigned"
+         prototype_sentences.extend([self.filebyline[i] for i in random.sample(list(range(len(self.filebyline)), min_num_prorotypes-len(prorotype_senences)))])
+      prototypes = self.get_embeddings(prototype_sentences)
+      universal_downsampler = nn.Linear(len(prototype_sentences), embed_dim, bias=False)
+      self.prototype_sentences,  self.prototypes, self.universal_downsampler = prototype_sentences,  prototypes, universal_downsampler
+      if self.universal_downsampler is not None: 
+        if self.dtype == np.float16:
+          self.universal_downsampler.eval().to(device)
+        else:
+          self.universal_downsampler.half().eval().to(device)
+      if self.prototypes is not None: 
+        if self.dtype == np.float16:
+          self.prototypes = self.prototypes.half().to(device)
+        else:
+          self.prototypes = self.prototypes.to(device)
+                         
   def switch_search_context(self, downsampler = None, mmap_file=None, search_field="text", embedder="minilm", embed_dim=25, clusters=None, \
                             span2cluster_label=None, idxs=None, max_level=4, max_cluster_size=200, chunk_size=1000,  \
                             parent2idx=None, parents=None, top_parents=None, top_parent_idxs=None, skip_idxs=None, \
                             auto_embed_text=False,auto_create_embeddings_idx=False, auto_create_bm25_idx=False,  \
-                            do_universal_embed = False, prototype_idxs=None,  prototypes=None, universal_downsampler =None, \
                             reuse_clusters=False, min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000, use_tqdm=True
                           ):
     global device
     if hasattr(self,f'downsampler_{self.search_field}_{self.embedder}_{self.embed_dim}'): getattr(self,f'downsampler_{self.search_field}_{self.embedder}_{self.embed_dim}').cpu()
     if hasattr(self, 'downsampler') and self.downsampler is not None: self.downsampler.cpu()
     fobj = self.fobj
-    if clusters is None and reuse_clusters: clusters = self.clusters
-    self.mmap_file, self.mmap_len, self.embed_dim, self.dtype, self.clusters, self.parent2idx,  self.parents, self.top_parents, self.top_parent_idxs, self.search_field, self.downsampler  = \
-             mmap_file, mmap_len, embed_dim, dtype, clusters, parent2idx, parents, top_parents, top_parent_idxs, search_field, downsampler
-    self.do_universal_embed, self.prototype_idxs,  self.prototypes, self.universal_downsampler = do_universal_embed, prototype_idxs,  prototypes, universal_downsampler
+    if self.universal_embed_mode == "clustered":
+      clusters = self.clusters
+    elif clusters is None and reuse_clusters: 
+      clusters = self.clusters
+    self.embedder, self.mmap_file, self.mmap_len, self.embed_dim, self.dtype, self.clusters, self.parent2idx,  self.parents, self.top_parents, self.top_parent_idxs, self.search_field, self.downsampler  = \
+             embedder, mmap_file, mmap_len, embed_dim, dtype, clusters, parent2idx, parents, top_parents, top_parent_idxs, search_field, downsampler
+    if skip_idxs is None: skip_idxs = []
+    self.skip_idxs = set(list(self.skip_idxs if hasattr(self, 'skip_idxs') and self.skip_idxs else []) + list(skip_idxs))
+    if auto_embed_text and self.fobj is not None:
+      self.embed_text(chunk_size=chunk_size, use_tqdm=use_tqdm)
+    if os.path.exists(self.mmap_file) and (clusters is not None or idxs is not None or auto_create_embeddings_idx):
+      self.recreate_embeddings_idx(clusters=self.clusters, span2cluster_label=span2cluster_label, idxs=idxs, max_level=max_level, max_cluster_size=max_cluster_size, \
+                               min_overlap_merge_cluster=min_overlap_merge_cluster, prefered_leaf_node_size=prefered_leaf_node_size, kmeans_batch_size=kmeans_batch_size)
+    if auto_create_bm25_idx and self.fobj:
+       self.recreate_whoosh_idx(auto_create_bm25_idx=auto_create_bm25_idx, idxs=idxs, use_tqdm=use_tqdm)
+    if self.universal_embed_mode is not None and self.prototype_sentences:
+      self.prototypes = self.get_embeddings(self.prototype_sentences)
     if self.downsampler is not None: 
       if self.dtype == np.float16:
         self.downsampler.eval().to(device)
       else:
         self.downsampler.half().eval().to(device)
-    if self.universal_downsampler is not None: 
-      if self.dtype == np.float16:
-        self.universal_downsampler.eval().to(device)
-      else:
-        self.universal_downsampler.half().eval().to(device)
     if self.parents is not None: 
       if self.dtype == np.float16:
         self.parents = self.parents.half().to(device)
@@ -960,15 +988,6 @@ class SearcherIdx:
         self.prototypes = self.prototypes.half().to(device)
       else:
         self.prototypes = self.prototypes.to(device)
-    if skip_idxs is None: skip_idxs = []
-    self.skip_idxs = set(list(self.skip_idxs if hasattr(self, 'skip_idxs') and self.skip_idxs else []) + list(skip_idxs))
-    if auto_embed_text and self.fobj is not None:
-      self.embed_text(chunk_size=chunk_size, use_tqdm=use_tqdm)
-    if os.path.exists(self.mmap_file) and (clusters is not None or idxs is not None or auto_create_embeddings_idx):
-      self.recreate_embeddings_idx(clusters=self.clusters, span2cluster_label=span2cluster_label, idxs=idxs, max_level=max_level, max_cluster_size=max_cluster_size, \
-                               min_overlap_merge_cluster=min_overlap_merge_cluster, prefered_leaf_node_size=prefered_leaf_node_size, kmeans_batch_size=kmeans_batch_size)
-    if auto_create_bm25_idx and self.fobj:
-       self.recreate_whoosh_idx(auto_create_bm25_idx=auto_create_bm25_idx, idxs=idxs, use_tqdm=use_tqdm)
     setattr(self,f'downsampler_{self.search_field}_{embedder}_{self.embed_dim}', self.downsampler)
     setattr(self,f'clusters_{self.search_field}_{self.embedder}_{self.embed_dim}', self.clusters)
       
