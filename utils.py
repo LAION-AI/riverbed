@@ -208,14 +208,14 @@ def embed_text(dat_iter, mmap_file, start_idx=None, downsampler=None, skip_idxs=
         if not l or len(batch) >= chunk_size:  
           if batch:
             dat = _get_embeddings(batch).cpu().numpy()
-            cluster_vecs = np_memmap(mmap_file, shape=[mmap_len, embed_dim], dat=dat, idxs=idxs)  
+            cluster_vecs = np_memmap(mmap_file, shape=[mmap_len, embed_dim], dat=dat, idxs=idxs, dtype=dtype)  
             batch = []
             idxs = []
           if not l:
             skip_idxs.append(idx) 
     if batch:
       dat = _get_embeddings(batch).cpu().numpy()
-      cluster_vecs = np_memmap(mmap_file, shape=[mmap_len, embed_dim], dat=dat, idxs=idxs)  
+      cluster_vecs = np_memmap(mmap_file, shape=[mmap_len, embed_dim], dat=dat, idxs=idxs, dtype=dtype)  
       batch = []
       idxs = []
     return mmap_len, skip_idxs
