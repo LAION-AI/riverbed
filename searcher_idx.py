@@ -56,6 +56,16 @@ except:
            
 class SearcherIdx(nn.Module):
   #TODO. Change this to inherit from a transformers.PretrainedModel.
+  @staticmethod
+  def _get_content_from_line(l, search_field="text"):
+    l =l.decode().replace("\\n", "\n").replace("\\t", "\t").strip()
+    if not l: return ''
+    if l[0] == "{" and l[-1] == "}":
+      content = l.split(search_field+'": "')[1]
+      content = content.split('", "')[0].replace("_", " ")
+    else:
+      content = l.replace("_", " ")
+    return content
 
   def __init__(self,  filename, fobj=None, mmap_file=None, mmap_len=0, embed_dim=25, dtype=np.float16, \
                parents=None, parent_levels=None, parent_labels=None, skip_idxs=None, \
@@ -194,19 +204,19 @@ class SearcherIdx(nn.Module):
     setattr(self,f'clusters_{self.search_field}_{self.embedder}_{self.embed_dim}', self.clusters)
     self.universal_embed_mode = universal_embed_mode
     if universal_embed_mode:
-      assert (prototypes is None and prototype_sentences is None and universal_downsample is None) or universal_embed_mode == "assigned"
+      assert (prototypes is None and prototype_sentences is None and universal_downsampler is None) or universal_embed_mode == "assigned"
       if universal_embed_mode == "random":
-        prototype_sentences = [self.filebyline[i] for i in random.sample(list(range(len(self.filebyline)), min_num_prorotypes))]
+        prototype_sentences = [self._get_content_from_line(self.filebyline[i], search_field) for i in random.sample(list(range(len(self.filebyline)), min_num_prorotypes))]
       elif universal_embed_mode == "cluster":
         level_0_parents = [span[1] for span in self.parent2idx.keys() if span[0] == 0]
-        prototype_sentences = [self.filebyline[span[1]] for span in level_0_parents]
+        prototype_sentences = [self._get_content_from_line(self.filebyline[span[1]], search_field) for span in level_0_parents]
       assert prototype_sentences
       if len(prototype_senences) > min_num_prorotypes:
          assert universal_embed_mode != "assigned"
          prototype_senences = random.sample(prototype_senences,min_num_prorotypes)
       elif len(prototype_senences) < min_num_prorotypes:
          assert universal_embed_mode != "assigned"
-         prototype_sentences.extend([self.filebyline[i] for i in random.sample(list(range(len(self.filebyline)), min_num_prorotypes-len(prorotype_senences)))])
+         prototype_sentences.extend([self._get_content_from_line(self.filebyline[i], search_field) for i in random.sample(list(range(len(self.filebyline)), min_num_prorotypes-len(prorotype_senences)))])
       prototypes = self.get_embeddings(prototype_sentences)
       universal_downsampler = nn.Linear(len(prototype_sentences), embed_dim, bias=False)
       self.prototype_sentences,  self.prototypes, self.universal_downsampler = prototype_sentences,  prototypes, universal_downsampler
@@ -325,16 +335,8 @@ class SearcherIdx(nn.Module):
       pos = fobj.tell()
       fobj.seek(0, 0)
       for l in fobj:
-        l =l.decode().replace("\\n", "\n").replace("\\t", "\t").strip()
-        if not l: 
-          yield ''
-        else:
-          if l[0] == "{" and l[-1] == "}":
-            content = l.split(search_field+'": "')[1]
-            content = content.split('", "')[0].replace("_", " ")
-          else:
-            content = l.replace("_", " ")
-          yield content
+        yield self._get_content_from_line(l, search_field)
+        
       fobj.seek(pos,0)
     if idxs is not None:
       dat_iter = [(idx, self.filebyline[idx]) for idx in idxs]
@@ -375,14 +377,8 @@ class SearcherIdx(nn.Module):
         else:
           dat_iter = enumerate(fobj)
       for idx, l in dat_iter:
-          l =l.decode().replace("\\n", "\n").replace("\\t", "\t").strip()
-          if not l: continue
-          #hack to speed up processing and avoiding json.loads
-          if l[0] == "{" and l[-1] == "}":
-            content = l.split(bm25_field+'": "')[1]
-            content = content.split('", "')[0].replace("_", " ")
-          else:
-            content = l.replace("_", " ")
+          content= self._get_content_from_line(l, bm25_field)
+          if not content: continue
           writer.add_document(id=str(idx), content=content)  
       writer.commit()
       fobj.seek(pos,0)
