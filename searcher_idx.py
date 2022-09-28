@@ -64,7 +64,7 @@ class SearcherIdx(nn.Module):
                auto_create_embeddings_idx=False, auto_create_bm25_idx=False,  \
                span2cluster_label=None, idxs=None, max_level=4, max_cluster_size=200, \
                min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000, \
-               universal_embed_mode = None, prototype_sents=None,  prototypes=None, universal_downsampler =None, min_num_prorotypes=50000, \
+               universal_embed_mode = None, prototype_sentences=None,  prototypes=None, universal_downsampler =None, min_num_prorotypes=50000, \
                use_tqdm=True
               ):
     """
@@ -106,12 +106,12 @@ class SearcherIdx(nn.Module):
         :arg downsampler:          Optional. The pythorch downsampler for mapping the output of the embedder to a lower dimension.
         :arg universal_embed_mode:  Optional. Either None, "assigned", "random", or "clusters". If we should do universal embedding as described below, this will control
                                     how the prototypes are assigned. 
-        :arg prototype_sents:     Optional. A sorted list of sentences that represents the protoypes for embeddings space. If universal_embed_mode is set and prototypes
+        :arg prototype_sentences:     Optional. A sorted list of sentences that represents the protoypes for embeddings space. If universal_embed_mode is set and prototypes
                                   are not provided,then this will be the level 0 parents sentences of the current clustering.
                                   To get universal embedding, we do cosine(target, prototypes_vec), then normalize and then run through a universial_downsampler
         :arg protoypes:         Optional. The vectors in the embeddeing or (downsampled embedding) space that corresponds to the prototype_sentences.
         :arg min_num_prorotypes Optional. Will control the number of prototypes.
-        :arg create_prototypes_from_clusters. Will create the prototype_sents from the level 0 parents.
+        :arg create_prototypes_from_clusters. Will create the prototype_sentences from the level 0 parents.
         :arg universal_downsampler Optional. The pythorch downsampler for mapping the output described above to a lower dimension that works across embedders
                                   and concept drift in the same embedder. maps from # of prototypes -> embed_dim. 
         
@@ -194,7 +194,7 @@ class SearcherIdx(nn.Module):
     setattr(self,f'clusters_{self.search_field}_{self.embedder}_{self.embed_dim}', self.clusters)
     self.universal_embed_mode = universal_embed_mode
     if universal_embed_mode:
-      assert (prototypes is None and prototype_sents is None and universal_downsample is None) or universal_embed_mode == "assigned"
+      assert (prototypes is None and prototype_sentences is None and universal_downsample is None) or universal_embed_mode == "assigned"
       if universal_embed_mode == "random":
         prototype_sentences = [self.filebyline[i] for i in random.sample(list(range(len(self.filebyline)), min_num_prorotypes))]
       elif universal_embed_mode == "cluster":
