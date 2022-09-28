@@ -1395,8 +1395,15 @@ class RiverbedDocumentProcessor (nn.Module):
           batch = []
           
     span2idx, span_clusters, label2tf, df, span2cluster_label, label_models = self.span2idx, self.span_clusters, self.label2tf, self.df, self.span2cluster_label, self.label_models                    
+    self.searcher = Searcher(f"{project_name}.jsonl", search_field="tokenized_text", bm25_field="text", embedder="minilm", \
+                             auto_embed_text=True, auto_create_bm25_idx=True, auto_create_embeddings_idx=True)
     return self
 
+  def gzip_jsonl_file(self):
+    os.system(f"gzip {project_name}.jsonl")
+    os.system(f"mv {project_name}.jsonl_idx {project_name}.jsonl.gz_idx")
+    self.mmap_file = f"{project_name}.jsonl.gz_idx/" + self.mmap_file.split("/")[-1]
+    
   def save_pretrained(self, project_name):
       os.system(f"mkdir -p {project_name}")
       pickle.dump(self, open(f"{project_name}/{project_name}.pickle", "wb"))
