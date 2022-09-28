@@ -54,7 +54,7 @@ except:
    labse_tokenizer= labse_model=  clip_processor = minilm_tokenizer= clip_model= minilm_model= spacy_nlp= stopwords_set = None
 
            
-class SearcherIdx(nn.Module):
+class Searcher(nn.Module):
   #TODO. Change this to inherit from a transformers.PretrainedModel.
   @staticmethod
   def _get_content_from_line(l, search_field="text"):
@@ -347,12 +347,55 @@ class SearcherIdx(nn.Module):
       dat_iter = [(idx, self.filebyline[idx]) for idx in idxs]
     else:
       dat_iter = fobj_data_reader()  
-    skip_idxs =  embed_text(dat_iter, self.mmap_file, start_idx=start_idx, downsampler=self.downsampler, \
+    self.mmap_len, skip_idxs =  embed_text(dat_iter, self.mmap_file, start_idx=start_idx, downsampler=self.downsampler, \
                           mmap_len=self.mmap_len, embed_dim=self.embed_dim, embedder=self.embedder, chunk_size=chunk_size, use_tqdm=use_tqdm, \
                           universal_embed_mode=self.universal_embed_mode, prototypes=self.prototypes, universal_downsampler=self.universal_downsampler)
     setattr(self,f'downsampler_{self.search_field}_{self.embedder}_{self.embed_dim}', self.downsampler)
     self.skip_idxs = set(list(self.skip_idxs)+skip_idxs)
-    
+      
+
+  #the below is probably in-efficient
+  def recreate_parents_data(self):
+    global device          
+    all_parents = list(self.clusters.keys())
+    all_parents.sort(key=lambda a: a[0], reverse=True)
+    max_level = all_parents[0][0]
+    self.top_parents =  [a for a in all_parents if a[0] == max_level]
+    self.top_parent_idxs = [idx for idx, a in enumerate(all_parents) if a[0] == max_level]
+    self.parent2idx = dict([(a,idx) for idx, a in enumerate(all_parents)])
+    self.parents = torch.from_numpy(np_memmap(self.mmap_file, shape=[self.mmap_len, self.embed_dim], dtype=self.dtype)[[a[1] for a in all_parents]]).to(device)
+             
+  def recreate_embeddings_idx(self,  clusters=None, span2cluster_label=None, idxs=None, max_level=4, max_cluster_size=200, \
+                               min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000,):
+    global device
+    #print (clusters, idxs)
+    if clusters is None or idxs is not None:
+      clusters, _ = self.cluster(clusters=clusters, span2cluster_label=span2cluster_label, cluster_idxs=idxs, max_level=max_level, max_cluster_size=max_cluster_size, \
+                               min_overlap_merge_cluster=min_overlap_merge_cluster, prefered_leaf_node_size=prefered_leaf_node_size, kmeans_batch_size=kmeans_batch_size)
+    #print (clusters)
+    self.clusters = clusters
+    self.recreate_parents_data()
+              
+  def get_cluster_and_span2cluster_label(self):
+    span2cluster_label = {}
+    for label, a_cluster in self.clusters:
+      for span in a_cluster:
+        span2cluster_label[span] = label
+    return self.clusters, span2cluster_label
+
+  def get_all_parents(self): 
+    return self.parent2idx.keys()
+  
+
+  def cluster(self, clusters=None, span2cluster_label=None, cluster_idxs=None, max_level=4, max_cluster_size=200, \
+                               min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000, use_tqdm=True):
+    return create_hiearchical_clusters(clusters=clusters, span2cluster_label=span2cluster_label, mmap_file=self.mmap_file, mmap_len=self.mmap_len, embed_dim=self.embed_dim, dtype=self.dtype, \
+                                      skip_idxs=self.skip_idxs, cluster_idxs=cluster_idxs, max_level=max_level, \
+                                      max_cluster_size=max_cluster_size, min_overlap_merge_cluster=min_overlap_merge_cluster, \
+                                      prefered_leaf_node_size=prefered_leaf_node_size, kmeans_batch_size=kmeans_batch_size, use_tqdm=use_tqdm)
+  
+  
+  
   def recreate_whoosh_idx(self, auto_create_bm25_idx=False, idxs=None, use_tqdm=True):
     assert self.fobj is not None
     fobj = self.fobj
@@ -504,46 +547,7 @@ class SearcherIdx(nn.Module):
        cnt -= 1
        if cnt <= 0: return
     
-          
-
-  #the below is probably in-efficient
-  def recreate_parents_data(self):
-    global device          
-    all_parents = list(self.clusters.keys())
-    all_parents.sort(key=lambda a: a[0], reverse=True)
-    max_level = all_parents[0][0]
-    self.top_parents =  [a for a in all_parents if a[0] == max_level]
-    self.top_parent_idxs = [idx for idx, a in enumerate(all_parents) if a[0] == max_level]
-    self.parent2idx = dict([(a,idx) for idx, a in enumerate(all_parents)])
-    self.parents = torch.from_numpy(np_memmap(self.mmap_file, shape=[self.mmap_len, self.embed_dim], dtype=self.dtype)[[a[1] for a in all_parents]]).to(device)
-             
-  def recreate_embeddings_idx(self,  clusters=None, span2cluster_label=None, idxs=None, max_level=4, max_cluster_size=200, \
-                               min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000,):
-    global device
-    if clusters is None or idxs is not None:
-      clusters, _ = self.cluster(clusters=clusters, span2cluster_label=span2cluster_label, cluster_idxs=idxs, max_level=max_level, max_cluster_size=max_cluster_size, \
-                               min_overlap_merge_cluster=min_overlap_merge_cluster, prefered_leaf_node_size=prefered_leaf_node_size, kmeans_batch_size=kmeans_batch_size)
-    self.clusters = clusters
-    self.recreate_parents_data()
-              
-  def get_cluster_and_span2cluster_label(self):
-    span2cluster_label = {}
-    for label, a_cluster in self.clusters:
-      for span in a_cluster:
-        span2cluster_label[span] = label
-    return self.clusters, span2cluster_label
-
-  def get_all_parents(self): 
-    return self.parent2idx.keys()
-  
-
-  def cluster(self, clusters=None, span2cluster_label=None, cluster_idxs=None, max_level=4, max_cluster_size=200, \
-                               min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000, use_tqdm=True):
-    return create_hiearchical_clusters(clusters=clusters, span2cluster_label=span2cluster_label, mmap_file=self.mmap_file, mmap_len=self.mmap_len, embed_dim=self.embed_dim, dtype=self.dtype, \
-                                      skip_idxs=self.skip_idxs, cluster_idxs=cluster_idxs, max_level=max_level, \
-                                      max_cluster_size=max_cluster_size, min_overlap_merge_cluster=min_overlap_merge_cluster, \
-                                      prefered_leaf_node_size=prefered_leaf_node_size, kmeans_batch_size=kmeans_batch_size, use_tqdm=use_tqdm)
-  
+        
   def save_pretrained(self, filename):
       os.system(f"mkdir -p {filename}_idx")
       fobj = self.fobj
