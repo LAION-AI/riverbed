@@ -53,7 +53,8 @@ try:
 except:
    labse_tokenizer= labse_model=  clip_processor = minilm_tokenizer= clip_model= minilm_model= spacy_nlp= stopwords_set = None
 
-           
+#this class is used for searching a single (large) file of text, using embeddings and bm25 based search.
+#this class also creates a hiearchical cluster of the embeddings.
 class Searcher(nn.Module):
   #TODO. Change this to inherit from a transformers.PretrainedModel.
   @staticmethod
