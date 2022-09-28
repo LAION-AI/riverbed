@@ -70,7 +70,7 @@ def init_models():
     spacy_nlp = spacy.load('en_core_web_md')
     stopwords_set = set(nltk_stopwords.words('english') + ['...', 'could', 'should', 'shall', 'can', 'might', 'may', 'include', 'including'])
 
-def get_embeddings(sent, downsampler, dtype=np.float16, embedder="minilm"):
+def get_embeddings(sent, downsampler, dtype=np.float16, embedder="minilm", do_universal_embed=False, prototypes=None, universal_downsampler=None):
   global labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
   init_models()
   if embedder == "clip":
@@ -94,10 +94,14 @@ def get_embeddings(sent, downsampler, dtype=np.float16, embedder="minilm"):
       dat = minilm_model(**toks)
       dat = mean_pooling(dat, toks.attention_mask)
     elif embedder == "labse":
-      toks = labse_tokenizer(sent, padding=True, truncation=True, return_tensors="pt").to(device)
+      toks = labse_tokenizer(sent, padding=True, truncation=True, return_tensors="pt", max_length=512).to(device)
       dat = labse_model(**toks).pooler_output   
     dat = torch.nn.functional.normalize(dat, dim=1)
     dat = downsampler(dat)
+    if do_universal_embed:
+      dat = cosine_similarity(dat, prototypes)
+      dat = torch.nn.functional.normalize(dat, dim=1)
+      dat = universal_downsampler(dat)
     if dtype == np.float16: 
       dat = dat.half()
     else:
@@ -134,8 +138,35 @@ def mean_pooling(model_output, attention_mask):
 #create embeddings for all text in dat_iter. data_iter can be an interable of just the text or a (idx, text) pair.
 #saves to the mmap_file. returns downsampler, skip_idxs, dtype, mmap_len, embed_dim.
 #skip_idxs are the lines/embeddings that are empty and should not be clustered search indexed.
-def embed_text(dat_iter, mmap_file, start_idx=None, downsampler=None, skip_idxs=None,  dtype=np.float16, mmap_len=0, embed_dim=25,  embedder="minilm", chunk_size=1000, use_tqdm=True):
+def embed_text(dat_iter, mmap_file, start_idx=None, downsampler=None, skip_idxs=None,  dtype=np.float16, mmap_len=0, embed_dim=25,  embedder="minilm", chunk_size=1000,  do_universal_embed=False, prototypes=None, universal_downsampler=None, use_tqdm=True):
     global device, labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
+    def embed_one_batch(batch):
+       with torch.no_grad():
+        if embedder == "clip":
+          toks = clip_processor(batch, padding=True, truncation=True, return_tensors="pt").to(device)
+          dat = clip_model.get_text_features(**toks)
+        elif embedder == "minilm":
+          toks = minilm_tokenizer(batch, padding=True, truncation=True, return_tensors="pt").to(device)
+          dat = minilm_model(**toks)
+          dat = mean_pooling(dat, toks.attention_mask)
+        elif embedder == "labse":
+          toks = labse_tokenizer(batch, padding=True, truncation=True, return_tensors="pt", max_length=512).to(device)
+          dat = labse_model(**toks).pooler_output   
+        dat = torch.nn.functional.normalize(dat, dim=1)
+        dat = downsampler(dat)
+        if do_universal_embed:
+          dat = cosine_similarity(dat, prototypes)
+          dat = torch.nn.functional.normalize(dat, dim=1)
+          dat = universal_downsampler(dat)
+        if dtype == np.float16: 
+          dat = dat.half()
+        else:
+          dat = dat.float()
+        dat = dat.cpu().numpy()
+       cluster_vecs = np_memmap(mmap_file, shape=[mmap_len, embed_dim], dat=dat, idxs=idxs)  
+       batch = []
+       idxs = []
+    assert not do_universal_embed or (prototypes is not None and universal_downsampler is not None)       
     init_models()
     if start_idx is None: start_idx = mmap_len
     if skip_idxs is None: skip_idxs = []
@@ -185,51 +216,11 @@ def embed_text(dat_iter, mmap_file, start_idx=None, downsampler=None, skip_idxs=
           idxs.append(idx)
         if not l or len(batch) >= chunk_size:  
           if batch:
-            with torch.no_grad():
-              if embedder == "clip":
-                toks = clip_processor(batch, padding=True, truncation=True, return_tensors="pt").to(device)
-                dat = clip_model.get_text_features(**toks)
-              elif embedder == "minilm":
-                toks = minilm_tokenizer(batch, padding=True, truncation=True, return_tensors="pt").to(device)
-                dat = minilm_model(**toks)
-                dat = mean_pooling(dat, toks.attention_mask)
-              elif embedder == "labse":
-                toks = labse_tokenizer(batch, padding=True, truncation=True, return_tensors="pt", max_length=512).to(device)
-                dat = labse_model(**toks).pooler_output   
-              dat = torch.nn.functional.normalize(dat, dim=1)
-              dat = downsampler(dat)
-              if dtype == np.float16: 
-                dat = dat.half()
-              else:
-                dat = dat.float()
-              dat = dat.cpu().numpy()
-            cluster_vecs = np_memmap(mmap_file, shape=[mmap_len, embed_dim], dat=dat, idxs=idxs)  
-            batch = []
-            idxs = []
+            embed_one_batch(batch)
           if not l:
             skip_idxs.append(idx) 
     if batch:
-      with torch.no_grad():
-        if embedder == "clip":
-          toks = clip_processor(batch, padding=True, truncation=True, return_tensors="pt").to(device)
-          dat = clip_model.get_text_features(**toks)
-        elif embedder == "minilm":
-          toks = minilm_tokenizer(batch, padding=True, truncation=True, return_tensors="pt").to(device)
-          dat = minilm_model(**toks)
-          dat = mean_pooling(dat, toks.attention_mask)
-        elif embedder == "labse":
-          toks = labse_tokenizer(batch, padding=True, truncation=True, return_tensors="pt").to(device)
-          dat = labse_model(**toks).pooler_output   
-        dat = torch.nn.functional.normalize(dat, dim=1)
-        dat = downsampler(dat)
-        if dtype == np.float16: 
-          dat = dat.half()
-        else:
-          dat = dat.float()
-        dat = dat.cpu().numpy()
-      cluster_vecs = np_memmap(mmap_file, shape=[mmap_len, embed_dim], dat=dat, idxs=idxs)  
-      batch = []
-      idxs = []
+      embed_one_batch(batch)
     return downsampler, skip_idxs, dtype, mmap_len, embed_dim 
     
 #cluster pruning based approximate nearest neightbor search. See https://nlp.stanford.edu/IR-book/html/htmledition/cluster-pruning-1.html
