@@ -52,7 +52,7 @@ import torch
 import tqdm
 import gzip
 import multiprocessing
-import bisect
+from torch import nn
 from .utils import *
 
 if torch.cuda.is_available():
@@ -742,9 +742,10 @@ class RiverbedModel(nn.Module):
 # SPAN AND DOCUMENT PROCESSOR
 # includes labeling of spans of text with different features, including clustering
 # assumes each batch is NOT shuffeled.    
-class RiverbedDocumentProcessor (SearcherIdx):
-  def __init__(self, filename, *args, **kwargs):
-    super().__init__(filename, *args, **kwargs)
+class RiverbedDocumentProcessor (nn.Module):
+  def __init__(self, project_name, *args, **kwargs):
+    super().__init__()
+    self.searcher = SearcherIdx(project_name, *args, **kwargs)
   
   def tokenize(self, *args, **kwargs):
     return self.tokenizer.tokenize(*args, **kwargs)
@@ -1243,7 +1244,8 @@ class RiverbedDocumentProcessor (SearcherIdx):
     global clip_model, minilm_model, labse_model
     model = self.model
     tokenizer = self.tokenizer
-    os.system(f"mkdir -p {project_name}")
+    searcher = self.searcher = SearcherIdx(f"{project_name}.jsonl")
+    os.system(f"mkdir -p {project_name}.jsonl_idx")
     span2idx = self.span2idx = OrderedDict() if not hasattr(self, 'span2idx') else self.span2idx
     span_clusters = self.span_clusters = {} if not hasattr(self, 'span_clusters') else self.span_clusters
     label2tf = self.label2tf = {} if not hasattr(self, 'label2tf') else self.label2tf
@@ -1288,7 +1290,7 @@ class RiverbedDocumentProcessor (SearcherIdx):
 
     if seen is None: seen = {}
     
-    with open(f"{project_name}/{project_name}.jsonl", "w", encoding="utf8") as jsonl_file:
+    with open(f"{project_name}.jsonl", "w", encoding="utf8") as jsonl_file:
       while True:
         try:
           line = f.readline()
