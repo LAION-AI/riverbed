@@ -19,6 +19,7 @@ import threading
 import io
 import os
 import copy
+from numpy.core.fromnumeric import nonzero
 from whoosh.analysis import StemmingAnalyzer
 from whoosh.index import create_in
 from whoosh.fields import *
@@ -234,8 +235,12 @@ class Searcher(nn.Module):
       if auto_embed_text and self.fobj is not None:
         self.embed_text(chunk_size=chunk_size, use_tqdm=use_tqdm)
       self.recreate_parents_data()
-      self.register_buffer('parents', self.parents)
-      self.register_buffer('prototypes', self.prototypes)
+    parents = self.parents
+    del self.parents
+    self.register_buffer('parents', parents)
+    prototypes = self.prototypes
+    del self.prototypes
+    self.register_buffer('prototypes', prototypes)
       
   
   # get the downsampled sentence embeddings. can be used to train the downsampler(s).
@@ -256,7 +261,7 @@ class Searcher(nn.Module):
       dat = self.universal_downsampler(dat)
     return dat
   
-  def switch_search_context(self, downsampler = None, mmap_file=None,embedder="minilm", embed_dim=25, clusters=None, \
+  def switch_search_context(self, downsampler = None, mmap_file=None, embedder="minilm", clusters=None, \
                             span2cluster_label=None, idxs=None, max_level=4, max_cluster_size=200, chunk_size=1000,  \
                             parent2idx=None, parents=None, top_parents=None, top_parent_idxs=None, skip_idxs=None, \
                             auto_embed_text=False,auto_create_embeddings_idx=False, auto_create_bm25_idx=False,  \
@@ -288,10 +293,11 @@ class Searcher(nn.Module):
         elif embedder == "labse":
           model_embed_dim = labse_model.config.hidden_size   
         downsampler = nn.Linear(model_embed_dim, embed_dim, bias=False).eval() 
-
-    
-    self.embedder, self.mmap_file, self.embed_dim,  self.clusters, self.parent2idx,  self.parents, self.top_parents, self.top_parent_idxs,  self.downsampler  = \
-             embedder, mmap_file, embed_dim,  clusters, parent2idx, parents, top_parents, top_parent_idxs, downsampler
+    if clusters is None:
+      if hasattr(self,f'clusters_{self.search_field}_{embedder}_{self.embed_dim}'):
+        clusters = getattr(self,f'clusters_{self.search_field}_{embedder}_{self.embed_dim}')
+    self.embedder, self.mmap_file, self.clusters, self.parent2idx,  self.parents, self.top_parents, self.top_parent_idxs,  self.downsampler  = \
+             embedder, mmap_file, clusters, parent2idx, parents, top_parents, top_parent_idxs, downsampler
     if skip_idxs is None: skip_idxs = []
     self.skip_idxs = set(list(self.skip_idxs if hasattr(self, 'skip_idxs') and self.skip_idxs else []) + list(skip_idxs))
     if auto_embed_text and self.fobj is not None:
@@ -322,18 +328,22 @@ class Searcher(nn.Module):
         self.prototypes = self.prototypes.to(device)
     setattr(self,f'downsampler_{self.search_field}_{embedder}_{self.embed_dim}', self.downsampler)
     setattr(self,f'clusters_{self.search_field}_{self.embedder}_{self.embed_dim}', self.clusters)
-    self.register_buffer('parents', self.parents)
-    self.register_buffer('prototypes', self.prototypes)  
-  
+    parents = self.parents
+    del self.parents
+    self.register_buffer('parents', parents)
+    prototypes = self.prototypes
+    del self.prototypes
+    self.register_buffer('prototypes', prototypes)
+    
   #get the sentence embedding for the sent or batch
   def get_embeddings(self, sent_or_batch):
     return get_embeddings(sent_or_batch, downsampler=self.downsampler, dtype=self.dtype, embedder=self.embedder, \
                           universal_embed_mode=self.universal_embed_mode, prototypes=self.prototypes, universal_downsampler=self.universal_downsampler)
               
   #embed all of self.fobj or (idx, content) for idx in idxs for the row/content from fobj
-  def embed_text(self, start_idx=None, chunk_size=1000, idxs=None, use_tqdm=True, auto_create_bm25_idx=False):
+  def embed_text(self, start_idx=None, chunk_size=10000, idxs=None, use_tqdm=True, auto_create_bm25_idx=False):
     assert self.fobj is not None
-    if start_idx is None: start_idx = self.mmap_len
+    if start_idx is None: start_idx = 0
     search_field = self.search_field 
     ###
     def fobj_data_reader():
@@ -345,7 +355,7 @@ class Searcher(nn.Module):
       fobj.seek(pos,0)
     ###  
     if idxs is not None:
-      dat_iter = [(idx, self.filebyline[idx]) for idx in idxs]
+      dat_iter = [(idx, self._get_content_from_line(self.filebyline[idx], search_field)) for idx in idxs]
     else:
       dat_iter = fobj_data_reader()  
     self.mmap_len, skip_idxs =  embed_text(dat_iter, self.mmap_file, start_idx=start_idx, downsampler=self.downsampler, \
@@ -601,6 +611,14 @@ class Searcher(nn.Module):
         if hasattr(self, 'filebyline') and self.filebyline is not None: self.filebyline.fobj = self.fobj
       self.downsampler.eval().to(device)
       self.recreate_parents_data()
-      self.prototypes = self.get_embeddings(self.prototype_sentences)
+      if self.prototype_sentences: 
+        self.prototypes = self.get_embeddings(self.prototype_sentences)
+      parents = self.parents
+      del self.parents
+      self.register_buffer('parents', parents)
+      prototypes = self.prototypes
+      del self.prototypes
+      self.register_buffer('prototypes', prototypes)
+    
       return self
         
