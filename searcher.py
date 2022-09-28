@@ -292,7 +292,7 @@ class Searcher(nn.Module):
           model_embed_dim = minilm_model.config.hidden_size
         elif embedder == "labse":
           model_embed_dim = labse_model.config.hidden_size   
-        downsampler = nn.Linear(model_embed_dim, embed_dim, bias=False).eval() 
+        downsampler = nn.Linear(model_embed_dim, self.embed_dim, bias=False).eval() 
     if clusters is None:
       if hasattr(self,f'clusters_{self.search_field}_{embedder}_{self.embed_dim}'):
         clusters = getattr(self,f'clusters_{self.search_field}_{embedder}_{self.embed_dim}')
