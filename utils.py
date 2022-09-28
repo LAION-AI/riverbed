@@ -145,6 +145,31 @@ def embed_text(dat_iter, mmap_file, start_idx=None, downsampler=None, skip_idxs=
     global device, labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
     assert not universal_embed_mode or (prototypes is not None and universal_downsampler is not None)   
     assert downsampler is not None
+    #a copy of get_embeddings without the overhead of switching models. makes it a bit faster.
+    def _get_embeddings(sent):
+      with torch.no_grad():
+        if embedder == "clip":
+          toks = clip_processor(sent, padding=True, truncation=True, return_tensors="pt").to(device)
+          dat = clip_model.get_text_features(**toks)
+        elif embedder == "minilm":
+          toks = minilm_tokenizer(sent, padding=True, truncation=True, return_tensors="pt").to(device)
+          dat = minilm_model(**toks)
+          dat = mean_pooling(dat, toks.attention_mask)
+        elif embedder == "labse":
+          toks = labse_tokenizer(sent, padding=True, truncation=True, return_tensors="pt", max_length=512).to(device)
+          dat = labse_model(**toks).pooler_output   
+        dat = torch.nn.functional.normalize(dat, dim=1)
+        dat = downsampler(dat)
+        if universal_embed_mode:
+          dat = cosine_similarity(dat, prototypes)
+          dat = torch.nn.functional.normalize(dat, dim=1)
+          dat = universal_downsampler(dat)
+        if dtype == np.float16: 
+          dat = dat.half()
+        else:
+          dat = dat.float()
+        return dat
+
     init_models()
     if start_idx is None: start_idx = mmap_len
     if skip_idxs is None: skip_idxs = []
@@ -176,26 +201,20 @@ def embed_text(dat_iter, mmap_file, start_idx=None, downsampler=None, skip_idxs=
         else:
           idx += 1
         mmap_len = max(mmap_len, idx+1)
-        try:
-          l = l.decode()
-        except:
-          pass
-        l = l.replace("\\n", "\n").replace("\\t", "\t").replace("_", " ").strip()
+        l = l.strip()
         if l: 
           batch.append(l)
           idxs.append(idx)
         if not l or len(batch) >= chunk_size:  
           if batch:
-            dat = get_embeddings(batch, downsampler, dtype=dtype, embedder=embedder, \
-                                 universal_embed_mode=universal_embed_mode, prototypes=prototypes, universal_downsampler=universal_downsampler)
+            dat = _get_embeddings(batch).cpu().numpy()
             cluster_vecs = np_memmap(mmap_file, shape=[mmap_len, embed_dim], dat=dat, idxs=idxs)  
             batch = []
             idxs = []
           if not l:
             skip_idxs.append(idx) 
     if batch:
-      dat = get_embeddings(batch, downsampler, dtype=dtype, embedder=embedder, \
-                                 universal_embed_mode=universal_embed_mode, prototypes=prototypes, universal_downsampler=universal_downsampler)
+      dat = _get_embeddings(batch).cpu().numpy()
       cluster_vecs = np_memmap(mmap_file, shape=[mmap_len, embed_dim], dat=dat, idxs=idxs)  
       batch = []
       idxs = []
