@@ -69,45 +69,8 @@ def init_models():
 
     spacy_nlp = spacy.load('en_core_web_md')
     stopwords_set = set(nltk_stopwords.words('english') + ['...', 'could', 'should', 'shall', 'can', 'might', 'may', 'include', 'including'])
+  return  labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
 
-def get_embeddings(sent, downsampler, dtype=np.float16, embedder="minilm", do_universal_embed=False, prototypes=None, universal_downsampler=None):
-  global labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
-  init_models()
-  if embedder == "clip":
-    clip_model = clip_model.to(device)
-    minilm_model =  minilm_model.cpu()
-    labse_model =  labse_model.cpu()
-  elif embedder == "minilm":
-    clip_model = clip_model.cpu()
-    minilm_model =  minilm_model.to(device)
-    labse_model =  labse_model.cpu()
-  elif embedder == "labse":
-    clip_model = clip_model.cpu()
-    minilm_model =  minilm_model.cpu()
-    labse_model =  labse_model.to(device)
-  with torch.no_grad():
-    if embedder == "clip":
-      toks = clip_processor(sent, padding=True, truncation=True, return_tensors="pt").to(device)
-      dat = clip_model.get_text_features(**toks)
-    elif embedder == "minilm":
-      toks = minilm_tokenizer(sent, padding=True, truncation=True, return_tensors="pt").to(device)
-      dat = minilm_model(**toks)
-      dat = mean_pooling(dat, toks.attention_mask)
-    elif embedder == "labse":
-      toks = labse_tokenizer(sent, padding=True, truncation=True, return_tensors="pt", max_length=512).to(device)
-      dat = labse_model(**toks).pooler_output   
-    dat = torch.nn.functional.normalize(dat, dim=1)
-    dat = downsampler(dat)
-    if do_universal_embed:
-      dat = cosine_similarity(dat, prototypes)
-      dat = torch.nn.functional.normalize(dat, dim=1)
-      dat = universal_downsampler(dat)
-    if dtype == np.float16: 
-      dat = dat.half()
-    else:
-      dat = dat.float()
-    #dat = dat.cpu().numpy()
-    return dat
 
 def np_memmap(f, dat=None, idxs=None, shape=None, dtype=np.float16, ):
   if not f.endswith(".mmap"):
@@ -135,12 +98,52 @@ def mean_pooling(model_output, attention_mask):
       input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).to(token_embeddings.dtype)
       return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
 
+#get the embeddings using the appropriate downsampling
+def get_embeddings(sent, downsampler, dtype=np.float16, embedder="minilm", universal_embed_mode=None, prototypes=None, universal_downsampler=None):
+  global labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
+  init_models()
+  if embedder == "clip":
+    clip_model = clip_model.to(device)
+    minilm_model =  minilm_model.cpu()
+    labse_model =  labse_model.cpu()
+  elif embedder == "minilm":
+    clip_model = clip_model.cpu()
+    minilm_model =  minilm_model.to(device)
+    labse_model =  labse_model.cpu()
+  elif embedder == "labse":
+    clip_model = clip_model.cpu()
+    minilm_model =  minilm_model.cpu()
+    labse_model =  labse_model.to(device)
+  with torch.no_grad():
+    if embedder == "clip":
+      toks = clip_processor(sent, padding=True, truncation=True, return_tensors="pt").to(device)
+      dat = clip_model.get_text_features(**toks)
+    elif embedder == "minilm":
+      toks = minilm_tokenizer(sent, padding=True, truncation=True, return_tensors="pt").to(device)
+      dat = minilm_model(**toks)
+      dat = mean_pooling(dat, toks.attention_mask)
+    elif embedder == "labse":
+      toks = labse_tokenizer(sent, padding=True, truncation=True, return_tensors="pt", max_length=512).to(device)
+      dat = labse_model(**toks).pooler_output   
+    dat = torch.nn.functional.normalize(dat, dim=1)
+    dat = downsampler(dat)
+    if universal_embed_mode:
+      dat = cosine_similarity(dat, prototypes)
+      dat = torch.nn.functional.normalize(dat, dim=1)
+      dat = universal_downsampler(dat)
+    if dtype == np.float16: 
+      dat = dat.half()
+    else:
+      dat = dat.float()
+    #dat = dat.cpu().numpy()
+    return dat
+  
 #create embeddings for all text in dat_iter. data_iter can be an interable of just the text or a (idx, text) pair.
 #saves to the mmap_file. returns downsampler, skip_idxs, dtype, mmap_len, embed_dim.
 #skip_idxs are the lines/embeddings that are empty and should not be clustered search indexed.
-def embed_text(dat_iter, mmap_file, start_idx=None, downsampler=None, skip_idxs=None,  dtype=np.float16, mmap_len=0, embed_dim=25,  embedder="minilm", chunk_size=1000,  do_universal_embed=False, prototypes=None, universal_downsampler=None, use_tqdm=True):
+def embed_text(dat_iter, mmap_file, start_idx=None, downsampler=None, skip_idxs=None,  dtype=np.float16, mmap_len=0, embed_dim=25,  embedder="minilm", chunk_size=1000,  universal_embed_mode=None, prototypes=None, universal_downsampler=None, use_tqdm=True):
     global device, labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
-    assert not do_universal_embed or (prototypes is not None and universal_downsampler is not None)   
+    assert not universal_embed_mode or (prototypes is not None and universal_downsampler is not None)   
     assert downsampler is not None
     init_models()
     if start_idx is None: start_idx = mmap_len
@@ -184,7 +187,7 @@ def embed_text(dat_iter, mmap_file, start_idx=None, downsampler=None, skip_idxs=
         if not l or len(batch) >= chunk_size:  
           if batch:
             dat = get_embeddings(batch, downsampler, dtype=dtype, embedder=embedder, \
-                                 do_universal_embed=do_universal_embed, prototypes=prototypes, universal_downsampler=universal_downsampler)
+                                 universal_embed_mode=universal_embed_mode, prototypes=prototypes, universal_downsampler=universal_downsampler)
             cluster_vecs = np_memmap(mmap_file, shape=[mmap_len, embed_dim], dat=dat, idxs=idxs)  
             batch = []
             idxs = []
@@ -192,11 +195,11 @@ def embed_text(dat_iter, mmap_file, start_idx=None, downsampler=None, skip_idxs=
             skip_idxs.append(idx) 
     if batch:
       dat = get_embeddings(batch, downsampler, dtype=dtype, embedder=embedder, \
-                                 do_universal_embed=do_universal_embed, prototypes=prototypes, universal_downsampler=universal_downsampler)
+                                 universal_embed_mode=universal_embed_mode, prototypes=prototypes, universal_downsampler=universal_downsampler)
       cluster_vecs = np_memmap(mmap_file, shape=[mmap_len, embed_dim], dat=dat, idxs=idxs)  
       batch = []
       idxs = []
-    return downsampler, skip_idxs, dtype, mmap_len, embed_dim 
+    return skip_idxs
     
 #cluster pruning based approximate nearest neightbor search. See https://nlp.stanford.edu/IR-book/html/htmledition/cluster-pruning-1.html
 #assumes the embeddings are stored in the mmap_file and the clustered index has been created.
