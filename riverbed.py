@@ -137,11 +137,13 @@ class RiverbedTokenizer:
 
 #################################################################################
 #MODEL CODE
-class RiverbedModel:
+class RiverbedModel(nn.Module):
 
   def __init__(self):
-    pass 
-  
+   super().__init__()
+   global labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set 
+   labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set = init_models()
+    
   @staticmethod
   def _pp(log_score, length):
     return float((10.0 ** (-log_score / length)))
@@ -443,7 +445,10 @@ class RiverbedModel:
                                  embed_batch_size=7000, min_prev_ids=10000, min_compound_weight=1.0, \
                                  stopwords=None, min_num_tokens=5, do_collapse_values=True, use_synonym_replacement=False, \
                                  embedder="minilm", do_ontology=True, recluster_type="batch", model=None):
-      global device, clip_model, minilm_model, labse_model
+      global device
+      global labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set 
+      labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set = init_models()
+   
       os.system(f"mkdir -p {model_name}")
       assert dedup_compound_words_larger_than is None or min_compound_word_size <= dedup_compound_words_larger_than, "can't have a minimum compound words greater than what is removed"
       for file_name in files:
@@ -737,9 +742,9 @@ class RiverbedModel:
 # SPAN AND DOCUMENT PROCESSOR
 # includes labeling of spans of text with different features, including clustering
 # assumes each batch is NOT shuffeled.    
-class RiverbedDocumentProcessor:
-  def __init__(self):
-    pass
+class RiverbedDocumentProcessor (SearcherIdx):
+  def __init__(self, filename, *args, **kwargs):
+    super().__init__(filename, *args, **kwargs)
   
   def tokenize(self, *args, **kwargs):
     return self.tokenizer.tokenize(*args, **kwargs)
