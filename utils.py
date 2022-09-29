@@ -230,29 +230,29 @@ def embed_text(dat_iter, mmap_file, start_idx=None, downsampler=None, skip_idxs=
         if not l or len(batch) >= chunk_size:  
           if batch:
             dat = _get_embeddings(batch).cpu().numpy()
-            cluster_vecs = np_memmap(mmap_file, shape=[mmap_len, embed_dim], dat=dat, idxs=idxs, dtype=dtype)  
+            cluster_embeddings = np_memmap(mmap_file, shape=[mmap_len, embed_dim], dat=dat, idxs=idxs, dtype=dtype)  
             batch = []
             idxs = []
           if not l:
             skip_idxs.append(idx) 
     if batch:
       dat = _get_embeddings(batch).cpu().numpy()
-      cluster_vecs = np_memmap(mmap_file, shape=[mmap_len, embed_dim], dat=dat, idxs=idxs, dtype=dtype)  
+      cluster_embeddings = np_memmap(mmap_file, shape=[mmap_len, embed_dim], dat=dat, idxs=idxs, dtype=dtype)  
       batch = []
       idxs = []
     return mmap_len, skip_idxs
     
 #cluster pruning based approximate nearest neightbor search. See https://nlp.stanford.edu/IR-book/html/htmledition/cluster-pruning-1.html
 #assumes the embeddings are stored in the mmap_file and the clustered index has been created.
-def embeddings_search(vec, mmap_file, top_parents,  top_parent_idxs, parent2idx, parents, clusters, mmap_len=0, embed_dim=25, dtype=np.float16, chunk_size=10000, k=5):
+def embeddings_search(embedding, mmap_file, top_parents,  top_parent_idxs, parent2idx, parents, clusters, mmap_len=0, embed_dim=25, dtype=np.float16, chunk_size=10000, k=5):
   curr_parents = top_parents
-  vecs = parents[top_parent_idxs] 
+  embeddings = parents[top_parent_idxs] 
   max_level = top_parents[0][0]
   #print (max_level, top_parents)
 
-  #print (parent_levels, vecs)
+  #print (parent_levels, embeddings)
   for _ in range(max_level+1):
-    results = cosine_similarity(vec, vecs)
+    results = cosine_similarity(embedding, embeddings)
     results = results.topk(k)
     #print (results)
     children = list(itertools.chain(*[clusters[curr_parents[idx]] for idx in results.indices]))
@@ -263,8 +263,8 @@ def embeddings_search(vec, mmap_file, top_parents,  top_parent_idxs, parent2idx,
          idxs.append(child_id)
          n_chunks += 1
          if n_chunks > chunk_size:
-            vecs = torch.from_numpy(np_memmap(mmap_file, shape=[mmap_len, embed_dim], dtype=dtype)[idxs]).to(device)
-            results = cosine_similarity(vec, vecs)
+            embeddings = torch.from_numpy(np_memmap(mmap_file, shape=[mmap_len, embed_dim], dtype=dtype)[idxs]).to(device)
+            results = cosine_similarity(embedding, embeddings)
             results = results.sort(descending=True)
             for idx, score in zip(results.indices.tolist(), results.values.tolist()):
                idx = idxs[idx]
@@ -272,8 +272,8 @@ def embeddings_search(vec, mmap_file, top_parents,  top_parent_idxs, parent2idx,
             idxs = []
             n_chunk = 0
       if idxs:
-         vecs = torch.from_numpy(np_memmap(mmap_file, shape=[mmap_len, embed_dim], dtype=dtype)[idxs]).to(device)
-         results = cosine_similarity(vec, vecs)
+         embeddings = torch.from_numpy(np_memmap(mmap_file, shape=[mmap_len, embed_dim], dtype=dtype)[idxs]).to(device)
+         results = cosine_similarity(embedding, embeddings)
          results = results.sort(descending=True)
          for idx, score in zip(results.indices.tolist(), results.values.tolist()):
             idx = idxs[idx]
@@ -281,14 +281,14 @@ def embeddings_search(vec, mmap_file, top_parents,  top_parent_idxs, parent2idx,
       break
     else:
       curr_parents = children
-      vecs = parents[[parent2idx[parent] for parent in curr_parents]] 
+      embeddings = parents[[parent2idx[parent] for parent in curr_parents]] 
 
 
 #internal function used to cluster one batch of embeddings
-def _cluster_one_batch(true_k,  spans, vector_idxs, clusters, span2cluster_label, level, cluster_vecs, min_overlap_merge_cluster):
+def _cluster_one_batch(true_k,  spans, embedding_idxs, clusters, span2cluster_label, level, cluster_embeddings, min_overlap_merge_cluster):
     if device == 'cuda':
       km = KMeans(n_clusters=true_k, mode='cosine')
-      km_labels = km.fit_predict(torch.from_numpy(cluster_vecs[vector_idxs]).to(device=device, dtype=torch.float32))
+      km_labels = km.fit_predict(torch.from_numpy(cluster_embeddings[embedding_idxs]).to(device=device, dtype=torch.float32))
       km_labels = [l.item() for l in km_labels.cpu()]
     else:
       km = MiniBatchKMeans(n_clusters=true_k, init='k-means++', n_init=1,
@@ -324,7 +324,7 @@ def _cluster_one_batch(true_k,  spans, vector_idxs, clusters, span2cluster_label
             span2cluster_label[span] = label
 
 
-# Incremental hiearchical clustering from vectors in the mmap file. Can also used to create an index for searching.       
+# Incremental hiearchical clustering from embeddings in the mmap file. Can also used to create an index for searching.       
 # with a max of 4 levels, and each node containing 200 items, we can have up to 1.6B items approximately
 # span2cluster_label maps a span to a parent span. spans can be of the form int|(int,int).
 # leaf nodes are ints. non-leaf nodes are (int,int) tuples
@@ -387,7 +387,7 @@ def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, mmap_le
   #print (mmap_len, clusters, span2cluster_label)
 
   if prefered_leaf_node_size is None: prefered_leaf_node_size = max_cluster_size
-  cluster_vecs = np_memmap(mmap_file, shape=[mmap_len, embed_dim], dtype=dtype)
+  cluster_embeddings = np_memmap(mmap_file, shape=[mmap_len, embed_dim], dtype=dtype)
   # at level 0, the spans are the indexes themselves, so no need to map using all_spans
   all_spans = None
   for level in range(max_level):
@@ -431,21 +431,21 @@ def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, mmap_le
           spans.extend(random.sample(already_clustered, int(.5*num_itmes_left)))
         else:
           spans.extend(already_clustered)
-        # get the vector indexs for the cluster
+        # get the embedding indexs for the cluster
         if level == 0:
           spans = [span for span in spans if span not in skip_idxs]
-          vector_idxs = spans
+          embedding_idxs = spans
         else:
           spans = [all_spans[idx] for idx in spans]
           spans = [span for span in spans  if span[1] not in skip_idxs] 
-          vector_idxs = [span[1] for span in spans]
+          embedding_idxs = [span[1] for span in spans]
         #print (spans)
-        #do kmeans clustering in batches with the vector indexes
+        #do kmeans clustering in batches with the embedding indexes
         if level == 0:
-          true_k = int(len(vector_idxs)/prefered_leaf_node_size)
+          true_k = int(len(embedding_idxs)/prefered_leaf_node_size)
         else:
-          true_k = int(len(vector_idxs)/max_cluster_size)
-        _cluster_one_batch(true_k,  spans, vector_idxs, clusters, span2cluster_label, level, cluster_vecs, min_overlap_merge_cluster)
+          true_k = int(len(embedding_idxs)/max_cluster_size)
+        _cluster_one_batch(true_k,  spans, embedding_idxs, clusters, span2cluster_label, level, cluster_embeddings, min_overlap_merge_cluster)
         # re-cluster any small clusters or break up large clusters   
         if times >= recluster_at:  
             need_recompute_clusters = False   
@@ -460,12 +460,12 @@ def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, mmap_le
                 need_recompute_clusters = True
                 for token in spans:
                   del span2cluster_label[token]
-                vector_idxs = [span if type(span) is int else span[1] for span in spans]
+                embedding_idxs = [span if type(span) is int else span[1] for span in spans]
                 if level == 0:
-                  true_k = int(len(vector_idxs)/prefered_leaf_node_size)
+                  true_k = int(len(embedding_idxs)/prefered_leaf_node_size)
                 else:
-                  true_k = int(len(vector_idxs)/max_cluster_size)
-                _cluster_one_batch(true_k,  spans, vector_idxs, clusters, span2cluster_label, level, cluster_vecs,  min_overlap_merge_cluster)
+                  true_k = int(len(embedding_idxs)/max_cluster_size)
+                _cluster_one_batch(true_k,  spans, embedding_idxs, clusters, span2cluster_label, level, cluster_embeddings,  min_overlap_merge_cluster)
         
             if need_recompute_clusters:
               clusters.clear()
