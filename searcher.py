@@ -169,7 +169,7 @@ class Searcher(nn.Module):
                universal_embed_mode = None, prototype_sentences=None,  prototypes=None, universal_downsampler =None, min_num_prorotypes=50000, \
                use_tqdm=True, search_field_preprocessor=None, bm25_field_preprocessor=None
               ):
-    #TODO, add a vector_preprocessor. Given a batch of sentences, and an embedding, create additional embeddings corresponding to the batch. 
+    #TODO, add a embedding_preprocessor. Given a batch of sentences, and an embedding, create additional embeddings corresponding to the batch. 
     """
         Cluster indexes and performs approximate nearest neighbor search on a memmap file. 
         Also provides a wrapper for Whoosh BM25.
@@ -177,7 +177,7 @@ class Searcher(nn.Module):
                               Can be a txt, jsonl or gzip of the foregoing. 
         :arg fobj:            Optional. The file object 
         :arg  mmap_file:      Optional, must be passed as a keyword argument.
-                                This is the file name for the vectors representing 
+                                This is the file name for the embeddings representing 
                                 each line in the gzip file. Used for embeddings search.
         :arg mmap_len         Optional, must be passed as a keyword argument if mmap_file is passed.
                                 This is the shape of the mmap_file.     
@@ -186,14 +186,14 @@ class Searcher(nn.Module):
         :arg dtype            Optional, must be passed as a keyword argument.
                                 This is the dtype of the mmap_file.                              
         :arg  parents:        Optional, must be passed as a keyword argument.
-                                This is a numpy or pytorch vector of all the parents of the clusters]
+                                This is a numpy or pytorch embedding of all the parents of the clusters]
                                 Where level 4 parents are the top level parents. 
                                 This structure is used for approximage nearest neighbor search.
         :arg parent2idx:      Optional, must be passed as a keyword argument. If parents
                                 are passed, this param must be also passed. 
                                 It is a dict that maps the parent tuple to the index into the parents tensor
         :arg top_parents:     Optional. The list of tuples representing the top parents.
-        :arg top_parents_idxs: Optional. The index into the parents vector for the top_parents.  
+        :arg top_parents_idxs: Optional. The index into the parents embedding for the top_parents.  
         :arg clusters:         Optional. A dictionary representing parent label -> [child indexes]
         :arg auto_create_embeddings_idx. Optional. Will create a cluster index from the contents of the mmap file. 
                                 Assumes the mmap_file is populated.
@@ -211,8 +211,8 @@ class Searcher(nn.Module):
                                     how the prototypes are assigned. 
         :arg prototype_sentences:     Optional. A sorted list of sentences that represents the protoypes for embeddings space. If universal_embed_mode is set and prototypes
                                   are not provided,then this will be the level 0 parents sentences of the current clustering.
-                                  To get universal embedding, we do cosine(target, prototypes_vec), then normalize and then run through a universial_downsampler
-        :arg protoypes:         Optional. The vectors in the embeddeing or (downsampled embedding) space that corresponds to the prototype_sentences.
+                                  To get universal embedding, we do cosine(target, prototypes), then normalize and then run through a universial_downsampler
+        :arg protoypes:         Optional. The embeddings in the embeddeing or (downsampled embedding) space that corresponds to the prototype_sentences.
         :arg min_num_prorotypes Optional. Will control the number of prototypes.
         :arg universal_downsampler Optional. The pythorch downsampler for mapping the output described above to a lower dimension that works across embedders
                                   and concept drift in the same embedder. maps from # of prototypes -> embed_dim. 
@@ -549,11 +549,11 @@ class Searcher(nn.Module):
   def whoosh_searcher(self):
       return self.whoosh_ix.searcher()
     
-  #search using vector based and/or bm25 search. returns generator of a dict obj containing the results in 'id', 'text',and 'score. 
+  #search using embedding based and/or bm25 search. returns generator of a dict obj containing the results in 'id', 'text',and 'score. 
   #if the underlying data is jsonl, then the result of the data will also be returned in the dict.
   #WARNING: we overwrite the 'id', 'score', and 'text' field, so we might want to use a different field name like f'{field_prefix}_score'
   #key_terms. TODO: See https://whoosh.readthedocs.io/en/latest/keywords.html
-  def search(self, query=None, vec=None, do_bm25_only=False, k=5, chunk_size=100, limit=None):
+  def search(self, query=None, embedding=None, do_bm25_only=False, k=5, chunk_size=100, limit=None):
     def _get_data(idx):
       l  = self.filebyline[idx]
       dat = l.decode().replace("\\n", "\n").replace("\\t", "\t").strip()
@@ -566,14 +566,14 @@ class Searcher(nn.Module):
     
     embedder = self.embedder
     if type(query) in (np.array, torch.Tensor):
-      vec = query
+      embedding = query
       query = None
-    assert vec is None or self.parents is not None
-    if vec is None and query is not None and hasattr(self, 'downsampler') and self.downsampler is not None:
-      vec = self.get_embeddings(query)
+    assert embedding is None or self.parents is not None
+    if embedding is None and query is not None and hasattr(self, 'downsampler') and self.downsampler is not None:
+      embedding = self.get_embeddings(query)
       if not hasattr(self, 'whoosh_ix') or self.whoosh_ix is None:
         query = None
-    vec_search_results = embeddings_search(vec, mmap_file= self.mmap_file, mmap_len=self.mmap_len, embed_dim=self.embed_dim,  dtype=self.dtype, \
+    embedding_search_results = embeddings_search(embedding, mmap_file= self.mmap_file, mmap_len=self.mmap_len, embed_dim=self.embed_dim,  dtype=self.dtype, \
                                   parents=self.parents, clusters=self.clusters, top_parent_idxs=self.top_parent_idxs, \
                                   top_parents=self.top_parents, parent2idx=self.parent2idx, k=k)
     if limit is None: 
@@ -586,7 +586,7 @@ class Searcher(nn.Module):
         if type(query) is str:
            query = QueryParser("content", self.whoosh_ix.schema).parse(query)
         results = searcher.search(query, limit=limit)
-        if vec is None or do_bm25_only:
+        if embedding is None or do_bm25_only:
           for r in results:
             data = _get_data(int(r['id']))
             if type(data) is dict:
@@ -605,17 +605,17 @@ class Searcher(nn.Module):
              key_terms.append([]) # r.key_terms())
              n_chunks += 1
              if n_chunks > chunk_size:
-                vec_results = {}
-                for _, r in zip(range(chunk_size), vec_search_results):
-                  vec_results[r[0]] = ([], r[1])
-                idxs = [idx for idx in idxs if idx not in vec_results]
-                vecs = torch.from_numpy(np_memmap(self.mmap_file, shape=[self.mmap_len, self.embed_dim], dtype=self.dtype)[idxs]).to(device)
-                results = cosine_similarity(vec, vecs)
+                embedding_results = {}
+                for _, r in zip(range(chunk_size), embedding_search_results):
+                  embedding_results[r[0]] = ([], r[1])
+                idxs = [idx for idx in idxs if idx not in embedding_results]
+                embeddings = torch.from_numpy(np_memmap(self.mmap_file, shape=[self.mmap_len, self.embed_dim], dtype=self.dtype)[idxs]).to(device)
+                results = cosine_similarity(embedding, embeddings)
                 for idx, score, key_term in zip(idxs, results, key_terms):
-                   vec_results[idx] = (key_term, score.item())
-                vec_results = list(vec_results.items())
-                vec_results.sort(key=lambda a: a[1][1], reverse=True)
-                for idx, score_keyterm in vec_results:
+                   embedding_results[idx] = (key_term, score.item())
+                embedding_results = list(embedding_results.items())
+                embedding_results.sort(key=lambda a: a[1][1], reverse=True)
+                for idx, score_keyterm in embedding_results:
                   data = _get_data(idx)
                   if type(data) is dict:
                     data['id'] = idx
@@ -629,17 +629,17 @@ class Searcher(nn.Module):
                 key_terms = []
                 n_chunk = 0
           if idxs:
-            vec_results = {}
-            for _, r in zip(range(chunk_size), vec_search_results):
-              vec_results[r[0]] =  ([], r[1])
-            idxs = [idx for idx in idxs if idx not in vec_results]
-            vecs = torch.from_numpy(np_memmap(self.mmap_file, shape=[self.mmap_len, self.embed_dim], dtype=self.dtype)[idxs]).to(device)
-            results = cosine_similarity(vec, vecs)
+            embedding_results = {}
+            for _, r in zip(range(chunk_size), embedding_search_results):
+              embedding_results[r[0]] =  ([], r[1])
+            idxs = [idx for idx in idxs if idx not in embedding_results]
+            embeddings = torch.from_numpy(np_memmap(self.mmap_file, shape=[self.mmap_len, self.embed_dim], dtype=self.dtype)[idxs]).to(device)
+            results = cosine_similarity(embedding, embeddings)
             for idx, score, key_term in zip(idxs, results, key_terms):
-               vec_results[idx] = (key_term, score.item())
-            vec_results = list(vec_results.items())
-            vec_results.sort(key=lambda a: a[1][1], reverse=True)
-            for idx, score_keyterm in vec_results:
+               embedding_results[idx] = (key_term, score.item())
+            embedding_results = list(embedding_results.items())
+            embedding_results.sort(key=lambda a: a[1][1], reverse=True)
+            for idx, score_keyterm in embedding_results:
                data = _get_data(idx)
                if type(data) is dict:
                  data['id'] = idx
@@ -650,7 +650,7 @@ class Searcher(nn.Module):
                cnt -= 1
                if cnt <= 0: return
     #return any stragglers         
-    for r in vec_search_results:
+    for r in embedding_search_results:
        data = _get_data(r[0])
        if type(data) is dict:
          data['id'] = r[0]
