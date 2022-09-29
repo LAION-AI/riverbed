@@ -137,8 +137,9 @@ class RiverbedModel(nn.Module):
    self.clusters = None
    self.mmap_file = ""
   
-  #TODO: create interface for the search function to return tokens
-  
+  def search(self, *args, **kwargs):
+    self.searcher(*args, **kwargs)
+    
   # get the downsampled sentence embeddings. can be used to train the downsampler(s).
   def forward(self, *args, **kwargs):
     if 'text' in kwargs:
@@ -707,7 +708,7 @@ class RiverbedModel(nn.Module):
             else:
               span =  (level-1, token2idx[child.lstrip('¶')])
             clusters[label] = clusters.get(label, []) + [span]
-      self.searcher.recreate_embeddings_idx(mmap_file=self.mmap_file, clusters=clusters)
+      self.searcher.recreate_embeddings_idx(mmap_file=self.mmap_file, clusters=clusters, content_data_store=self.tokenizer.idx2token())
       #TODO: Clean up tmp files as we go along.
       #create the final kenlm .arpa file for calculating the perplexity. we do this in files in order to keep main memory low.
       print ('consolidating arpa')
