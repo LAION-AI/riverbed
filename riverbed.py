@@ -68,9 +68,7 @@ except:
 
 # The Riverbed code includes a RiverbedTokenizer, RiverbedModel and RiverbedDocumenProcessor for information retrieval processing. 
 # The tokenizer stores the stopwords, compound, token2weight and synonyms data structure.
-# the model stores a copy of synonyms and the kenlm data structures. the model will allow us to find an ontology
-# for tokens in the model, and the perplexity of a text.
-# the processor sores in the span_clusters, span2class_label, span2idx, label_models, label2tf, and df data structures. 
+# the model stores a copy of synonyms and the kenlm model and a searcher to search token embeddings/ontology.
 
 
 #################################################################################
@@ -462,20 +460,9 @@ class RiverbedModel(nn.Module):
    
       os.system(f"mkdir -p {model_name}")
       assert dedup_compound_words_larger_than is None or min_compound_word_size <= dedup_compound_words_larger_than, "can't have a minimum compound words greater than what is removed"
-      for file_name in files:
-        assert os.path.getsize(file_name) < 5000000000, f"{file_name} size should be less than 5GB. Break up the file into 5GB shards."
-      if embedder == "clip":
-        clip_model = clip_model.to(device)
-        minilm_model =  minilm_model.cpu()
-        labse_model =  labse_model.cpu()
-      elif embedder == "minilm":
-        clip_model = clip_model.cpu()
-        minilm_model =  minilm_model.to(device)
-        labse_model =  labse_model.cpu()
-      elif embedder == "labse":
-        clip_model = clip_model.cpu()
-        minilm_model =  minilm_model.cpu()
-        labse_model =  labse_model.to(device)
+      for name in files:
+        assert os.path.getsize(name) < 5000000000, f"{name} size should be less than 5GB. Break up the file into 5GB shards."
+      use_model(embedder)
       
       if model is not None:
         self = model
@@ -529,7 +516,7 @@ class RiverbedModel(nn.Module):
               do_ngram = True
       #TODO, check if a dedup file has already been created. If so, use that instead and don't do any dedup.
       #TODO, we should try to create consolidated files of around 1GB to get enough information in the arpa files
-      for doc_id, file_name in enumerate(files):
+      for doc_id, name in enumerate(files):
         if dedup_compound_words_larger_than:
           dedup_compound_words_num_iter = max(0, 1+math.ceil(dedup_compound_words_larger_than/(5 *(doc_id+1))))
         else:
@@ -538,10 +525,10 @@ class RiverbedModel(nn.Module):
         #we can repeatedly run the below to get long ngrams
         #after we tokenize for ngram and replace with tokens with underscores (the_projected_revenue) at each step, we redo the ngram count
         num_iter = max(num_iter,dedup_compound_words_num_iter)
-        print ('doing', file_name, 'num iter', num_iter, "dedup at", dedup_compound_words_num_iter)
-        prev_file = file_name
+        print ('doing', name, 'num iter', num_iter, "dedup at", dedup_compound_words_num_iter)
+        prev_file = name
         for times in range(num_iter):
-            print (f"iter {file_name}", times)
+            print (f"iter {name}", times)
             # we only do synonym and embedding creation as the second to last or last step of each file processed 
             # b/c this is very expensive. we should do this right before the last counting if we
             # do synonym replacement so we have a chance to create syonyms for the replacement.
@@ -554,9 +541,9 @@ class RiverbedModel(nn.Module):
             if token2weight:
               # if we want to make this faster, we can parrallelize this in a pool
               do_dedup = dedup_compound_words_larger_than is not None and times == dedup_compound_words_num_iter-1
-              tmp_file_name = f"{model_name}/__tmp__{file_name}"
-              if tmp_file_name.endswith(".gz"): tmp_file_name = tmp_file_name[:-len(".gz")]
-              with open(tmp_file_name, "w", encoding="utf8") as tmp2:
+              tmp_name = f"{model_name}/__tmp__{name}"
+              if tmp_name.endswith(".gz"): tmp_name = tmp_name[:-len(".gz")]
+              with open(tmp_name, "w", encoding="utf8") as tmp2:
                 if prev_file.endswith(".gz"):
                   f = gzip.open(prev_file)
                 else:
@@ -590,22 +577,22 @@ class RiverbedModel(nn.Module):
                         l = " ".join(l)               
                     tmp2.write(l+"\n")  
                 seen_dedup_compound_words = None
-              os.system(f"gzip {tmp_file_name}")
-              prev_file = f"{tmp_file_name}.gz" 
+              os.system(f"gzip {tmp_name}")
+              prev_file = f"{tmp_name}.gz" 
               if do_dedup:
                 print ('deduped', deduped_num_tokens)
-                dedup_file_name = f"{model_name}/{file_name}"
-                if dedup_file_name.endswith(".gz"): dedup_file_name = dedup_file_name[:-len(".gz")]
-                dedup_file_name +=".dedup.gz"
-                os.system(f"cp {prev_file} {dedup_file_name}")
+                dedup_name = f"{model_name}/{name}"
+                if dedup_name.endswith(".gz"): dedup_name = dedup_name[:-len(".gz")]
+                dedup_name +=".dedup.gz"
+                os.system(f"cp {prev_file} {dedup_name}")
             if do_collapse_values:
-              os.system(f"./{lmplz} --collapse_values  --discount_fallback  --skip_symbols -o 5 --prune {min_num_tokens}  --arpa {model_name}/__tmp__{file_name}.arpa <  {prev_file}") ##
+              os.system(f"./{lmplz} --collapse_values  --discount_fallback  --skip_symbols -o 5 --prune {min_num_tokens}  --arpa {model_name}/__tmp__{name}.arpa <  {prev_file}") ##
             else:
-              os.system(f"./{lmplz}  --discount_fallback  --skip_symbols -o 5 --prune {min_num_tokens}  --arpa {model_name}/__tmp__{file_name}.arpa <  {prev_file}") ##
+              os.system(f"./{lmplz}  --discount_fallback  --skip_symbols -o 5 --prune {min_num_tokens}  --arpa {model_name}/__tmp__{name}.arpa <  {prev_file}") ##
             do_ngram = False
             n = 0
-            with open(f"{model_name}/__tmp__{file_name}.{times}.arpa", "w", encoding="utf8") as tmp_arpa:
-              with open(f"{model_name}/__tmp__{file_name}.arpa", "rb") as f:    
+            with open(f"{model_name}/__tmp__{name}.{times}.arpa", "w", encoding="utf8") as tmp_arpa:
+              with open(f"{model_name}/__tmp__{name}.arpa", "rb") as f:    
                 for line in  f: 
                   line = line.decode().strip()
                   if not line: 
@@ -673,7 +660,7 @@ class RiverbedModel(nn.Module):
                         compound[tokenArr[0]] = [min(len(tokenArr),  compound.get(tokenArr[0],[100,0])[0]), max(len(tokenArr), compound.get(tokenArr[0],[100,0])[-1])]
                       weight = weight * len(tokenArr)            
                       token2weight[token] = min(token2weight.get(token, 100), weight) 
-            os.system(f"rm {model_name}/__tmp__{file_name}.arpa")
+            os.system(f"rm {model_name}/__tmp__{name}.arpa")
             top_stopwords={} 
             if unigram:
                 stopwords_list = [l for l in unigram.items() if len(l[0]) > 0]
@@ -683,10 +670,10 @@ class RiverbedModel(nn.Module):
             for token, weight in top_stopwords:
               stopwords[token] = min(stopwords.get(token, 100), weight)
             if os.path.exists(f"{model_name}/__tmp__{model_name}.arpa"):
-              os.system(f"cat {model_name}/__tmp__{model_name}.arpa {model_name}/__tmp__{file_name}.{times}.arpa > {model_name}/__tmp__{model_name}.arpa")
-              os.system(f"rm {model_name}/__tmp__{file_name}.{times}.arpa")
+              os.system(f"cat {model_name}/__tmp__{model_name}.arpa {model_name}/__tmp__{name}.{times}.arpa > {model_name}/__tmp__{model_name}.arpa")
+              os.system(f"rm {model_name}/__tmp__{name}.{times}.arpa")
             else:
-              os.system(f"mv {model_name}/__tmp__{file_name}.{times}.arpa {model_name}/__tmp__{model_name}.arpa")
+              os.system(f"mv {model_name}/__tmp__{name}.{times}.arpa {model_name}/__tmp__{model_name}.arpa")
             if times == num_iter-1  and not synonyms_created:
                 self.synonyms = self.tokenizer.synonyms = synonyms = self._create_token_embeds_and_synonyms(model_name, stopwords=stopwords, token2weight=token2weight, synonyms=synonyms, kmeans_batch_size=kmeans_batch_size, min_incremental_cluster_overlap=min_incremental_cluster_overlap, \
                   prefered_cluster_size=prefered_cluster_size, embedder=embedder, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, max_ontology_depth=max_ontology_depth, max_cluster_size=max_cluster_size, do_ontology=do_ontology, recluster_type=recluster_type)   
@@ -929,11 +916,11 @@ class SpansPeprocessor(RiverbedPreprocessor):
     return self.tokenizer.tokenize(*args, **kwargs)
 
   #transform a doc into a span batch, breaking up doc into spans
-  #all spans/leaf nodes of a cluster are stored as a triple of (file_name, lineno, offset)
+  #all spans/leaf nodes of a cluster are stored as a triple of (name, lineno, offset)
   def _create_spans_batch(self, curr_file_size, doc, text_span_size=1000, ner_to_generalize=(), use_synonym_replacement=False):
       batch2 = []
       if True:
-        file_name, curr_lineno, ents, text  = doc['file_name'], doc['lineno'], doc['ents'], doc['text']
+        name, curr_lineno, ents, text  = doc['name'], doc['lineno'], doc['ents'], doc['text']
         for idx, ent in enumerate(ents):
           text = text.replace(ent[0], f' @#@{idx}@#@ ')
         # we do placeholder replacement tokenize to make ngram tokens underlined, so that we don't split a span in the middle of an ner token or ngram.
@@ -1074,7 +1061,7 @@ class SpansPeprocessor(RiverbedPreprocessor):
       self.idx += 1
       
   # the main method for processing documents and their spans. 
-  def index(self):
+  def index(self, name_2_content_store_objs):
     global clip_model, minilm_model, labse_model
     model = self.model
     tokenizer = self.tokenizer
@@ -1089,70 +1076,32 @@ class SpansPeprocessor(RiverbedPreprocessor):
     if (not hasattr(model, 'kenlm_model') or model.kenlm_model is not None) and auto_create_tokenizer_and_model:
       tokenizer, model = self.tokenizer, self.model = RiverbedModel.create_tokenizer_and_model(project_name, files, )
     kenlm_model = self.model.kenlm_model 
-      
-    if embedder == "clip":
-      clip_model = clip_model.to(device)
-      minilm_model =  minilm_model.cpu()
-      labse_model =  labse_model.cpu()
-    elif embedder == "minilm":
-      clip_model = clip_model.cpu()
-      minilm_model =  minilm_model.to(device)
-      labse_model =  labse_model.cpu()
-    elif embedder == "labse":
-      clip_model = clip_model.cpu()
-      minilm_model =  minilm_model.cpu()
-      labse_model =  labse_model.to(device)
-
-   
+    use_model(embedder)
     running_features_per_label = {}
-    file_name = files.pop()
-    f = open(file_name) 
+    name = files.pop()
+    f = open(name) 
     domain_stopwords_set = set(list(stopwords_set) + list(stopwords.keys()))
-    prior_line = ""
-    batch = []
-    retained_batch = []
-    curr = ""
-    cluster_embeddings = None
-    curr_date = ""
-    curr_position = 0
-    next_position = 0
-    curr_file_size = os.path.getsize(file_name)
-    position = 0
-    line = ""
-    lineno = -1
-    curr_lineno = 0
+
 
     if seen is None: seen = {}
     
-    with open(f"{project_name}.jsonl", "w", encoding="uterm_frequency8") as jsonl_file:
-      while True:
-        try:
-          line = f.readline()
-          if line: lineno+=1 
-        except:
-          line = ""
-        if len(line) == 0:
-          #print ("reading next")
-          if curr: 
-            hash_id = hash(curr)
-            if not dedup or (hash_id not in seen):
-                curr_ents = list(itertools.chain(*[[(e.text, e.label_)] if '||' not in e.text else [(e.text.split("||")[0].strip(), e.label_), (e.text.split("||")[-1].strip(), e.label_)] for e in spacy_nlp(curr).ents]))
-                curr_ents = list(set([e for e in curr_ents if e[0]]))
-                curr_ents.sort(key=lambda a: len(a[0]), reverse=True)
-                batch.append({'file_name': file_name, 'lineno': curr_lineno, 'text': curr, 'ents': curr_ents, 'position':curr_position})
-                seen[hash_id] = 1
-          prior_line = ""
-          curr = ""
-          if not files: break
-          file_name = files.pop()
-          f = open(file_name)
-          l = f.readline()
-          lineno = 0
-          curr_lineno = 0
-          curr_date = ""
-          curr_position = 0
-          curr_file_size = os.path.getsize(file_name)
-          position = 0
+    for name, content_store_obj in name_2_content_store_objs.items():
+      # we will collapse adjacent lines that are short. 
+      prior_line = ""
+      batch = []
+      retained_batch = []
+      curr = ""
+      cluster_embeddings = None
+      curr_date = ""
+      curr_position = 0
+      next_position = 0
+      curr_file_size = os.path.getsize(name)
+      position = 0
+      line = ""
+      lineno = -1
+      curr_lineno = 0
+      for line in content_store_obj:
+        line = line.strip() #TODO: read the data from the field
         position = next_position/curr_file_size
         next_position = next_position + len(line)+1
         line = line.strip().replace("  ", " ")
@@ -1177,11 +1126,15 @@ class SpansPeprocessor(RiverbedPreprocessor):
                 curr = curr.replace(". .", ". ").replace("..", ".").replace(":.", ".")
                 hash_id = hash(curr)
                 if not dedup or (hash_id not in seen):
+                  seen[hash_id] = 1
                   curr_ents = list(itertools.chain(*[[(e.text, e.label_)] if '||' not in e.text else [(e.text.split("||")[0].strip(), e.label_), (e.text.split("||")[-1].strip(), e.label_)] for e in spacy_nlp(curr).ents]))
                   curr_ents = list(set([e for e in curr_ents if e[0]]))
                   curr_ents.sort(key=lambda a: len(a[0]), reverse=True)
-                  batch.append({'file_name': file_name, 'lineno': curr_lineno, 'text': curr, 'ents': curr_ents, 'position':curr_position})
-                  seen[hash_id] = 1
+                  for item in self._create_spans_batch(curr_file_size, {'text': curr, 'ents': curr_ents, }, text_span_size=text_span_size, ner_to_generalize=ner_to_generalize, use_synonym_replacement=use_synonym_replacement)
+                    item['name'] =name
+                    item['lineno'] = curr_lineno
+                    item['position'] = curr_position
+                    batch.append(item)
                 curr = ""
                 curr_lineno = lineno
                 curr_position = position
@@ -1212,7 +1165,7 @@ class SpansPeprocessor(RiverbedPreprocessor):
             curr_ents = list(itertools.chain(*[[(e.text, e.label_)] if '||' not in e.text else [(e.text.split("||")[0].strip(), e.label_), (e.text.split("||")[-1].strip(), e.label_)] for e in spacy_nlp(curr).ents]))
             curr_ents = list(set([e for e in curr_ents if e[0]]))
             curr_ents.sort(key=lambda a: len(a[0]), reverse=True)
-            batch.append({'file_name': file_name, 'lineno': curr_lineno, 'text': curr, 'ents': curr_ents, 'position':curr_position})
+            batch.append({'name': name, 'lineno': curr_lineno, 'text': curr, 'ents': curr_ents, 'position':curr_position})
             seen[hash_id] = 1
           curr = ""
           curr_lineno = 0
@@ -1227,7 +1180,29 @@ class SpansPeprocessor(RiverbedPreprocessor):
                                                       running_features_size=running_features_size, label2term_frequency=label2term_frequency, document_frequency=document_frequency, domain_stopwords_set=domain_stopwords_set, \
                                                       verbose_snrokel=verbose_snrokel)  
           batch = []
-          
+      #clean up data for this particular content_data_store    
+      if True:
+          #print ("reading next")
+          if curr: 
+            hash_id = hash(curr)
+            if not dedup or (hash_id not in seen):
+                curr_ents = list(itertools.chain(*[[(e.text, e.label_)] if '||' not in e.text else [(e.text.split("||")[0].strip(), e.label_), (e.text.split("||")[-1].strip(), e.label_)] for e in spacy_nlp(curr).ents]))
+                curr_ents = list(set([e for e in curr_ents if e[0]]))
+                curr_ents.sort(key=lambda a: len(a[0]), reverse=True)
+                batch.append({'name': name, 'lineno': curr_lineno, 'text': curr, 'ents': curr_ents, 'position':curr_position})
+                seen[hash_id] = 1
+          prior_line = ""
+          curr = ""
+          if not files: break
+          name = files.pop()
+          f = open(name)
+          l = f.readline()
+          lineno = 0
+          curr_lineno = 0
+          curr_date = ""
+          curr_position = 0
+          curr_file_size = os.path.getsize(name)
+          position = 0    
     span2idx, span_clusters, label2term_frequency, document_frequency, span2cluster_label, label_models = self.span2idx, self.span_clusters, self.label2term_frequency, self.document_frequency, self.span2cluster_label, self.label_models                    
     self.searcher = searcher.switch_search_context(project_name, data_iterator=data_iterator, search_field="tokenized_text", bm25_field="text", embedder=embedder, \
                              auto_embed_text=True, auto_create_bm25_idx=True, auto_create_embeddings_idx=True)
