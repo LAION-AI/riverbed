@@ -112,11 +112,11 @@ class RiverbedTokenizer:
 
   def save_pretrained(self, tokenizer_name):
       os.system(f"mkdir -p {tokenizer_name}")
-      pickle.dump(self, open(f"{tokenizer_name}/{tokenizer_name}.pickle", "wb"))
+      torch.save(self, open(f"{tokenizer_name}/{tokenizer_name}.pickle", "wb"))
     
   @staticmethod
   def from_pretrained(tokenizer_name):
-      self = pickle.load(open(f"{tokenizer_name}/{tokenizer_name}.pickle", "rb"))
+      self = torch.load(open(f"{tokenizer_name}/{tokenizer_name}.pickle", "rb"))
       return self
 
 #################################################################################
