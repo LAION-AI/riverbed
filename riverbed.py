@@ -200,8 +200,8 @@ class RiverbedModel(nn.Module):
         top_parents.append(parent)
     return top_parents
 
-  # cluster one batch of tokens/vectors, assuming some tokens have already been clustered
-  def _cluster_one_batch(self, cluster_vecs, idxs, terms2, true_k, synonyms=None, stopwords=None, token2weight=None, min_incremental_cluster_overlap=2 ):
+  # cluster one batch of tokens/embeddings, assuming some tokens have already been clustered
+  def _cluster_one_batch(self, cluster_embeddings, idxs, terms2, true_k, synonyms=None, stopwords=None, token2weight=None, min_incremental_cluster_overlap=2 ):
     global device
     #print ('cluster_one_batch', len(idxs))
     if synonyms is None: synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
@@ -209,11 +209,11 @@ class RiverbedModel(nn.Module):
     if stopwords is None: stopwords = {} if not hasattr(self, 'stopwords') else self.stopwords
     if device == 'cuda':
       kmeans = KMeans(n_clusters=true_k, mode='cosine')
-      km_labels = kmeans.fit_predict(torch.from_numpy(cluster_vecs[idxs]).to(device))
+      km_labels = kmeans.fit_predict(torch.from_numpy(cluster_embeddings[idxs]).to(device))
       km_labels = [l.item() for l in km_labels.cpu()]
     else:
       km = MiniBatchKMeans(n_clusters=true_k, init='k-means++', n_init=1,
-                                          init_size=max(true_k*3,1000), batch_size=1024).fit(cluster_vecs[idxs])
+                                          init_size=max(true_k*3,1000), batch_size=1024).fit(cluster_embeddings[idxs])
       km_labels = km.labels_
     ontology = {}
     #print (true_k)
@@ -308,7 +308,7 @@ class RiverbedModel(nn.Module):
       embed_dim = minilm_model.config.hidden_size
     elif embedder == "labse":
       embed_dim = labse_model.config.hidden_size      
-    cluster_vecs = np_memmap(f"{model_name}/{model_name}.{embedder}_tokens", shape=[len(token2weight), embed_dim])
+    cluster_embeddings = np_memmap(f"{model_name}/{model_name}.{embedder}_tokens", shape=[len(token2weight), embed_dim])
     tokens = list(token2weight.keys())
     if token2idx is None:
       token2idx = dict([(token, idx) for idx, token in enumerate(tokens)])
@@ -319,7 +319,7 @@ class RiverbedModel(nn.Module):
       if len(parents) < max_cluster_size: break
       idxs = [token2idx[parent.lstrip('¶')] for parent in parents]
       true_k = int(max(2, int(len(parents)/max_cluster_size)))
-      synonyms = self._cluster_one_batch(cluster_vecs, idxs, parents, true_k, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight, )
+      synonyms = self._cluster_one_batch(cluster_embeddings, idxs, parents, true_k, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight, )
       ontology = self.get_ontology(synonyms)
       cluster_batch=[]
       parents_parent = [parent for parent in ontology.keys() if len(parent) - len(parent.lstrip('¶')) == level + 2]
@@ -332,19 +332,19 @@ class RiverbedModel(nn.Module):
             if recluster_type=="individual":
               idxs = [token2idx[token.lstrip('¶')] for token in  cluster]
               true_k=int(max(2, (len(idxs))/max_cluster_size))
-              synonyms = self._cluster_one_batch(cluster_vecs, idxs, cluster, true_k, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
+              synonyms = self._cluster_one_batch(cluster_embeddings, idxs, cluster, true_k, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
               cluster_batch = []
             else:
               cluster_batch.extend(cluster)
               if len(cluster_batch) > kmeans_batch_size:
                 idxs = [token2idx[token.lstrip('¶')] for token in  cluster_batch]
                 true_k=int(max(2, (len(idxs))/max_cluster_size))
-                synonyms = self._cluster_one_batch(cluster_vecs, idxs, cluster_batch, true_k, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
+                synonyms = self._cluster_one_batch(cluster_embeddings, idxs, cluster_batch, true_k, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
                 cluster_batch = []
       if cluster_batch: 
         idxs = [token2idx[token.lstrip('¶')] for token in  cluster_batch]
         true_k=int(max(2, (len(idxs))/max_cluster_size))
-        synonyms = self._cluster_one_batch(cluster_vecs, idxs, cluster_batch, true_k, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
+        synonyms = self._cluster_one_batch(cluster_embeddings, idxs, cluster_batch, true_k, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
         cluster_batch = []
                 
     return synonyms
@@ -367,7 +367,7 @@ class RiverbedModel(nn.Module):
       embed_dim = minilm_model.config.hidden_size
     elif embedder == "labse":
       embed_dim = labse_model.config.hidden_size
-    cluster_vecs = np_memmap(f"{model_name}/{model_name}.{embedder}_tokens", shape=[len(token2weight), embed_dim])
+    cluster_embeddings = np_memmap(f"{model_name}/{model_name}.{embedder}_tokens", shape=[len(token2weight), embed_dim])
     terms_idx = [idx for idx, term in enumerate(tokens) if term not in synonyms and term[0] != '¶' ]
     print ('creating embeds', len(terms_idx))
     terms_idx_in_synonyms = [idx for idx, term in enumerate(tokens) if term in synonyms and term[0] != '¶']
@@ -378,17 +378,17 @@ class RiverbedModel(nn.Module):
       if embedder == "clip":
         toks = clip_processor([tokens[idx].replace("_", " ") for idx in terms_idx[rng:max_rng]], padding=True, truncation=True, return_tensors="pt").to(device)
         with torch.no_grad():
-          cluster_vecs = clip_model.get_text_features(**toks).cpu().numpy()
+          cluster_embeddings = clip_model.get_text_features(**toks).cpu().numpy()
       elif embedder == "minilm":
         toks = minilm_tokenizer([tokens[idx].replace("_", " ") for idx in terms_idx[rng:max_rng]], padding=True, truncation=True, return_tensors="pt").to(device)
         with torch.no_grad():
-          cluster_vecs = minilm_model(**toks)
-          cluster_vecs = mean_pooling(cluster_vecs, toks.attention_mask).cpu().numpy()
+          cluster_embeddings = minilm_model(**toks)
+          cluster_embeddings = mean_pooling(cluster_embeddings, toks.attention_mask).cpu().numpy()
       elif embedder == "labse":
         toks = labse_tokenizer([tokens[idx].replace("_", " ") for idx in terms_idx[rng:max_rng]], padding=True, truncation=True, return_tensors="pt").to(device)
         with torch.no_grad():
-          cluster_vecs = labse_model(**toks).pooler_output.cpu().numpy()          
-      cluster_vecs = np_memmap(f"{model_name}/{model_name}.{embedder}_tokens", shape=[len(tokens), cluster_vecs.shape[1]], dat=cluster_vecs, idxs=terms_idx[rng:max_rng])  
+          cluster_embeddings = labse_model(**toks).pooler_output.cpu().numpy()          
+      cluster_embeddings = np_memmap(f"{model_name}/{model_name}.{embedder}_tokens", shape=[len(tokens), cluster_embeddings.shape[1]], dat=cluster_embeddings, idxs=terms_idx[rng:max_rng])  
     len_terms_idx = len(terms_idx)
     times = -1
     times_start_recluster = max(0, (int(len(terms_idx)/int(kmeans_batch_size*.7))-3))
@@ -412,7 +412,7 @@ class RiverbedModel(nn.Module):
       #print ('clustering', len(idxs))
       true_k=int(max(2, (len(idxs))/prefered_cluster_size))
       terms2 = [tokens[idx] for idx in idxs]
-      synonyms = self._cluster_one_batch(cluster_vecs, idxs, terms2, true_k, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)
+      synonyms = self._cluster_one_batch(cluster_embeddings, idxs, terms2, true_k, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)
       if times >= times_start_recluster:
         cluster_batch=[]
         ontology = self.get_ontology(synonyms)
@@ -428,19 +428,19 @@ class RiverbedModel(nn.Module):
               if recluster_type=="individual":
                 idxs = [token2idx[token] for token in  cluster]
                 true_k=int(max(2, (len(idxs))/prefered_cluster_size))
-                synonyms = self._cluster_one_batch(cluster_vecs, idxs, cluster, true_k, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
+                synonyms = self._cluster_one_batch(cluster_embeddings, idxs, cluster, true_k, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
                 cluster_batch = []
               else:
                 cluster_batch.extend(cluster)
                 if len(cluster_batch) > kmeans_batch_size:
                   idxs = [token2idx[token] for token in  cluster_batch]
                   true_k=int(max(2, (len(idxs))/prefered_cluster_size))
-                  synonyms = self._cluster_one_batch(cluster_vecs, idxs, cluster_batch, true_k, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
+                  synonyms = self._cluster_one_batch(cluster_embeddings, idxs, cluster_batch, true_k, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
                   cluster_batch = []
         if cluster_batch: 
           idxs = [token2idx[token] for token in  cluster_batch]
           true_k=int(max(2, (len(idxs))/prefered_cluster_size))
-          synonyms = self._cluster_one_batch(cluster_vecs, idxs, cluster_batch, true_k, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
+          synonyms = self._cluster_one_batch(cluster_embeddings, idxs, cluster_batch, true_k, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight, min_incremental_cluster_overlap=min_incremental_cluster_overlap)    
           cluster_batch = []
 
     if do_ontology: synonyms = self._create_ontology(model_name, synonyms=synonyms, stopwords=stopwords, token2weight=token2weight,  token2idx=token2idx, kmeans_batch_size=50000, epoch = 10, \
@@ -1097,7 +1097,7 @@ class SpansPeprocessor(RiverbedPreprocessor):
     batch = []
     retained_batch = []
     curr = ""
-    cluster_vecs = None
+    cluster_embeddings = None
     curr_date = ""
     curr_position = 0
     next_position = 0
