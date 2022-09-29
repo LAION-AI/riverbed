@@ -159,10 +159,10 @@ class BasicLinePrepocessor(RiverbedPreprocessor):
 #TODO. Change this to inherit from a transformers.PretrainedModel.
 class Searcher(nn.Module):
   
-  def __init__(self,  filename, fobj=None, mmap_file=None, mmap_len=0, embed_dim=25, dtype=np.float16, \
+  def __init__(self,  idx_dir=None, filename=None, content_data_store=None, mmap_file=None, mmap_len=0, embed_dim=25, dtype=np.float16, \
                parents=None, parent_levels=None, parent_labels=None, skip_idxs=None, \
                parent2idx=None, top_parents=None, top_parent_idxs=None, clusters=None,  embedder="minilm", chunk_size=1000, \
-               search_field="text", bm25_field=None, filebyline=None, downsampler=None, auto_embed_text=False, \
+               search_field="text", bm25_field=None, downsampler=None, auto_embed_text=False, \
                auto_create_embeddings_idx=False, auto_create_bm25_idx=False,  \
                span2cluster_label=None, idxs=None, max_level=4, max_cluster_size=200, \
                min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000, \
@@ -173,9 +173,12 @@ class Searcher(nn.Module):
     """
         Cluster indexes and performs approximate nearest neighbor search on a memmap file. 
         Also provides a wrapper for Whoosh BM25.
-        :arg filename:        The name of the file that is to be indexed and searched. 
-                              Can be a txt, jsonl or gzip of the foregoing. 
-        :arg fobj:            Optional. The file object 
+        :arg idx_dir:    Optional. If not passed then it will be "filename_idx". If no filename is passed, then it will be the current directory. 
+        :arg filename:   Optional. The name of the file that is to be indexed and searched. 
+                              Can be a txt or jsonl file or a gzip of the foregoing. 
+        :arg content_data_store:      Optional. The data store object, which can be a GzipFileByLineIdx, FileByLineIdx, or 
+                             anything accessible by indexing content_data_store[i] and exposing len() which returns the number of items/lines.  
+                             If filename is passed byt content_data_store is not passed, it will be created. 
         :arg  mmap_file:      Optional, must be passed as a keyword argument.
                                 This is the file name for the embeddings representing 
                                 each line in the gzip file. Used for embeddings search.
@@ -197,15 +200,15 @@ class Searcher(nn.Module):
         :arg clusters:         Optional. A dictionary representing parent label -> [child indexes]
         :arg auto_create_embeddings_idx. Optional. Will create a cluster index from the contents of the mmap file. 
                                 Assumes the mmap_file is populated.
-        :arg auto_embed_text. Optional. Will populate the mmap_file from the data from filename/fobj. 
+        :arg auto_embed_text. Optional. Will populate the mmap_file from the data from filename/content_data_store. 
         :arg auto_create_bm25_idx: Optional. Will do BM25 indexing of the contents of the file using whoosh, with stemming.
-        :arg filebyline           Optional. The access for a file by lines.
+        :arg content_data_store           Optional. The access for a file by lines.
         :arg search_field:      Optional. Defaults to "text". If the data is in jsonl format,
                               this is the field that is Whoosh/bm25 indexed.
         :arg bm25_field:        Optional. Can be different than the search_field. If none, then will be set to the search_field.
         :arg idxs:                Optional. Only these idxs should be indexed and searched.
         :arg skip_idxs:           Optional. The indexes that are empty and should not be searched or clustered.
-        :arg filebyline:           Optional. If not passed, will be created. Used to random access the file by line number.
+        :arg content_data_store:           Optional. 
         :arg downsampler:          Optional. The pythorch downsampler for mapping the output of the embedder to a lower dimension.
         :arg universal_embed_mode:  Optional. Either None, "assigned", "random", or "clusters". If we should do universal embedding as described below, this will control
                                     how the prototypes are assigned. 
@@ -242,25 +245,28 @@ class Searcher(nn.Module):
         else:
           bm25_field_preprocessor = = BasicLinePreprocessor(search_field=bm25_field_preprocessor)
     self.embedder, self.search_field_preprocessor, self.bm25_field_preprocessor = embedder, search_field_preprocessor, bm25_field_preprocessor
-    assert filename is not None
-    self.idx_dir = f"{filename}_idx"
+    if idx_dir is None and filename is not None
+      idx_dir = f"{filename}_idx"
+    elif idx_dir is None: idx_dir = "./"
+      
+    self.idx_dir = idx_dir
     if mmap_file is None:
       mmap_file = f"{self.idx_dir}/search_index_{search_field}_{embedder}_{embed_dim}.mmap"
-    if fobj is None:
+    if content_data_store is None:
       if filename.endswith(".gz"):
-        fobj = self.fobj = GzipByLineIdx.open(filename)
+        content_data_store = self.content_data_store = GzipByLineIdx.open(filename)
       else:
-        fobj = self.fobj = open(filename, "rb")  
+        content_data_store = self.content_data_store = open(filename, "rb")  
     else:
-      self.fobj = fobj
-    if not os.path.exists(filename+"_idx"):
-      os.makedirs(filename+"_idx")   
-    self.filebyline = filebyline
-    if self.filebyline is None: 
-      if type(self.fobj) is GzipByLineIdx:
-        self.filebyline = self.fobj 
+      self.content_data_store = content_data_store
+    if not os.path.exists(self.idx_dir):
+      os.makedirs(self.idx_dir)   
+    self.content_data_store = content_data_store
+    if self.content_data_store is None: 
+      if type(self.content_data_store) is GzipByLineIdx:
+        self.content_data_store = self.content_data_store 
       else:   
-        self.filebyline = FileByLineIdx(fobj=fobj) 
+        self.content_data_store = content_data_storeIdx(content_data_store=content_data_store) 
     labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set = init_models()
     if downsampler is None:
       if embedder == "clip":
@@ -288,7 +294,7 @@ class Searcher(nn.Module):
     self.skip_idxs = set(list(self.skip_idxs if hasattr(self, 'skip_idxs') and self.skip_idxs else []) + list(skip_idxs))
     if universal_embed_mode not in (None, "assigned"):
       auto_embed_text = True
-    if auto_embed_text and self.fobj is not None:
+    if auto_embed_text and self.content_data_store is not None:
       self.embed_text(chunk_size=chunk_size, use_tqdm=use_tqdm)
     if universal_embed_mode not in (None, "assigned") and clusters is None:
       auto_create_embeddings_idx = True
@@ -297,7 +303,7 @@ class Searcher(nn.Module):
                                min_overlap_merge_cluster=min_overlap_merge_cluster, prefered_leaf_node_size=prefered_leaf_node_size, kmeans_batch_size=kmeans_batch_size)
     else:
       self.recreate_parents_data()
-    if auto_create_bm25_idx and self.fobj:
+    if auto_create_bm25_idx and self.content_data_store:
        self.recreate_whoosh_idx(auto_create_bm25_idx=auto_create_bm25_idx, idxs=idxs, use_tqdm=use_tqdm)
     setattr(self,f'downsampler_{self.search_field}_{embedder}_{self.embed_dim}', self.downsampler)
     setattr(self,f'clusters_{self.search_field}_{self.embedder}_{self.embed_dim}', self.clusters)
@@ -305,17 +311,17 @@ class Searcher(nn.Module):
     if universal_embed_mode:
       assert (prototypes is None and prototype_sentences is None and universal_downsampler is None) or universal_embed_mode == "assigned"
       if universal_embed_mode == "random":
-        prototype_sentences = [_get_content_from_line(self.filebyline[i], search_field) for i in random.sample(list(range(len(self.filebyline)), min_num_prorotypes))]
+        prototype_sentences = [_get_content_from_line(self.content_data_store[i], search_field) for i in random.sample(list(range(len(self.content_data_store)), min_num_prorotypes))]
       elif universal_embed_mode == "cluster":
         level_0_parents = [span[1] for span in self.parent2idx.keys() if span[0] == 0]
-        prototype_sentences = [_get_content_from_line(self.filebyline[span[1]], search_field) for span in level_0_parents]
+        prototype_sentences = [_get_content_from_line(self.content_data_store[span[1]], search_field) for span in level_0_parents]
       assert prototype_sentences
       if len(prototype_senences) > min_num_prorotypes:
          assert universal_embed_mode != "assigned"
          prototype_senences = random.sample(prototype_senences,min_num_prorotypes)
       elif len(prototype_senences) < min_num_prorotypes:
          assert universal_embed_mode != "assigned"
-         prototype_sentences.extend([_get_content_from_line(self.filebyline[i], search_field) for i in random.sample(list(range(len(self.filebyline)), min_num_prorotypes-len(prorotype_senences)))])
+         prototype_sentences.extend([_get_content_from_line(self.content_data_store[i], search_field) for i in random.sample(list(range(len(self.content_data_store)), min_num_prorotypes-len(prorotype_senences)))])
       prototypes = self.get_embeddings(prototype_sentences)
       universal_downsampler = nn.Linear(len(prototype_sentences), embed_dim, bias=False)
       self.prototype_sentences,  self.prototypes, self.universal_downsampler = prototype_sentences,  prototypes, universal_downsampler
@@ -332,7 +338,7 @@ class Searcher(nn.Module):
       #now re-create the embeddings, and remove the old embedder based embeddings since we won't use those anymore.
       os.system(f"rm -rf {self.mmap_file}")
       self.mmap_file = f"{self.idx_dir}/search_index_{search_field}_universal_{embed_dim}.mmap"
-      if auto_embed_text and self.fobj is not None:
+      if auto_embed_text and self.content_data_store is not None:
         self.embed_text(chunk_size=chunk_size, use_tqdm=use_tqdm)
       self.recreate_parents_data()
     parents = self.parents
@@ -370,7 +376,7 @@ class Searcher(nn.Module):
     global device
     if hasattr(self,f'downsampler_{self.search_field}_{self.embedder}_{self.embed_dim}'): getattr(self,f'downsampler_{self.search_field}_{self.embedder}_{self.embed_dim}').cpu()
     if hasattr(self, 'downsampler') and self.downsampler is not None: self.downsampler.cpu()
-    fobj = self.fobj
+    content_data_store = self.content_data_store
     if self.universal_embed_mode == "clustered":
       clusters = self.clusters
     elif reuse_clusters: 
@@ -400,14 +406,14 @@ class Searcher(nn.Module):
              embedder, mmap_file, clusters, parent2idx, parents, top_parents, top_parent_idxs, downsampler
     if skip_idxs is None: skip_idxs = []
     self.skip_idxs = set(list(self.skip_idxs if hasattr(self, 'skip_idxs') and self.skip_idxs else []) + list(skip_idxs))
-    if auto_embed_text and self.fobj is not None:
+    if auto_embed_text and self.content_data_store is not None:
       self.embed_text(chunk_size=chunk_size, use_tqdm=use_tqdm)
     if os.path.exists(self.mmap_file) and (idxs is not None or auto_create_embeddings_idx):
       self.recreate_embeddings_idx(clusters=self.clusters, span2cluster_label=span2cluster_label, idxs=idxs, max_level=max_level, max_cluster_size=max_cluster_size, \
                                min_overlap_merge_cluster=min_overlap_merge_cluster, prefered_leaf_node_size=prefered_leaf_node_size, kmeans_batch_size=kmeans_batch_size)
     else:
       self.recreate_parents_data()
-    if auto_create_bm25_idx and self.fobj:
+    if auto_create_bm25_idx and self.content_data_store:
        self.recreate_whoosh_idx(auto_create_bm25_idx=auto_create_bm25_idx, idxs=idxs, use_tqdm=use_tqdm)
     if self.universal_embed_mode is not None and self.prototype_sentences:
       self.prototypes = self.get_embeddings(self.prototype_sentences)
@@ -441,25 +447,27 @@ class Searcher(nn.Module):
     return get_embeddings(sent_or_batch, downsampler=self.downsampler, dtype=self.dtype, embedder=self.embedder, \
                           universal_embed_mode=self.universal_embed_mode, prototypes=self.prototypes, universal_downsampler=self.universal_downsampler)
               
-  #embed all of self.fobj or (idx, content) for idx in idxs for the row/content from fobj
+  #embed all of self.content_data_store or (idx, content) for idx in idxs for the row/content from content_data_store
   def embed_text(self, start_idx=None, chunk_size=1000, idxs=None, use_tqdm=True, auto_create_bm25_idx=False, **kwargs):
-    assert self.fobj is not None
+    assert self.content_data_store is not None
     if start_idx is None: start_idx = 0
     search_field = self.search_field 
     ###
-    def fobj_data_reader():
-      fobj = self.fobj
-      pos = fobj.tell()
-      fobj.seek(0, 0)
-      for l in fobj:
+    def content_data_store_data_reader():
+      content_data_store = self.content_data_store
+      if hasattr(content_data_store, 'tell'):
+        pos = content_data_store.tell()
+        content_data_store.seek(0, 0)
+      for l in content_data_store:
         yield _get_content_from_line(l, search_field)
-      fobj.seek(pos,0)
+      if hasattr(content_data_store, 'tell'):
+        content_data_store.seek(pos,0)
     ###  
     
     if idxs is not None:
-      data_iterator = [(idx, _get_content_from_line(self.filebyline[idx], search_field)) for idx in idxs]
+      data_iterator = [(idx, _get_content_from_line(self.content_data_store[idx], search_field)) for idx in idxs]
     else:
-      data_iterator = fobj_data_reader()  
+      data_iterator = content_data_store_data_reader()  
     # we can feed the data_iterator = self.search_field_preprocessor(data_iterator, **kwargs)
     self.mmap_len, skip_idxs =  embed_text(data_iterator, self.mmap_file, start_idx=start_idx, downsampler=self.downsampler, \
                           mmap_len=self.mmap_len, embed_dim=self.embed_dim, embedder=self.embedder, chunk_size=chunk_size, use_tqdm=use_tqdm, \
@@ -470,7 +478,9 @@ class Searcher(nn.Module):
 
   #the below is probably in-efficient
   def recreate_parents_data(self):
-    global device          
+    global device
+    
+    assert self.clusters
     all_parents = list(self.clusters.keys())
     all_parents.sort(key=lambda a: a[0], reverse=True)
     max_level = all_parents[0][0]
@@ -483,7 +493,9 @@ class Searcher(nn.Module):
                                min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000,):
     global device
     #print (clusters, idxs)
+    
     if clusters is None or idxs is not None:
+      if clusters is None and idxs is not None: clusters = self.clusters
       clusters, _ = self.cluster(clusters=clusters, span2cluster_label=span2cluster_label, cluster_idxs=idxs, max_level=max_level, max_cluster_size=max_cluster_size, \
                                min_overlap_merge_cluster=min_overlap_merge_cluster, prefered_leaf_node_size=prefered_leaf_node_size, kmeans_batch_size=kmeans_batch_size)
     #print (clusters)
@@ -511,8 +523,8 @@ class Searcher(nn.Module):
   
   
   def recreate_whoosh_idx(self, auto_create_bm25_idx=False, idxs=None, use_tqdm=True):
-    assert self.fobj is not None
-    fobj = self.fobj
+    assert self.content_data_store is not None
+    content_data_store = self.content_data_store
     bm25_field = self.bm25_field 
     schema = Schema(id=ID(stored=True), content=TEXT(analyzer=StemmingAnalyzer()))
     #TODO determine how to clear out the whoosh index besides rm -rf _M* MAIN*
@@ -525,25 +537,27 @@ class Searcher(nn.Module):
       self.whoosh_ix = create_in(f"{idx_dir}/bm25_{bm25_field}", schema)
       writer = self.whoosh_ix.writer(multisegment=True, limitmb=1024, procs=multiprocessing.cpu_count())      
       #writer = self.whoosh_ix.writer(multisegment=True,  procs=multiprocessing.cpu_count())      
-      pos = fobj.tell()
-      fobj.seek(0, 0)
+      if hasattr(content_data_store, 'tell'):
+        pos = content_data_store.tell()
+        content_data_store.seek(0, 0)
       if idxs is not None:
-        idx_text_pairs = [(idx, self.filebyline[idx]) for idx in idxs]
+        idx_text_pairs = [(idx, self.content_data_store[idx]) for idx in idxs]
         if use_tqdm:
           data_iterator =  tqdm.tqdm(idx_text_pairs)
         else:
           data_iterator = idx_text_pairs
       else:
         if use_tqdm:
-          data_iterator = tqdm.tqdm(enumerate(fobj))
+          data_iterator = tqdm.tqdm(enumerate(content_data_store))
         else:
-          data_iterator = enumerate(fobj)
+          data_iterator = enumerate(content_data_store)
       for idx, l in data_iterator:
           content= _get_content_from_line(l, bm25_field)
           if not content: continue
           writer.add_document(id=str(idx), content=content)  
       writer.commit()
-      fobj.seek(pos,0)
+      if hasattr(content_data_store, 'tell'):
+        content_data_store.seek(pos,0)
 
                
   def whoosh_searcher(self):
@@ -555,8 +569,9 @@ class Searcher(nn.Module):
   #key_terms. TODO: See https://whoosh.readthedocs.io/en/latest/keywords.html
   def search(self, query=None, embedding=None, do_bm25_only=False, k=5, chunk_size=100, limit=None):
     def _get_data(idx):
-      l  = self.filebyline[idx]
-      dat = l.decode().replace("\\n", "\n").replace("\\t", "\t").strip()
+      l  = self.content_data_store[idx]
+      if type(l) is not str:
+        dat = l.decode().replace("\\n", "\n").replace("\\t", "\t").strip()
       if dat[0] == "{" and dat[-1] == "}":
         try:
           dat = json.loads(l)
@@ -662,20 +677,23 @@ class Searcher(nn.Module):
        if cnt <= 0: return
     
         
-  def save_pretrained(self, filename):
-      os.system(f"mkdir -p {filename}_idx")
-      fobj = self.fobj
+  def save_pretrained(self, idx_dir=None):
+    if idx_dir is not None:
+      if self.idx_dir != idx_dir:
+        os.system(f"cp -rf {self.idx_dir} {idx_dir}")
+    if True:
+      content_data_store = self.content_data_store
       mmap_file = self.mmap_file
-      idx_dir = self.idx_dir 
+      old_idx_dir = self.idx_dir 
       self.idx_dir = None
       if self.mmap_file.startswith(idx_dir):
         self.mmap_file = self.mmap_file.split("/")[-1]
-      if hasattr(self, 'filebyline') and self.filebyline is not None:
-        if type(self.filebyline) is GzipByLineIdx:
-          self.filebyline = None
-        else:
-          self.filebyline.fobj = None
-      self.fobj = None
+      if hasattr(self, 'content_data_store') and self.content_data_store is not None:
+        if type(self.content_data_store) is GzipByLineIdx:
+          self.content_data_store = None
+        elif type(self.content_data_store) is FileByLineIdx:
+          fobj = self.content_data_store.fobj
+          self.content_data_store.fobj = None  
       device2 = "cpu"
       if self.downsampler is not None:
         device2 = next(self.downsampler.parameters()).device
@@ -687,34 +705,33 @@ class Searcher(nn.Module):
                 setattr(self, field, downsampler.cpu())
       parents = self.parents
       self.parents = None
-      torch.save(self, open(f"{filename}_idx/search_index.pickle", "wb"))
+      torch.save(self, open(f"{idx_dir}/search_index.pickle", "wb"))
       self.mmap_file = mmap_file
-      self.idx_dir = idx_dir
-      self.fobj = fobj
+      self.idx_dir = old_idx_dir
+      self.content_data_store = content_data_store
       if self.downsampler is not None:
         self.downsampler.to(device2)
       self.parents = parents
-      if type(self.fobj) is GzipByLineIdx:
-        self.filebyline = self.fobj
-      else:
-        if hasattr(self, 'filebyline') and self.filebyline is not None: self.filebyline.fobj = self.fobj
-
+      if type(self.content_data_store) is FileByLineIdx
+        self.content_data_store.fobj = fobj
+        
   @staticmethod
-  def from_pretrained(filename):
+  def from_pretrained(idx_dir=None, filename=None):
       global device
-      idx_dir = f"{filename}_idx"
+      assert idx_dir is not None or filename is not None:
+        if idx_dir is None: idx_dir = f"{filename}_idx"
       self = torch.load(open(f"{idx_dir}/search_index.pickle", "rb"))
       self.idx_dir = idx_dir
       if os.path.exists(f"{idx_dir}/{self.mmap_file}"):
-        self.mmap_file = f"{idx_dir}/{self.mmap_file}"
-      if filename.endswith(".gz"):
-        self.filebyline = self.fobj = GzipByLineIdx.open(filename)
-      else:
-        self.fobj = open(filename, "rb")
-        if hasattr(self, 'filebyline') and self.filebyline is not None: self.filebyline.fobj = self.fobj
+        self.mmap_file = f"{idx_dir}/{self.mmap_file}
+      if filename:
+        if filename.endswith(".gz"):
+          self.content_data_store = GzipByLineIdx.open(filename)
+        elif type(self.content_data_store) is FileByLineIdx:
+          self.content_data_store.fobj=open(filename, "rb")
       self.downsampler.eval().to(device)
       self.recreate_parents_data()
-      if self.prototype_sentences: 
+      if self.prototype_sentences and self.prototypes is None: 
         self.prototypes = self.get_embeddings(self.prototype_sentences)
       parents = self.parents
       del self.parents
