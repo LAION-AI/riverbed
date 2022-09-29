@@ -1224,10 +1224,10 @@ class SpansPeprocessor(RiverbedPreprocessor):
     
   def save_pretrained(self, project_name):
       os.system(f"mkdir -p {project_name}")
-      pickle.dump(self, open(f"{project_name}/{project_name}.pickle", "wb"))
+      torch.save(self, open(f"{project_name}/{project_name}.pickle", "wb"))
     
   @staticmethod
   def from_pretrained(project_name):
-      self = pickle.load(open(f"{project_name}/{project_name}.pickle", "rb"))
+      self = torch.load(open(f"{project_name}/{project_name}.pickle", "rb"))
       return self
     
