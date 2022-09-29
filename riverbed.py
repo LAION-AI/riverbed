@@ -79,15 +79,17 @@ except:
 class RiverbedTokenizer:
 
   def __init__(self):
-    pass
+    self.compound = None
+    self.synonyms = None
+    self.token2weight = None
 
   def token2idx(self):
     return OrderedDict([(term, idx) for idx, term in enumerate(self.tokenweight.items())])
     
   def tokenize(self, doc, min_compound_weight=0,  max_compound_word_size=10000, compound=None, token2weight=None, synonyms=None, use_synonym_replacement=False):
-    if synonyms is None: synonyms = {} if not hasattr(self, 'synonyms') else self.synonyms
-    if token2weight is None: token2weight = {} if not hasattr(self, 'token2weight') else self.token2weight    
-    if compound is None: compound = {} if not hasattr(self, 'compound') else self.compound
+    if synonyms is None: synonyms = {} if not hasattr(self, 'synonyms') or not self.synonyms else self.synonyms
+    if token2weight is None: token2weight = {} if not hasattr(self, 'token2weight') or not self.token2weight else self.token2weight    
+    if compound is None: compound = {} if not hasattr(self, 'compound') or not self.token2weight else self.compound
     if not use_synonym_replacement: synonyms = {} 
     doc = [synonyms.get(d,d) for d in doc.split(" ") if d.strip()]
     len_doc = len(doc)
@@ -112,11 +114,11 @@ class RiverbedTokenizer:
 
   def save_pretrained(self, tokenizer_name):
       os.system(f"mkdir -p {tokenizer_name}")
-      torch.save(self, open(f"{tokenizer_name}/{tokenizer_name}.pickle", "wb"))
+      pickle.dump(self, open(f"{tokenizer_name}/{tokenizer_name}.pickle", "wb"))
     
   @staticmethod
   def from_pretrained(tokenizer_name):
-      self = torch.load(open(f"{tokenizer_name}/{tokenizer_name}.pickle", "rb"))
+      self = pickle.load(open(f"{tokenizer_name}/{tokenizer_name}.pickle", "rb"))
       return self
 
 #################################################################################
@@ -128,8 +130,13 @@ class RiverbedModel(nn.Module):
    global labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set 
    labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set = init_models()
    self.searcher = Searcher()
-
-    
+   self.tokenizer = None
+   self.synonyms = None
+   self.clusters = None
+   self.mmap_file = ""
+  
+  #TODO: create interface for the search function to return tokens
+  
   # get the downsampled sentence embeddings. can be used to train the downsampler(s).
   def forward(self, *args, **kwargs):
     if 'text' in kwargs:
@@ -138,24 +145,10 @@ class RiverbedModel(nn.Module):
       text = self.tokenizer.tokenize(text) 
       #we create the downsample sentence embeding with mean of the ngram and the non-ngram 
       #sentences. 
-      # we assume that at this point we have already increased the embeddings/tokens in the underlying tokenizer
+      # we assume that at this point we have already added new custom embeddings/tokens in the underlying tokenizer
       # not happy -> no_happy, which is similar to "sad", "angry", "unhappy"
       #then we tokenize using the embedder tokenizer
     dat = self.searcher(*args, **kwargs)
-    with torch.no_grad():
-      if self.embedder == "clip":
-        dat = clip_model.get_text_features(*args, **kwargs)
-      elif self.embedder == "minilm":
-        dat = minilm_model(*args, **kwargs)
-        dat = mean_pooling(dat, kwargs['attention_mask'])
-      elif self.embedder == "labse":
-        dat = labse_model(*args, **kwargs).pooler_output   
-    dat = torch.nn.functional.normalize(dat, dim=1)
-    dat = self.downsampler(dat)
-    if self.universal_embed_mode:
-      dat = cosine_similarity(dat, prototypes)
-      dat = torch.nn.functional.normalize(dat, dim=1)
-      dat = self.universal_downsampler(dat)
     return dat
   
 
@@ -308,7 +301,7 @@ class RiverbedModel(nn.Module):
       embed_dim = minilm_model.config.hidden_size
     elif embedder == "labse":
       embed_dim = labse_model.config.hidden_size      
-    cluster_embeddings = np_memmap(f"{model_name}/{model_name}.{embedder}_tokens", shape=[len(token2weight), embed_dim])
+    cluster_embeddings = np_memmap(self.mmap_file, shape=[len(token2weight), embed_dim])
     tokens = list(token2weight.keys())
     if token2idx is None:
       token2idx = dict([(token, idx) for idx, token in enumerate(tokens)])
@@ -388,7 +381,7 @@ class RiverbedModel(nn.Module):
         toks = labse_tokenizer([tokens[idx].replace("_", " ") for idx in terms_idx[rng:max_rng]], padding=True, truncation=True, return_tensors="pt").to(device)
         with torch.no_grad():
           cluster_embeddings = labse_model(**toks).pooler_output.cpu().numpy()          
-      cluster_embeddings = np_memmap(f"{model_name}/{model_name}.{embedder}_tokens", shape=[len(tokens), cluster_embeddings.shape[1]], dat=cluster_embeddings, idxs=terms_idx[rng:max_rng])  
+      cluster_embeddings = np_memmap(self.mmap_file, shape=[len(tokens), cluster_embeddings.shape[1]], dat=cluster_embeddings, idxs=terms_idx[rng:max_rng])  
     len_terms_idx = len(terms_idx)
     times = -1
     times_start_recluster = max(0, (int(len(terms_idx)/int(kmeans_batch_size*.7))-3))
@@ -449,7 +442,7 @@ class RiverbedModel(nn.Module):
     return synonyms
 
   
-  # creating tokenizer and a model. 
+  #creating tokenizer and a model. 
   #TODO, strip non_tokens
   @staticmethod
   def create_tokenizer_and_model(model_name, files, lmplz_loc="./riverbed/bin/lmplz", stopwords_max_len=10, \
@@ -489,6 +482,7 @@ class RiverbedModel(nn.Module):
         self = RiverbedModel()
         self.tokenizer = tokenizer
         
+      self.mmap_file = f"{model_name}/{embedder}_tokens.mmap"
       token2weight = self.tokenizer.token2weight = OrderedDict() if not hasattr(self, 'token2weight') else self.tokenizer.token2weight
       compound = self.tokenizer.compound = {} if not hasattr(self, 'compound') else self.tokenizer.compound
       synonyms = self.tokenizer.synonyms = {} if not hasattr(self, 'synonyms') else self.tokenizer.synonyms
@@ -697,6 +691,21 @@ class RiverbedModel(nn.Module):
       print ('len syn', len(synonyms))
       self.tokenizer.token2weight, self.tokenizer.compound, self.tokenizer.synonyms, self.tokenizer.stopwords = token2weight, compound, synonyms, stopwords
       self.synonyms = self.tokenizer.synonyms
+      
+      #now create the clusters
+      token2idx = self.tokenizer.token2idx()
+      clusters = {}
+      ontology = self.get_ontology(synonyms)
+      for parent, a_cluster in ontology.items(): 
+          level = len(parent) - len(parent.lstrip('¶'))-1
+          label = (level, token2idx[parent.lstrip('¶')])
+          for child in a_cluster:
+            if child[0] != '¶':
+              span = token2idx[child]
+            else:
+              span =  (level-1, token2idx[child.lstrip('¶')])
+            clusters[label] = clusters.get(label, []) + [span]
+      self.searcher.recreate_embeddings_idx(mmap_file=self.mmap_file, clusters=clusters)
       #TODO: Clean up tmp files as we go along.
       #create the final kenlm .arpa file for calculating the perplexity. we do this in files in order to keep main memory low.
       print ('consolidating arpa')
@@ -739,20 +748,22 @@ class RiverbedModel(nn.Module):
         os.system(f"cat {model_name}/__tmp__2_consolidated_{model_name}.arpa {model_name}/__tmp__1_consolidated_{model_name}.arpa > {model_name}/__tmp__consolidated_{model_name}.arpa")
       print ('creating kenlm model')
       self.kenlm_model = kenlm.LanguageModel(f"{model_name}/__tmp__consolidated_{model_name}.arpa") 
+      
       os.system(f"mv {model_name}/__tmp__consolidated_{model_name}.arpa {model_name}/{model_name}.arpa")
       os.system(f"rm -rf {model_name}/__tmp__*")
       return tokenizer, self
 
   def save_pretrained(self, model_name):
       os.system(f"mkdir -p {model_name}")
-      pickle.dump(self, open(f"{model_name}/{model_name}.pickle", "wb"))
+      torch.save(self, open(f"{model_name}/{model_name}.pickle", "wb"))
     
   @staticmethod
   def from_pretrained(model_name):
-      self = pickle.load(open(f"{model_name}/{model_name}.pickle", "rb"))
+      self = torch.load(open(f"{model_name}/{model_name}.pickle", "rb"))
       return self
 
 
+# CODE FOR SPAN PROCESSING
 def _intro_with_date(self, span):
     text, position, ents = span['text'], span['position'], span['ents']
     if position < 0.05 and text.strip() and (len(text) < 50 and text[0] not in "0123456789" and text[0] == text[0].upper() and text.split()[-1][0] == text.split()[-1][0].upper()):
@@ -791,6 +802,7 @@ def _conclusion_with_date(self, span):
         return 'conclusion: ' +text + " || "
     return None
 
+    
 # the similarity models sometimes put too much weight on proper names, etc. but we might want to cluster by general concepts
 # such as change of control, regulatory actions, etc. The proper names themselves can be collapsed to one canonical form (The Person). 
 # Similarly, we want similar concepts (e.g., compound words) to cluster to one canonical form.
