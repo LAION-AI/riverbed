@@ -1,4 +1,4 @@
-# coding=utf-8
+# coding=uterm_frequency-8
 # Copyright 2021-2022, Ontocord, LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -118,46 +118,55 @@ def _conclusion_with_date(self, span):
 # such as change of control, regulatory actions, etc. The proper names themselves can be collapsed to one canonical form (The Person). 
 # Similarly, we want similar concepts (e.g., compound words) to cluster to one canonical form.
 # we do this by collapsing to an NER label and/or creating a synonym map from compound words to known tokens. See _create_ontology
-# and we use that data to simplify the sentence here.  
-# TODO: have an option NOT to simplify the prefix. 
-def _simplify_text(self, text, tokenizer, ents, ner_to_simplify=(), use_synonym_replacement=False):
-    if not ner_to_simplify and not synonyms and not ents: return text, ents
-    # assumes the text has already been tokenized and replacing NER with @#@{idx}@#@ 
-    tokenized_text = text
+# and we use that data to generalize the sentence here.  
+#assumes the text has already been tokenized and ents has been sorted with longerst entity to shortest entity
+# TODO: have an option NOT to generalize the prefix. 
+def _generalize_text_and_filter_ents(tokenizer, tokenized_text, ents, ner_to_generalize=(), use_synonym_replacement=False):
+    if not ner_to_generalize and not synonyms and not ents: return tokenized_text, ents
+    
     #do a second tokenize if we want to do synonym replacement.
     if use_synonym_replacement:
       tokenized_text = tokenizer.tokenize(text, use_synonym_replacement=True)  
-    ents2 = []
-
+    filtered_ents = []
+    
+    #replace with placeholders
     for idx, ent in enumerate(ents):
         entity, label = ent
         if "@#@" not in text: break
         if f"@#@{idx}@#@" not in text: continue
         text = text.replace(f"@#@{idx}@#@", entity) 
     text = text.replace("_", " ")
-
+    
+    #see if there are multiple of the same labels 
+    label_cnts = dict([(a,b) for a, b in Counter([label for entity, label in ents]).items() if b > 1])
+    max_label_cnts = copy.copy(label_cnts)
+    entity_2_id = {}
     for idx, ent in enumerate(ents):
         entity, label = ent
+        entity_id = entity_2_id.get(entity) 
         if "@#@" not in tokenized_text: break
         if f"@#@{idx}@#@" not in tokenized_text: continue
-        ents2.append((entity, label,  text.count(f"@#@{idx}@#@")))
-        if label in ner_to_simplify:   
+        if entity not in entity_2_id and label in label_cnts:
+          entity_id = entity_2_id[entity] = 1 + (max_label_cnts[label] - label_cnts[label])
+          label_cnts[label] = label_cnts[label] - 1
+        filtered_ents.append((entity, label,  text.count(f"@#@{idx}@#@")))
+        if label in ner_to_generalize:   
           if label == 'ORG':
-            tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Organization')
+            tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Organization' + ('' if entity_id is None else f" {entity_id}"))
           elif label == 'PERSON':
-            tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Person')
+            tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Person'+ ('' if entity_id is None else f" {entity_id}"))
           elif label == 'FAC':
-            tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Facility')
+            tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Facility'+ ('' if entity_id is None else f" {entity_id}"))
           elif label in ('GPE', 'LOC'):
-            tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Location')
+            tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Location'+ ('' if entity_id is None else f" {entity_id}"))
           elif label in ('DATE', ):
-            tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Date')
+            tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Date'+ ('' if entity_id is None else f" {entity_id}"))
           elif label in ('LAW', ):
-            tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Law')  
+            tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Law'+ ('' if entity_id is None else f" {entity_id}"))  
           elif label in ('EVENT', ):
-            tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Event')            
+            tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Event'+ ('' if entity_id is None else f" {entity_id}"))            
           elif label in ('MONEY', ):
-            tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Amount')
+            tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Amount'+ ('' if entity_id is None else f" {entity_id}"))
           else:
             tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", entity.replace(" ", "_"))
         else:
@@ -173,23 +182,23 @@ def _simplify_text(self, text, tokenizer, ents, ner_to_simplify=(), use_synonym_
       tokenized_text = tokenized_text.replace("The Event and The Event", "The Event").replace("The Event The Event", "The Event").replace("The Event, The Event", "The Event")
       tokenized_text = tokenized_text.replace("The Amount and The Amount", "The Amount").replace("The Amount The Amount", "The Amount").replace("The Amount, The Amount", "The Amount")
       
-    return text, tokenized_text, ents2
+    return tokenized_text, filtered_ents
   
-
-def _create_informative_parent_label_from_tfidf(clusters, span2idx, tmp_span2batch, span2cluster_label, \
-                                          label2tf=None, df=None, domain_stopwords_set=stopwords_set,):
-    # code to compute tfidf and more informative labels for the span clusters
-    if label2tf is None: label2tf = {}
-    if df is None: df = {}
-    label2label = {}
-    #we gather info for tf-idf with respect to each token in each clusters
-    for label, values in tmp_clusters.items(): 
-      if label.startswith(batch_id_prefix):
+# code more informative labels for the span clusters
+def _create_informative_parent_label_from_tfidf(clusters, span2idx, span2data, span2cluster_label, span_label2user_label=None, \
+                                          label2term_frequency=None, document_frequency=None, domain_stopwords_set=stopwords_set, max_levels=4):
+    if label2term_frequency is None: label2term_frequency = {}
+    if document_frequency is None: document_frequency = {}
+    if span_label2user_label is None: span_label2user_label = {}
+    #we gather info for term_frequency-inverse_document_frequency with respect to each token in each clusters
+    for label, values in clusters.items(): 
+      if label[0] == 0 and label not in span_label2user_label:
         for item in values:
           if span in span2idx:
-            span = tmp_span2batch[span]
-            text = span['tokenized_text']
-            #we don't want the artificial labels to skew the tf-idf calculations
+            data = span2data[span]
+            text = data['tokenized_text']
+            #we don't want the artificial labels to skew the tfidf calculations
+            #assumes we don't have more than 10 of the same label
             text = text.replace('The Organization','').replace('The_Organization','')
             text = text.replace('The Person','').replace('The_Person','')
             text = text.replace('The Facility','').replace('The_Facility','')
@@ -198,7 +207,8 @@ def _create_informative_parent_label_from_tfidf(clusters, span2idx, tmp_span2bat
             text = text.replace('The Law','').replace('The_Law','')
             text = text.replace('The Amount','').replace('The_Amount','')
             text = text.replace('The Event','').replace('The_Event','')
-            #we add back the entities we had replaced with the artificial labels into the tf-idf calculations
+            
+            #we add back the entities we had replaced with the artificial labels into the term_frequency-inverse_document_frequency calculations
             ents =  list(itertools.chain(*[[a[0].replace(" ", "_")]*a[-1] for a in span['ents']]))
             if span['offset'] == 0:
               if "||" in text:
@@ -212,20 +222,18 @@ def _create_informative_parent_label_from_tfidf(clusters, span2idx, tmp_span2bat
             len_text = len(text)
             text = [a for a in text if len(a) > 1 and ("_" not in a or (a.count("_")+1 != len([b for b in a.lower().split("_") if  b in domain_stopwords_set])))  and a.lower() not in domain_stopwords_set and a[0].lower() in "abcdefghijklmnopqrstuvwxyz"]
             cnts = Counter(text)
-            aHash = label2tf[label] =  label2tf.get(label, {})
+            aHash = label2term_frequency[label] =  label2term_frequency.get(label, {})
             for token, cnt in cnts.items():
               aHash[token] = cnt/len_text
             for token in cnts.keys():
-              df[token] = df.get(token,0) + 1
+              document_frequency[token] = document_frequency.get(token,0) + 1
       
-    #Now, acually create a new label from the tfidf of the tokens in this cluster
-    #TODO, see how we might save away the tf-idf info as features, then we would need to recompute the tfidf if new items are added to cluster
-    label2label = {}
-    for label, tf in label2tf.items():
-      if label.startswith(batch_id_prefix):
-        tfidf = copy.copy(tf)    
+    #Now, acually create the new label from the tfidf of the tokens in this cluster
+    #TODO, see how we might save away the tfidf or get the tfidf from the bm25 indexer. 
+    for label, term_frequency in label2term_frequency.items():
+        tfidf = copy.copy(term_frequency)    
         for token in list(tfidf.keys()):
-          tfidf[token]  = tfidf[token] * min(1.5, self.tokenizer.token2weight.get(token, 1)) * math.log(1.0/(1+df[token]))
+          tfidf[token]  = tfidf[token] * min(1.5, tokenizer.token2weight.get(token, 1)) * math.log(1.0/(1+document_frequency[token]))
         top_tokens2 = [a[0].lower().strip("~!@#$%^&*()<>,.:;")  for a in Counter(tfidf).most_common(min(len(tfidf), 40))]
         top_tokens2 = [a for a in top_tokens2 if a not in domain_stopwords_set and ("_" not in a or (a.count("_")+1 != len([b for b in a.split("_") if  b in domain_stopwords_set])))]
         top_tokens = []
@@ -234,36 +242,28 @@ def _create_informative_parent_label_from_tfidf(clusters, span2idx, tmp_span2bat
             top_tokens.append(t)
         if top_tokens:
           if len(top_tokens) > 5: top_tokens = top_tokens[:5]
-          label2 = ", ".join(top_tokens) 
-          label2label[label] = label2
+          new_label = ", ".join(top_tokens) 
+          span_label2user_label[label] = new_label
           
-    #swap out the labels
-    for old_label, new_label in label2label.items():
-      if new_label != old_label:
-        if old_label in tmp_clusters:
-          a_cluster = tmp_span2batch[old_label]
-          for item in a_cluster:
-            span2cluster_label[item] = new_label
-        label2tf[new_label] =  copy.copy(label2tf.get(old_label, {}))
-        del label2tf[old_label] 
-    for label, values in tmp_clusters.items():          
-      spans = [span for span in values if span in span2idx]
-      for span in spans:
-        tmp_span2batch[span]['cluster_label'] = label
-        
-    # add before and after label as additional features
-    prior_b = None
-    for b in batch:
-      if prior_b is not None:
-        b['cluster_label_before'] = prior_b['cluster_label']
-        prior_b['cluster_label_after'] = b['cluster_label']
-      prior_b = b
+    #create parent labels
+    for old_label, new_label in span_label2user_label.items():
+      for parent_old_label in [(level, old_label[1]) for level in range(1, max_levels)]:
+        if parent_old_label clusters:
+          span_label2user_label[parent_old_label]= ("¶"*parent_old_label[0])+new_label
       
-    return batch, label2tf, df
+    return span_label2user_label, label2term_frequency, document_frequency
   
 class RiverbedPreprocessor:
-       pass
   
+  def process(self, *args, **kwargs):
+    raise NotImplementedError
+    
+  def index(self, *args, **kwargs):
+    raise NotImplementedError
+  
+  def serialize(self, *args, **kwargs):
+    raise NotImplementedError  
+    
 #################################################################################
 # SPAN AND DOCUMENT PROCESSOR
 # includes labeling of spans of text with different features, including clustering
@@ -281,7 +281,7 @@ class SpansPeprocessor(RiverbedPreprocessor):
   #TODO: other potential features include similarity of embedding from its cluster centroid
   #compound words %
   #stopwords %
-  #tf-idf weight
+  #term_frequency-inverse_document_frequency weight
   
   default_span_level_feature_extractors = [
       ('perplexity', .5, 1.5, lambda self, span: 0.0 if self.riverbed_model is None else self.riverbed_model.get_perplexity(span['tokenized_text'])),
@@ -306,43 +306,26 @@ class SpansPeprocessor(RiverbedPreprocessor):
                 text_span_size=1000, kmeans_batch_size=50000, epoch = 10, \
                 embed_batch_size=7000, min_prev_ids=10000, embedder="minilm", \
                 max_ontology_depth=4, max_top_parents=10000, do_ontology=True, \
-                running_features_per_label={}, ner_to_simplify=(), span_level_feature_extractors=default_span_level_feature_extractors, \
-                running_features_size=100, label2tf=None, df=None, domain_stopwords_set=stopwords_set,\
+                running_features_per_label={}, ner_to_generalize=(), span_level_feature_extractors=default_span_level_feature_extractors, \
+                running_features_size=100, label2term_frequency=None, document_frequency=None, domain_stopwords_set=stopwords_set,\
                 verbose_snrokel=False,  span_per_cluster=10, use_synonym_replacement=False, ):
     self.idx = start_idx
     self.search_field = search_field
 
-  # gets in a lines iterator and outputs subsequent dict iterator
-  def process(self, lines_iterator, *kwargs):
-    for line in lines_iterator:
-      l =  _get_content_from_line(line, self.search_field)
-      if not l: 
-        yield None
-        continue
-      try:
-        line = line.decode()
-      except:
-        pass
-      offset = 0
-      for l2 in l.split("\\n"):
-        offset = line.index(l2, offset)
-        yield {'idx': self.idx, 'offset': offset, 'text': l2}
-      self.idx += 1
-      
+
   def tokenize(self, *args, **kwargs):
     return self.tokenizer.tokenize(*args, **kwargs)
 
-  
-  #transform a doc batch into a span batch, breaking up doc into spans
+  #transform a doc into a span batch, breaking up doc into spans
   #all spans/leaf nodes of a cluster are stored as a triple of (file_name, lineno, offset)
-  def _create_spans_batch(self, curr_file_size, batch, text_span_size=1000, ner_to_simplify=(), use_synonym_replacement=False):
+  def _create_spans_batch(self, curr_file_size, doc, text_span_size=1000, ner_to_generalize=(), use_synonym_replacement=False):
       batch2 = []
-      for idx, span in enumerate(batch):
-        file_name, curr_lineno, ents, text  = span['file_name'], span['lineno'], span['ents'], span['text']
+      if True:
+        file_name, curr_lineno, ents, text  = doc['file_name'], doc['lineno'], doc['ents'], doc['text']
         for idx, ent in enumerate(ents):
           text = text.replace(ent[0], f' @#@{idx}@#@ ')
         # we do placeholder replacement tokenize to make ngram tokens underlined, so that we don't split a span in the middle of an ner token or ngram.
-        text  = self.tokenize(text, use_synonym_replacement=False) 
+        text  = self.tokenizer.tokenize(text, use_synonym_replacement=False) 
         len_text = len(text)
         prefix = ""
         if "||" in text:
@@ -352,7 +335,7 @@ class SpansPeprocessor(RiverbedPreprocessor):
         while offset < len_text:
           max_rng  = min(len_text, offset+text_span_size+1)
           if text[max_rng-1] != ' ':
-            # extend for non english periods and other punctuations
+            #TODO: extend for non english periods and other punctuations
             if '. ' in text[max_rng:]:
               max_rng = max_rng + text[max_rng:].index('. ')+1
             elif ' ' in text[max_rng:]:
@@ -363,7 +346,7 @@ class SpansPeprocessor(RiverbedPreprocessor):
             text2 = prefix +" || ... " + text[offset:max_rng].strip().replace("_", " ").replace("  ", " ").replace("  ", " ")
           else:
             text2 = text[offset:max_rng].strip().replace("_", " ").replace("  ", " ").replace("  ", " ")
-          text2, tokenized_text, ents2 = self._simplify_text(text2, ents, ner_to_simplify, use_synonym_replacement=use_synonym_replacement) 
+          tokenized_text, ents2 = _generalize_text_and_filter_ents(self.tokenizer, tokenized_text2, ents, ner_to_generalize, use_synonym_replacement=use_synonym_replacement) 
           if prefix and offset > 0:
             _, text2 = text2.split(" || ... ", 1)
           sub_span = copy.deepcopy(span)
@@ -376,11 +359,9 @@ class SpansPeprocessor(RiverbedPreprocessor):
           offset = max_rng
 
       return batch2
+    
 
-  def _create_cluster_for_spans(self, true_k, batch_id_prefix, spans, cluster_vecs, tmp_clusters, span2cluster_label,  idxs, \
-                                span_per_cluster=20, kmeans_batch_size=1024, ):
-   # pass
-
+  
   def _create_span_features(self, batch, span_level_feature_extractors, running_features_per_label, running_features_size):
     feature_labels = []
     features = []
@@ -450,7 +431,7 @@ class SpansPeprocessor(RiverbedPreprocessor):
     return batch
   
   #TODO: add inverse cluster size as a feature.
-  #     - cosine distance to nearest neighbor cluster head
+  #      cosine distance to nearest neighbor cluster head
 
   # similar to _create_token_embeds_and_synonyms, except for spans     
   #(1) compute features and embeddings in one batch for tokenized text.
@@ -458,104 +439,39 @@ class SpansPeprocessor(RiverbedPreprocessor):
   #all leaf nodes are spans
   #spanf2idx is a mapping from the span to the actual underlying storage idx (e.g., a jsonl file or database)
   #span2cluster_label is like the synonym data-structure for tokens.
-  def index(self):
-    
+
   def _create_span_embeds_and_span2cluster_label(self):
-    
-    #transform a doc batch into a span batch, breaking up doc into spans
-    batch = self._create_spans_batch(curr_file_size, batch, text_span_size=text_span_size, ner_to_simplify=ner_to_simplify, use_synonym_replacement=use_synonym_replacement)
-    
-    #create features, assuming linear spans.
-    batch = self._create_span_features(batch, span_level_feature_extractors, running_features_per_label, running_features_size)
-    
-    #add the current back to the span2idx data structure
-    start_idx_for_curr_batch = len(span2idx)
-    tmp_span2batch = {}
-    tmp_idx2span = {}
-    tmp_batch_idx_in_span2cluster = []
-    tmp_batch_idx_not_in_span2cluster = []
-    for b in retained_batch + batch :
-      span = (b['file_name'], b['lineno'], b['offset'])
-      tmp_span2batch[span] = b
-      if span not in span2idx:
-        b['idx']= span2idx[span] = len(span2idx)
-      else:
-        b['idx']= span2idx[span]
-      if b['idx'] in span2cluster_label:
-        tmp_batch_idx_in_span2cluster.append(b['idx'])
-      else:
-        tmp_batch_idx_not_in_span2cluster.append(b['idx'])
-      tmp_idx2span[b['idx']] = span
+    pass
+  
+    # gets in a lines iterator and outputs subsequent dict generator
+  def process(self, lines_iterator, *args, **kwargs):
+    for line in lines_iterator:
+      doc =  _get_content_from_line(line, self.search_field)
+      if not l: 
+        yield None
+        continue
+      try:
+        line = line.decode()
+      except:
+        pass
+      offset = 0
+      for data in self._create_spans_batch(curr_file_size, doc, text_span_size=kwargs.get('text_span_size',1000), \
+                                           ner_to_generalize=kwargs.get('ner_to_generalize', ()),0\
+                                           use_synonym_replacement=kwargs.get('use_synonym_replacement', False)):
+        yield data
+      self.idx += 1
       
-    if embedder == "clip":
-      embed_dim = clip_model.config.text_config.hidden_size
-    elif embedder == "minilm":
-      embed_dim = minilm_model.config.hidden_size
-    elif embedder == "labse":
-      embed_dim = labse_model.config.hidden_size
-    cluster_vecs = np_memmap(f"{project_name}/{project_name}.{embedder}_spans", shape=[len(span2idx), embed_dim])
-
-    for rng in range(0, len(batch), embed_batch_size):
-      max_rng = min(len(batch), rng+embed_batch_size)
-      if embedder == "clip":
-        toks = clip_processor([a['tokenized_text'].replace("_", " ") for a in batch[rng:max_rng]], padding=True, truncation=True, return_tensors="pt").to(device)
-        with torch.no_grad():
-          cluster_vecs = clip_model.get_text_features(**toks).cpu().numpy()
-      elif embedder == "minilm":
-        toks = minilm_tokenizer([a['tokenized_text'].replace("_", " ") for a in batch[rng:max_rng]], padding=True, truncation=True, return_tensors="pt").to(device)
-        with torch.no_grad():
-          cluster_vecs = minilm_model(**toks)
-          cluster_vecs = mean_pooling(cluster_vecs, toks.attention_mask).cpu().numpy()
-      elif embedder == "labse":
-        toks = labse_tokenizer([a['tokenized_text'].replace("_", " ") for a in batch[rng:max_rng]], padding=True, truncation=True, return_tensors="pt").to(device)
-        with torch.no_grad():
-          cluster_vecs = labse_model(**toks).pooler_output.cpu().numpy()  
-      cluster_vecs = np_memmap(f"{project_name}/{project_name}.{embedder}_spans", shape=[len(span2idx), embed_dim],  dat=cluster_vecs, idxs=range(len(span2idx)-len(batch)+rng, len(span2idx)-len(batch)+max_rng))  
-    
-    len_batch = len(tmp_batch_idx_not_in_span2cluster)
-    for rng in range(0, len_batch, int(kmeans_batch_size*.7)):
-        max_rng = min(len_batch, rng+int(kmeans_batch_size*.7))
-        if rng > 0:
-          prev_ids = [idx for idx in tmp_batch_idx_not_in_span2cluster[:rng] if tmp_idx2span[idx] not in span2cluster_label]
-          tmp_batch_idx_in_span2cluster.extend( [idx for idx in tmp_batch_idx_not_in_span2cluster[:rng] if tmp_idx2span[idx] in span2cluster_label])
-          tmp_batch_idx_in_span2cluster = list(set(tmp_batch_idx_in_span2cluster))
-          if len(prev_ids) > kmeans_batch_size*.3: prev_ids.extend(random.sample(range(0, rng), (kmeans_batch_size*.3)-len(prev_ids)))
-          #TODO: add some more stuff from tmp_batch_idx_in_span2cluster
-        else:
-          prev_ids = []
-        idxs = prev_ids + [tmp_batch_idx_not_in_span2cluster[idx] for idx in range(rng, max_rng)]
-        print (len(idxs))
-        true_k=int((len(idxs)/span_per_cluster))
-        spans2 = [tmp_idx2span[idx] or idx in idxs]
-        tmp_clusters, span2cluster_label = self._create_cluster_for_spans(true_k, batch_id_prefix, spans2, cluster_vecs, tmp_clusters, idxs, span2cluster_label, span_per_cluster=span_per_cluster, domain_stopwords_set=domain_stopwords_set)
-        # TODO: recluster
-    
-    # TODO: create_span_ontology
-                   
-    # create more informative labels                   
-    batch, label2tf, df = self._create_informative_label_and_tfidf(batch, batch_id_prefix, tmp_clusters, span2idx, tmp_span2batch, span2cluster_label, label2tf, df)
-    
-    # all labeling and feature extraction is complete, and the batch has all the info. now save away the batch
-    for b in batch:
-      if b['idx'] >= start_idx_for_curr_batch:
-        jsonl_file.write(json.dumps(b)+"\n")
-        #TODO, replace with a datastore abstraction, such as sqlite
-    
-    # add stuff to the retained batches
-                   
-    return retained_batch, span2idx, span2cluster_label, label2tf, df   
-
   # the main method for processing documents and their spans. 
   def index(self):
     global clip_model, minilm_model, labse_model
     model = self.model
     tokenizer = self.tokenizer
-    searcher = self.searcher = SearcherIdx(f"{project_name}.jsonl")
+    searcher = self.searcher.switch_search_context(f"{project_name}.jsonl")
     os.system(f"mkdir -p {project_name}.jsonl_idx")
     span2idx = self.span2idx = OrderedDict() if not hasattr(self, 'span2idx') else self.span2idx
     span_clusters = self.span_clusters = {} if not hasattr(self, 'span_clusters') else self.span_clusters
-    label2tf = self.label2tf = {} if not hasattr(self, 'label2tf') else self.label2tf
-    df = self.df = {} if not hasattr(self, 'df') else self.df
+    label2term_frequency = self.label2term_frequency = {} if not hasattr(self, 'label2term_frequency') else self.label2term_frequency
+    document_frequency = self.document_frequency = {} if not hasattr(self, 'document_frequency') else self.document_frequency
     span2cluster_label = self.span2cluster_label = {} if not hasattr(self, 'span2cluster_label') else self.span2cluster_label
     label_models = self.label_models = {} if not hasattr(self, 'label_models') else self.label_models
     if (not hasattr(model, 'kenlm_model') or model.kenlm_model is not None) and auto_create_tokenizer_and_model:
@@ -596,7 +512,7 @@ class SpansPeprocessor(RiverbedPreprocessor):
 
     if seen is None: seen = {}
     
-    with open(f"{project_name}.jsonl", "w", encoding="utf8") as jsonl_file:
+    with open(f"{project_name}.jsonl", "w", encoding="uterm_frequency8") as jsonl_file:
       while True:
         try:
           line = f.readline()
@@ -667,12 +583,12 @@ class SpansPeprocessor(RiverbedPreprocessor):
         # process the batches
         if len(batch) >= features_batch_size:
           batch_id_prefix += 1
-          retained_batch, span2idx, span2cluster_label, label2tf, df = self._create_span_embeds_and_span2cluster_label(project_name, curr_file_size, jsonl_file_idx, span2idx, batch, \
+          retained_batch, span2idx, span2cluster_label, label2term_frequency, document_frequency = self._create_span_embeds_and_span2cluster_label(project_name, curr_file_size, jsonl_file_idx, span2idx, batch, \
                                                       retained_batch, jsonl_file,  f"{batch_id_prefix}_", span_lfs,  span2cluster_label, text_span_size, \
                                                       kmeans_batch_size=kmeans_batch_size, epoch = epoch, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, \
                                                       max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents, do_ontology=True, embedder=embedder, \
-                                                      running_features_per_label=running_features_per_label, ner_to_simplify=ner_to_simplify, span_level_feature_extractors=span_level_feature_extractors, \
-                                                      running_features_size=running_features_size, label2tf=label2tf, df=df, domain_stopwords_set=domain_stopwords_set, \
+                                                      running_features_per_label=running_features_per_label, ner_to_generalize=ner_to_generalize, span_level_feature_extractors=span_level_feature_extractors, \
+                                                      running_features_size=running_features_size, label2term_frequency=label2term_frequency, document_frequency=document_frequency, domain_stopwords_set=domain_stopwords_set, \
                                                       verbose_snrokel=verbose_snrokel,  span_per_cluster=span_per_cluster, use_synonym_replacement=use_synonym_replacement, )  
           batch = []
       
@@ -691,17 +607,17 @@ class SpansPeprocessor(RiverbedPreprocessor):
           curr_position = position
       if batch: 
           batch_id_prefix += 1
-          retained_batch, span2idx, span2cluster_label, label2tf, df = self._create_span_embeds_and_span2cluster_label(project_name, curr_file_size, jsonl_file_idx, spanf2idx, batch, \
+          retained_batch, span2idx, span2cluster_label, label2term_frequency, document_frequency = self._create_span_embeds_and_span2cluster_label(project_name, curr_file_size, jsonl_file_idx, spanf2idx, batch, \
                                                       retained_batch, jsonl_file,  f"{batch_id_prefix}_", span_lfs,  span2cluster_label, text_span_size, \
                                                       kmeans_batch_size=kmeans_batch_size, epoch = epoch, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids,  \
                                                       max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents, do_ontology=True, embedder=embedder,\
-                                                      running_features_per_label=running_features_per_label, ner_to_simplify=ner_to_simplify, span_level_feature_extractors=span_level_feature_extractors, \
-                                                      running_features_size=running_features_size, label2tf=label2tf, df=df, domain_stopwords_set=domain_stopwords_set, \
+                                                      running_features_per_label=running_features_per_label, ner_to_generalize=ner_to_generalize, span_level_feature_extractors=span_level_feature_extractors, \
+                                                      running_features_size=running_features_size, label2term_frequency=label2term_frequency, document_frequency=document_frequency, domain_stopwords_set=domain_stopwords_set, \
                                                       verbose_snrokel=verbose_snrokel)  
           batch = []
           
-    span2idx, span_clusters, label2tf, df, span2cluster_label, label_models = self.span2idx, self.span_clusters, self.label2tf, self.df, self.span2cluster_label, self.label_models                    
-    self.searcher = Searcher(f"{project_name}.jsonl", search_field="tokenized_text", bm25_field="text", embedder="minilm", \
+    span2idx, span_clusters, label2term_frequency, document_frequency, span2cluster_label, label_models = self.span2idx, self.span_clusters, self.label2term_frequency, self.document_frequency, self.span2cluster_label, self.label_models                    
+    self.searcher = searcher.switch_search_context(project_name, data_iterator=data_iterator, search_field="tokenized_text", bm25_field="text", embedder=embedder, \
                              auto_embed_text=True, auto_create_bm25_idx=True, auto_create_embeddings_idx=True)
     return self
 
@@ -724,8 +640,8 @@ class BasicLinePrepocessor(RiverbedPreprocessor):
     self.idx = start_idx
     self.search_field = search_field
 
-  # gets in a lines iterator and outputs subsequent dict iterator
-  def process(self, lines_iterator, *kwargs):
+  # gets in a lines iterator and outputs subsequent dict generator
+  def process(self, lines_iterator, *args, **kwargs):
     for line in lines_iterator:
       l =  _get_content_from_line(line, self.search_field)
       if not l: 
@@ -1019,7 +935,8 @@ class Searcher(nn.Module):
     prototypes = self.prototypes
     del self.prototypes
     self.register_buffer('prototypes', prototypes)
-    
+    return self
+  
   #get the sentence embedding for the sent or batch
   def get_embeddings(self, sent_or_batch):
     return get_embeddings(sent_or_batch, downsampler=self.downsampler, dtype=self.dtype, embedder=self.embedder, \
@@ -1041,11 +958,11 @@ class Searcher(nn.Module):
     ###  
     
     if idxs is not None:
-      dat_iter = [(idx, _get_content_from_line(self.filebyline[idx], search_field)) for idx in idxs]
+      data_iterator = [(idx, _get_content_from_line(self.filebyline[idx], search_field)) for idx in idxs]
     else:
-      dat_iter = fobj_data_reader()  
-    # we can feed the dat_iter = self.search_field_preprocessor(data_iter, **kwargs)
-    self.mmap_len, skip_idxs =  embed_text(dat_iter, self.mmap_file, start_idx=start_idx, downsampler=self.downsampler, \
+      data_iterator = fobj_data_reader()  
+    # we can feed the data_iterator = self.search_field_preprocessor(data_iterator, **kwargs)
+    self.mmap_len, skip_idxs =  embed_text(data_iterator, self.mmap_file, start_idx=start_idx, downsampler=self.downsampler, \
                           mmap_len=self.mmap_len, embed_dim=self.embed_dim, embedder=self.embedder, chunk_size=chunk_size, use_tqdm=use_tqdm, \
                           universal_embed_mode=self.universal_embed_mode, prototypes=self.prototypes, universal_downsampler=self.universal_downsampler)
     setattr(self,f'downsampler_{self.search_field}_{self.embedder}_{self.embed_dim}', self.downsampler)
@@ -1114,15 +1031,15 @@ class Searcher(nn.Module):
       if idxs is not None:
         idx_text_pairs = [(idx, self.filebyline[idx]) for idx in idxs]
         if use_tqdm:
-          dat_iter =  tqdm.tqdm(idx_text_pairs)
+          data_iterator =  tqdm.tqdm(idx_text_pairs)
         else:
-          dat_iter = idx_text_pairs
+          data_iterator = idx_text_pairs
       else:
         if use_tqdm:
-          dat_iter = tqdm.tqdm(enumerate(fobj))
+          data_iterator = tqdm.tqdm(enumerate(fobj))
         else:
-          dat_iter = enumerate(fobj)
-      for idx, l in dat_iter:
+          data_iterator = enumerate(fobj)
+      for idx, l in data_iterator:
           content= _get_content_from_line(l, bm25_field)
           if not content: continue
           writer.add_document(id=str(idx), content=content)  
