@@ -71,7 +71,29 @@ def init_models():
     stopwords_set = set(nltk_stopwords.words('english') + ['...', 'could', 'should', 'shall', 'can', 'might', 'may', 'include', 'including'])
   return  labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
 
+def _get_content_from_line(l, search_field="text"):
+    l =l.decode().replace("\\n", "\n").replace("\\t", "\t").strip()
+    if not l: return ''
+    if l[0] == "{" and l[-1] == "}":
+      content = l.split(search_field+'": "')[1]
+      content = content.split('", "')[0].replace("_", " ")
+    else:
+      content = l.replace("_", " ")
+    return content
 
+def _dateutil_parse_ext(text):
+    try: 
+      int(text.strip())
+      return None
+    except:
+      pass
+    try:
+      ret= dateutil_parse(text.replace("-", " "), fuzzy_with_tokens=True)
+      if type(ret) is tuple: ret = ret[0]
+      return ret.strftime('%x').strip()
+    except:
+      return None
+    
 def np_memmap(f, dat=None, idxs=None, shape=None, dtype=np.float16, ):
   if not f.endswith(".mmap"):
     f = f+".mmap"
