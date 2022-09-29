@@ -687,7 +687,7 @@ class Searcher(nn.Module):
                 setattr(self, field, downsampler.cpu())
       parents = self.parents
       self.parents = None
-      pickle.dump(self, open(f"{filename}_idx/search_index.pickle", "wb"))
+      self = torch.load(open(f"{filename}_idx/search_index.pickle", "wb"))
       self.mmap_file = mmap_file
       self.idx_dir = idx_dir
       self.fobj = fobj
@@ -703,7 +703,7 @@ class Searcher(nn.Module):
   def from_pretrained(filename):
       global device
       idx_dir = f"{filename}_idx"
-      self = pickle.load(open(f"{idx_dir}/search_index.pickle", "rb"))
+      self = torch.load(open(f"{idx_dir}/search_index.pickle", "rb"))
       self.idx_dir = idx_dir
       if os.path.exists(f"{idx_dir}/{self.mmap_file}"):
         self.mmap_file = f"{idx_dir}/{self.mmap_file}"
