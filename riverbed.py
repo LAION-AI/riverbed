@@ -1061,7 +1061,7 @@ class SpansPeprocessor(RiverbedPreprocessor):
       self.idx += 1
       
   # the main method for processing documents and their spans. 
-  def index(self, name_2_content_store_objs):
+  def index(self, content_store_objs):
     global clip_model, minilm_model, labse_model
     model = self.model
     tokenizer = self.tokenizer
@@ -1085,7 +1085,7 @@ class SpansPeprocessor(RiverbedPreprocessor):
 
     if seen is None: seen = {}
     
-    for name, content_store_obj in name_2_content_store_objs.items():
+    for name, curr_file_size, content_store_obj in content_store_objs.items():
       # we will collapse adjacent lines that are short. 
       prior_line = ""
       batch = []
@@ -1100,6 +1100,7 @@ class SpansPeprocessor(RiverbedPreprocessor):
       line = ""
       lineno = -1
       curr_lineno = 0
+      seen={}
       for line in content_store_obj:
         line = line.strip() #TODO: read the data from the field
         position = next_position/curr_file_size
@@ -1157,19 +1158,21 @@ class SpansPeprocessor(RiverbedPreprocessor):
                                                       verbose_snrokel=verbose_snrokel,  span_per_cluster=span_per_cluster, use_synonym_replacement=use_synonym_replacement, )  
           batch = []
       
-      # do one last batch and finish processing if there's anything left
+      # do one last line and finish processing if there's anything left
       if curr: 
           curr = curr.replace(". .", ". ").replace("..", ".").replace(":.", ".")
           hash_id = hash(curr)
           if not dedup or (hash_id not in seen):
-            curr_ents = list(itertools.chain(*[[(e.text, e.label_)] if '||' not in e.text else [(e.text.split("||")[0].strip(), e.label_), (e.text.split("||")[-1].strip(), e.label_)] for e in spacy_nlp(curr).ents]))
-            curr_ents = list(set([e for e in curr_ents if e[0]]))
-            curr_ents.sort(key=lambda a: len(a[0]), reverse=True)
-            batch.append({'name': name, 'lineno': curr_lineno, 'text': curr, 'ents': curr_ents, 'position':curr_position})
-            seen[hash_id] = 1
-          curr = ""
-          curr_lineno = 0
-          curr_position = position
+              curr_ents = list(itertools.chain(*[[(e.text, e.label_)] if '||' not in e.text else [(e.text.split("||")[0].strip(), e.label_), (e.text.split("||")[-1].strip(), e.label_)] for e in spacy_nlp(curr).ents]))
+              curr_ents = list(set([e for e in curr_ents if e[0]]))
+              curr_ents.sort(key=lambda a: len(a[0]), reverse=True)
+              for item in self._create_spans_batch(curr_file_size, {'text': curr, 'ents': curr_ents, }, text_span_size=text_span_size, ner_to_generalize=ner_to_generalize, use_synonym_replacement=use_synonym_replacement)
+                item['name'] =name
+                item['lineno'] = curr_lineno
+                item['position'] = curr_position
+                batch.append(item)
+          
+      #do the last bactch    
       if batch: 
           batch_id_prefix += 1
           retained_batch, span2idx, span2cluster_label, label2term_frequency, document_frequency = self._create_span_embeds_and_span2cluster_label(project_name, curr_file_size, jsonl_file_idx, spanf2idx, batch, \
@@ -1180,29 +1183,10 @@ class SpansPeprocessor(RiverbedPreprocessor):
                                                       running_features_size=running_features_size, label2term_frequency=label2term_frequency, document_frequency=document_frequency, domain_stopwords_set=domain_stopwords_set, \
                                                       verbose_snrokel=verbose_snrokel)  
           batch = []
-      #clean up data for this particular content_data_store    
-      if True:
-          #print ("reading next")
-          if curr: 
-            hash_id = hash(curr)
-            if not dedup or (hash_id not in seen):
-                curr_ents = list(itertools.chain(*[[(e.text, e.label_)] if '||' not in e.text else [(e.text.split("||")[0].strip(), e.label_), (e.text.split("||")[-1].strip(), e.label_)] for e in spacy_nlp(curr).ents]))
-                curr_ents = list(set([e for e in curr_ents if e[0]]))
-                curr_ents.sort(key=lambda a: len(a[0]), reverse=True)
-                batch.append({'name': name, 'lineno': curr_lineno, 'text': curr, 'ents': curr_ents, 'position':curr_position})
-                seen[hash_id] = 1
-          prior_line = ""
-          curr = ""
-          if not files: break
-          name = files.pop()
-          f = open(name)
-          l = f.readline()
-          lineno = 0
-          curr_lineno = 0
-          curr_date = ""
-          curr_position = 0
-          curr_file_size = os.path.getsize(name)
-          position = 0    
+          
+      
+      
+          
     span2idx, span_clusters, label2term_frequency, document_frequency, span2cluster_label, label_models = self.span2idx, self.span_clusters, self.label2term_frequency, self.document_frequency, self.span2cluster_label, self.label_models                    
     self.searcher = searcher.switch_search_context(project_name, data_iterator=data_iterator, search_field="tokenized_text", bm25_field="text", embedder=embedder, \
                              auto_embed_text=True, auto_create_bm25_idx=True, auto_create_embeddings_idx=True)
