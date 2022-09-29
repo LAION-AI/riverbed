@@ -29,7 +29,6 @@
 import math, os
 import copy
 from sklearn.cluster import MiniBatchKMeans
-from sklearn.cluster import AgglomerativeClustering
 from time import time
 import numpy as np
 from collections import Counter
@@ -82,7 +81,10 @@ class RiverbedTokenizer:
     self.compound = None
     self.synonyms = None
     self.token2weight = None
-
+  
+  def idx2token(self):
+    return list (self.tokenweight.items())
+  
   def token2idx(self):
     return OrderedDict([(term, idx) for idx, term in enumerate(self.tokenweight.items())])
     
