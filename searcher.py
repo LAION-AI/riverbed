@@ -19,7 +19,6 @@ import threading
 import io
 import os
 import copy
-from numpy.core.fromnumeric import nonzero
 from whoosh.analysis import StemmingAnalyzer
 from whoosh.index import create_in
 from whoosh.fields import *
@@ -54,11 +53,7 @@ try:
 except:
    labse_tokenizer= labse_model=  clip_processor = minilm_tokenizer= clip_model= minilm_model= spacy_nlp= stopwords_set = None
 
-           
-class Searcher(nn.Module):
-  #TODO. Change this to inherit from a transformers.PretrainedModel.
-  @staticmethod
-  def _get_content_from_line(l, search_field="text"):
+def _get_content_from_line(l, search_field="text"):
     l =l.decode().replace("\\n", "\n").replace("\\t", "\t").strip()
     if not l: return ''
     if l[0] == "{" and l[-1] == "}":
@@ -68,6 +63,21 @@ class Searcher(nn.Module):
       content = l.replace("_", " ")
     return content
 
+class BasicLineProcessor:
+  def __init__(self, start_idx = 0, search_field="text"):
+    self.idx = start_idx
+    self.search_field = search_field
+
+  # gets in a lines iterator and outputs subsequent dict iterator
+  def process(self, lines_iterator):
+    for l in lines_iterator:
+      for l2 in l.split("\\n"):
+        yield {'idx': self.idx, 'text': _get_content_from_line(l2, self.search_field)}
+        self.idx += 1
+
+#TODO. Change this to inherit from a transformers.PretrainedModel.
+class Searcher(nn.Module):
+  
   def __init__(self,  filename, fobj=None, mmap_file=None, mmap_len=0, embed_dim=25, dtype=np.float16, \
                parents=None, parent_levels=None, parent_labels=None, skip_idxs=None, \
                parent2idx=None, top_parents=None, top_parent_idxs=None, clusters=None,  embedder="minilm", chunk_size=1000, \
@@ -76,7 +86,7 @@ class Searcher(nn.Module):
                span2cluster_label=None, idxs=None, max_level=4, max_cluster_size=200, \
                min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000, \
                universal_embed_mode = None, prototype_sentences=None,  prototypes=None, universal_downsampler =None, min_num_prorotypes=50000, \
-               use_tqdm=True
+               use_tqdm=True, search_field_processor=None, bm25_field_processor=None
               ):
     """
         Cluster indexes and performs approximate nearest neighbor search on a memmap file. 
@@ -124,6 +134,8 @@ class Searcher(nn.Module):
         :arg min_num_prorotypes Optional. Will control the number of prototypes.
         :arg universal_downsampler Optional. The pythorch downsampler for mapping the output described above to a lower dimension that works across embedders
                                   and concept drift in the same embedder. maps from # of prototypes -> embed_dim. 
+        :arg search_field_processor:    Optional. If not set, then the BasicLineProcessor will be used.
+        :arg bm25_field_processor:      Optional. If not set, then the BasicLineProcessor will be used.
         
       NOTE: Either pass in the parents, parent_levels, parent_labels, and parent2idx data is pased or clusters is passed. 
           If none of these are passed and auto_create_embeddings_idx is set, then the data in the mmap file will be clustered and the 
@@ -141,7 +153,13 @@ class Searcher(nn.Module):
     global device
     global  labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
     super().__init__()
-    self.embedder = embedder
+    if search_field_processor is None: search_field_processor = BasicLineProcessor(search_field=search_field)
+    if bm25_field_processor is None: 
+       if bm25_field is None:
+          bm25_field_processor = search_field_processor
+        else:
+          bm25_field_processor = = BasicLineProcessor(search_field=bm25_field_processor)
+    self.embedder, self.search_field_processor, self.bm25_field_processor = embedder, search_field_processor, bm25_field_processor
     assert filename is not None
     self.idx_dir = f"{filename}_idx"
     if mmap_file is None:
@@ -205,17 +223,17 @@ class Searcher(nn.Module):
     if universal_embed_mode:
       assert (prototypes is None and prototype_sentences is None and universal_downsampler is None) or universal_embed_mode == "assigned"
       if universal_embed_mode == "random":
-        prototype_sentences = [self._get_content_from_line(self.filebyline[i], search_field) for i in random.sample(list(range(len(self.filebyline)), min_num_prorotypes))]
+        prototype_sentences = [_get_content_from_line(self.filebyline[i], search_field) for i in random.sample(list(range(len(self.filebyline)), min_num_prorotypes))]
       elif universal_embed_mode == "cluster":
         level_0_parents = [span[1] for span in self.parent2idx.keys() if span[0] == 0]
-        prototype_sentences = [self._get_content_from_line(self.filebyline[span[1]], search_field) for span in level_0_parents]
+        prototype_sentences = [_get_content_from_line(self.filebyline[span[1]], search_field) for span in level_0_parents]
       assert prototype_sentences
       if len(prototype_senences) > min_num_prorotypes:
          assert universal_embed_mode != "assigned"
          prototype_senences = random.sample(prototype_senences,min_num_prorotypes)
       elif len(prototype_senences) < min_num_prorotypes:
          assert universal_embed_mode != "assigned"
-         prototype_sentences.extend([self._get_content_from_line(self.filebyline[i], search_field) for i in random.sample(list(range(len(self.filebyline)), min_num_prorotypes-len(prorotype_senences)))])
+         prototype_sentences.extend([_get_content_from_line(self.filebyline[i], search_field) for i in random.sample(list(range(len(self.filebyline)), min_num_prorotypes-len(prorotype_senences)))])
       prototypes = self.get_embeddings(prototype_sentences)
       universal_downsampler = nn.Linear(len(prototype_sentences), embed_dim, bias=False)
       self.prototype_sentences,  self.prototypes, self.universal_downsampler = prototype_sentences,  prototypes, universal_downsampler
@@ -351,11 +369,11 @@ class Searcher(nn.Module):
       pos = fobj.tell()
       fobj.seek(0, 0)
       for l in fobj:
-        yield self._get_content_from_line(l, search_field)
+        yield _get_content_from_line(l, search_field)
       fobj.seek(pos,0)
     ###  
     if idxs is not None:
-      dat_iter = [(idx, self._get_content_from_line(self.filebyline[idx], search_field)) for idx in idxs]
+      dat_iter = [(idx, _get_content_from_line(self.filebyline[idx], search_field)) for idx in idxs]
     else:
       dat_iter = fobj_data_reader()  
     self.mmap_len, skip_idxs =  embed_text(dat_iter, self.mmap_file, start_idx=start_idx, downsampler=self.downsampler, \
@@ -436,7 +454,7 @@ class Searcher(nn.Module):
         else:
           dat_iter = enumerate(fobj)
       for idx, l in dat_iter:
-          content= self._get_content_from_line(l, bm25_field)
+          content= _get_content_from_line(l, bm25_field)
           if not content: continue
           writer.add_document(id=str(idx), content=content)  
       writer.commit()
