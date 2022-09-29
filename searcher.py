@@ -63,7 +63,7 @@ def _get_content_from_line(l, search_field="text"):
       content = l.replace("_", " ")
     return content
 
-class BasicLineProcessor:
+class BasicLinePrepocessor:
   def __init__(self, start_idx = 0, search_field="text"):
     self.idx = start_idx
     self.search_field = search_field
@@ -96,8 +96,9 @@ class Searcher(nn.Module):
                span2cluster_label=None, idxs=None, max_level=4, max_cluster_size=200, \
                min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000, \
                universal_embed_mode = None, prototype_sentences=None,  prototypes=None, universal_downsampler =None, min_num_prorotypes=50000, \
-               use_tqdm=True, search_field_processor=None, bm25_field_processor=None
+               use_tqdm=True, search_field_preprocessor=None, bm25_field_preprocessor=None
               ):
+    #TODO, add a vector_preprocessor. Given a batch of sentences, and an embedding, create additional embeddings corresponding to the batch. 
     """
         Cluster indexes and performs approximate nearest neighbor search on a memmap file. 
         Also provides a wrapper for Whoosh BM25.
@@ -144,8 +145,8 @@ class Searcher(nn.Module):
         :arg min_num_prorotypes Optional. Will control the number of prototypes.
         :arg universal_downsampler Optional. The pythorch downsampler for mapping the output described above to a lower dimension that works across embedders
                                   and concept drift in the same embedder. maps from # of prototypes -> embed_dim. 
-        :arg search_field_processor:    Optional. If not set, then the BasicLineProcessor will be used.
-        :arg bm25_field_processor:      Optional. If not set, then the BasicLineProcessor will be used.
+        :arg search_field_preprocessor:    Optional. If not set, then the BasicLineProcessor will be used.
+        :arg bm25_field_preprocessor:      Optional. If not set, then the BasicLineProcessor will be used.
         
       NOTE: Either pass in the parents, parent_levels, parent_labels, and parent2idx data is pased or clusters is passed. 
           If none of these are passed and auto_create_embeddings_idx is set, then the data in the mmap file will be clustered and the 
@@ -163,13 +164,13 @@ class Searcher(nn.Module):
     global device
     global  labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
     super().__init__()
-    if search_field_processor is None: search_field_processor = BasicLineProcessor(search_field=search_field)
-    if bm25_field_processor is None: 
+    if search_field_preprocessor is None: search_field_preprocessor = BasicLineProcessor(search_field=search_field)
+    if bm25_field_preprocessor is None: 
        if bm25_field is None:
-          bm25_field_processor = search_field_processor
+          bm25_field_preprocessor = search_field_preprocessor
         else:
-          bm25_field_processor = = BasicLineProcessor(search_field=bm25_field_processor)
-    self.embedder, self.search_field_processor, self.bm25_field_processor = embedder, search_field_processor, bm25_field_processor
+          bm25_field_preprocessor = = BasicLinePreprocessor(search_field=bm25_field_preprocessor)
+    self.embedder, self.search_field_preprocessor, self.bm25_field_preprocessor = embedder, search_field_preprocessor, bm25_field_preprocessor
     assert filename is not None
     self.idx_dir = f"{filename}_idx"
     if mmap_file is None:
@@ -387,7 +388,7 @@ class Searcher(nn.Module):
       dat_iter = [(idx, _get_content_from_line(self.filebyline[idx], search_field)) for idx in idxs]
     else:
       dat_iter = fobj_data_reader()  
-    # we can feed the dat_iter = self.search_field_processor(data_iter, **kwargs)
+    # we can feed the dat_iter = self.search_field_preprocessor(data_iter, **kwargs)
     self.mmap_len, skip_idxs =  embed_text(dat_iter, self.mmap_file, start_idx=start_idx, downsampler=self.downsampler, \
                           mmap_len=self.mmap_len, embed_dim=self.embed_dim, embedder=self.embedder, chunk_size=chunk_size, use_tqdm=use_tqdm, \
                           universal_embed_mode=self.universal_embed_mode, prototypes=self.prototypes, universal_downsampler=self.universal_downsampler)
