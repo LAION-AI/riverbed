@@ -687,7 +687,7 @@ class Searcher(nn.Module):
                 setattr(self, field, downsampler.cpu())
       parents = self.parents
       self.parents = None
-      self = torch.load(open(f"{filename}_idx/search_index.pickle", "wb"))
+      torch.save(self, open(f"{filename}_idx/search_index.pickle", "wb"))
       self.mmap_file = mmap_file
       self.idx_dir = idx_dir
       self.fobj = fobj
