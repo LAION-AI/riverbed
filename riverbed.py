@@ -54,6 +54,7 @@ import gzip
 import multiprocessing
 from torch import nn
 from .utils import *
+from .searcher import *
 
 if torch.cuda.is_available():
   device = 'cuda'
@@ -65,23 +66,6 @@ try:
     pass
 except:
    labse_tokenizer= labse_model=  clip_processor = minilm_tokenizer= clip_model= minilm_model= spacy_nlp= stopwords_set = None
-  
-if minilm_model is None:
-  clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")   
-  minilm_tokenizer = AutoTokenizer.from_pretrained('sentence-transformers/all-MiniLM-L6-v2')
-  labse_tokenizer = BertTokenizerFast.from_pretrained("setu4993/smaller-LaBSE")
-
-  if device == 'cuda':
-    clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").half().eval()
-    minilm_model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2').half().eval()
-    labse_model = BertModel.from_pretrained("setu4993/smaller-LaBSE").half().eval()
-  else:
-    clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").eval()
-    minilm_model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2').eval()
-    lbase_model = BertModel.from_pretrained("setu4993/smaller-LaBSE").eval()
-
-  spacy_nlp = spacy.load('en_core_web_md')
-  stopwords_set = set(nltk_stopwords.words('english') + ['...', 'could', 'should', 'shall', 'can', 'might', 'may', 'include', 'including'])
 
 # The Riverbed code includes a RiverbedTokenizer, RiverbedModel and RiverbedDocumenProcessor for information retrieval processing. 
 # The tokenizer stores the stopwords, compound, token2weight and synonyms data structure.
@@ -143,7 +127,38 @@ class RiverbedModel(nn.Module):
    super().__init__()
    global labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set 
    labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set = init_models()
+   self.searcher = Searcher()
+
     
+  # get the downsampled sentence embeddings. can be used to train the downsampler(s).
+  def forward(self, *args, **kwargs):
+    if 'text' in kwargs:
+      text = kwargs['text']
+      # we tokenize using the RiverbedTokenizer to take into account n-grams
+      text = self.tokenizer.tokenize(text) 
+      #we create the downsample sentence embeding with mean of the ngram and the non-ngram 
+      #sentences. 
+      # we assume that at this point we have already increased the embeddings/tokens in the underlying tokenizer
+      # not happy -> no_happy, which is similar to "sad", "angry", "unhappy"
+      #then we tokenize using the embedder tokenizer
+    dat = self.searcher(*args, **kwargs)
+    with torch.no_grad():
+      if self.embedder == "clip":
+        dat = clip_model.get_text_features(*args, **kwargs)
+      elif self.embedder == "minilm":
+        dat = minilm_model(*args, **kwargs)
+        dat = mean_pooling(dat, kwargs['attention_mask'])
+      elif self.embedder == "labse":
+        dat = labse_model(*args, **kwargs).pooler_output   
+    dat = torch.nn.functional.normalize(dat, dim=1)
+    dat = self.downsampler(dat)
+    if self.universal_embed_mode:
+      dat = cosine_similarity(dat, prototypes)
+      dat = torch.nn.functional.normalize(dat, dim=1)
+      dat = self.universal_downsampler(dat)
+    return dat
+  
+
   @staticmethod
   def _pp(log_score, length):
     return float((10.0 ** (-log_score / length)))
