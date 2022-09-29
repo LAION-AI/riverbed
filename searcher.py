@@ -69,11 +69,21 @@ class BasicLineProcessor:
     self.search_field = search_field
 
   # gets in a lines iterator and outputs subsequent dict iterator
-  def process(self, lines_iterator):
-    for l in lines_iterator:
+  def process(self, lines_iterator, *kwargs):
+    for line in lines_iterator:
+      l =  _get_content_from_line(line, self.search_field)
+      if not l: 
+        yield None
+        continue
+      try:
+        line = line.decode()
+      except:
+        pass
+      offset = 0
       for l2 in l.split("\\n"):
-        yield {'idx': self.idx, 'text': _get_content_from_line(l2, self.search_field)}
-        self.idx += 1
+        offset = line.index(l2, offset)
+        yield {'idx': self.idx, 'offset': offset, 'text': l2}
+      self.idx += 1
 
 #TODO. Change this to inherit from a transformers.PretrainedModel.
 class Searcher(nn.Module):
@@ -359,7 +369,7 @@ class Searcher(nn.Module):
                           universal_embed_mode=self.universal_embed_mode, prototypes=self.prototypes, universal_downsampler=self.universal_downsampler)
               
   #embed all of self.fobj or (idx, content) for idx in idxs for the row/content from fobj
-  def embed_text(self, start_idx=None, chunk_size=1000, idxs=None, use_tqdm=True, auto_create_bm25_idx=False):
+  def embed_text(self, start_idx=None, chunk_size=1000, idxs=None, use_tqdm=True, auto_create_bm25_idx=False, **kwargs):
     assert self.fobj is not None
     if start_idx is None: start_idx = 0
     search_field = self.search_field 
@@ -372,10 +382,12 @@ class Searcher(nn.Module):
         yield _get_content_from_line(l, search_field)
       fobj.seek(pos,0)
     ###  
+    
     if idxs is not None:
       dat_iter = [(idx, _get_content_from_line(self.filebyline[idx], search_field)) for idx in idxs]
     else:
       dat_iter = fobj_data_reader()  
+    # we can feed the dat_iter = self.search_field_processor(data_iter, **kwargs)
     self.mmap_len, skip_idxs =  embed_text(dat_iter, self.mmap_file, start_idx=start_idx, downsampler=self.downsampler, \
                           mmap_len=self.mmap_len, embed_dim=self.embed_dim, embedder=self.embedder, chunk_size=chunk_size, use_tqdm=use_tqdm, \
                           universal_embed_mode=self.universal_embed_mode, prototypes=self.prototypes, universal_downsampler=self.universal_downsampler)
