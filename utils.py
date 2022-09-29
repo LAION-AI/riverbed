@@ -71,6 +71,33 @@ def init_models():
     stopwords_set = set(nltk_stopwords.words('english') + ['...', 'could', 'should', 'shall', 'can', 'might', 'may', 'include', 'including'])
   return  labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
 
+def use_model(embedder):
+  if embedder == "clip":
+      clip_model = clip_model.to(device)
+      minilm_model =  minilm_model.cpu()
+      labse_model =  labse_model.cpu()
+  elif embedder == "minilm":
+      clip_model = clip_model.cpu()
+      minilm_model =  minilm_model.to(device)
+      labse_model =  labse_model.cpu()
+  elif embedder == "labse":
+      clip_model = clip_model.cpu()
+      minilm_model =  minilm_model.cpu()
+      labse_model =  labse_model.to(device)
+      
+def apply_model(embedder, sent):  
+  if embedder == "clip":
+      toks = clip_processor(sent, padding=True, truncation=True, return_tensors="pt").to(device)
+      dat = clip_model.get_text_features(**toks)
+  elif embedder == "minilm":
+      toks = minilm_tokenizer(sent, padding=True, truncation=True, return_tensors="pt").to(device)
+      dat = minilm_model(**toks)
+      dat = mean_pooling(dat, toks.attention_mask)
+  elif embedder == "labse":
+      toks = labse_tokenizer(sent, padding=True, truncation=True, return_tensors="pt", max_length=512).to(device)
+      dat = labse_model(**toks).pooler_output   
+  return dat     
+
 def _get_content_from_line(l, search_field="text"):
     l =l.decode().replace("\\n", "\n").replace("\\t", "\t").strip()
     if not l: return ''
@@ -124,29 +151,9 @@ def mean_pooling(model_output, attention_mask):
 def get_embeddings(sent, downsampler, dtype=np.float16, embedder="minilm", universal_embed_mode=None, prototypes=None, universal_downsampler=None):
   global labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
   init_models()
-  if embedder == "clip":
-    clip_model = clip_model.to(device)
-    minilm_model =  minilm_model.cpu()
-    labse_model =  labse_model.cpu()
-  elif embedder == "minilm":
-    clip_model = clip_model.cpu()
-    minilm_model =  minilm_model.to(device)
-    labse_model =  labse_model.cpu()
-  elif embedder == "labse":
-    clip_model = clip_model.cpu()
-    minilm_model =  minilm_model.cpu()
-    labse_model =  labse_model.to(device)
+  use_model(embedder)
   with torch.no_grad():
-    if embedder == "clip":
-      toks = clip_processor(sent, padding=True, truncation=True, return_tensors="pt").to(device)
-      dat = clip_model.get_text_features(**toks)
-    elif embedder == "minilm":
-      toks = minilm_tokenizer(sent, padding=True, truncation=True, return_tensors="pt").to(device)
-      dat = minilm_model(**toks)
-      dat = mean_pooling(dat, toks.attention_mask)
-    elif embedder == "labse":
-      toks = labse_tokenizer(sent, padding=True, truncation=True, return_tensors="pt", max_length=512).to(device)
-      dat = labse_model(**toks).pooler_output   
+    dat = apply_model(embedder, sent)
     dat = torch.nn.functional.normalize(dat, dim=1)
     dat = downsampler(dat)
     if universal_embed_mode:
@@ -170,16 +177,7 @@ def embed_text(dat_iter, mmap_file, start_idx=None, downsampler=None, skip_idxs=
     #a copy of get_embeddings without the overhead of switching models. makes it a bit faster.
     def _get_embeddings(sent):
       with torch.no_grad():
-        if embedder == "clip":
-          toks = clip_processor(sent, padding=True, truncation=True, return_tensors="pt").to(device)
-          dat = clip_model.get_text_features(**toks)
-        elif embedder == "minilm":
-          toks = minilm_tokenizer(sent, padding=True, truncation=True, return_tensors="pt").to(device)
-          dat = minilm_model(**toks)
-          dat = mean_pooling(dat, toks.attention_mask)
-        elif embedder == "labse":
-          toks = labse_tokenizer(sent, padding=True, truncation=True, return_tensors="pt", max_length=512).to(device)
-          dat = labse_model(**toks).pooler_output   
+        dat = apply_model(embedder, ent)
         dat = torch.nn.functional.normalize(dat, dim=1)
         dat = downsampler(dat)
         if universal_embed_mode:
@@ -193,20 +191,9 @@ def embed_text(dat_iter, mmap_file, start_idx=None, downsampler=None, skip_idxs=
         return dat
 
     init_models()
+    use_model(embedder)
     if start_idx is None: start_idx = mmap_len
     if skip_idxs is None: skip_idxs = []
-    if embedder == "clip":
-      clip_model = clip_model.to(device)
-      minilm_model =  minilm_model.cpu()
-      labse_model =  labse_model.cpu()
-    elif embedder == "minilm":
-      clip_model = clip_model.cpu()
-      minilm_model =  minilm_model.to(device)
-      labse_model =  labse_model.cpu()
-    elif embedder == "labse":
-      clip_model = clip_model.cpu()
-      minilm_model =  minilm_model.cpu()
-      labse_model =  labse_model.to(device)
     if dtype == np.float16:
         downsampler = downsampler.half()
     downsampler = downsampler.to(device)
