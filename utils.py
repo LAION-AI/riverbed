@@ -72,6 +72,7 @@ def init_models():
   return  labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
 
 def use_model(embedder):
+  global labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
   if embedder == "clip":
       clip_model = clip_model.to(device)
       minilm_model =  minilm_model.cpu()
@@ -86,6 +87,7 @@ def use_model(embedder):
       labse_model =  labse_model.to(device)
       
 def apply_model(embedder, sent):  
+  global labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
   if embedder == "clip":
       toks = clip_processor(sent, padding=True, truncation=True, return_tensors="pt").to(device)
       dat = clip_model.get_text_features(**toks)
@@ -99,6 +101,7 @@ def apply_model(embedder, sent):
   return dat     
 
 def get_model_embed_dim(embedder):
+  global labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
   if embedder == "clip":
     return clip_model.config.text_config.hidden_size
   elif embedder == "minilm":
