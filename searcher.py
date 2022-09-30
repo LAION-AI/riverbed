@@ -229,7 +229,6 @@ class Searcher(nn.Module):
     if mmap_file is None:
       mmap_file = f"{self.idx_dir}/search_index_{embed_search_field}_{embedder}_{embed_dim}.mmap"
     if content_data_store is None:
-      print (filename)
       if filename is not None:
         if filename.endswith(".gz"):
           content_data_store = GzipByLineIdx.open(filename)
@@ -258,7 +257,6 @@ class Searcher(nn.Module):
     self.skip_idxs = set(list(self.skip_idxs if hasattr(self, 'skip_idxs') and self.skip_idxs else []) + list(skip_idxs))
     if universal_embed_mode not in (None, "assigned"):
       auto_embed_text = True
-    print (auto_embed_text, self.content_data_store)
     if auto_embed_text and self.content_data_store is not None:
       self.embed_text(chunk_size=chunk_size, use_tqdm=use_tqdm)
     if universal_embed_mode not in (None, "assigned") and clusters is None:
