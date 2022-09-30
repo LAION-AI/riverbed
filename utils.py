@@ -272,6 +272,7 @@ def embeddings_search(embedding, mmap_file, top_parents,  top_parent_idxs, paren
 
 
 #internal function used to cluster one batch of embeddings
+#spans are either int tuples of (level, embedding_idx) or just the embedding_idx. 
 def _cluster_one_batch(true_k,  spans, embedding_idxs, clusters, span2cluster_label, level, cluster_embeddings, min_overlap_merge_cluster):
     if device == 'cuda':
       km = KMeans(n_clusters=true_k, mode='cosine')
@@ -316,8 +317,25 @@ def _cluster_one_batch(true_k,  spans, embedding_idxs, clusters, span2cluster_la
 # span2cluster_label maps a span to a parent span. spans can be of the form int|(int,int).
 # leaf nodes are ints. non-leaf nodes are (int,int) tuples
 # clusters maps cluster_label => list of spans  
-def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, mmap_len=0, embed_dim=25, dtype=np.float16, skip_idxs=None, cluster_idxs=None, max_level=4, max_cluster_size=200, \
-                               min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000, use_tqdm=True):
+# when we use the term 'idx', we normally refer to the index in an embedding file.
+def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, mmap_len=0, embed_dim=25, dtype=np.float16, skip_idxs=None, idxs=None, max_level=4, \
+                                max_cluster_size=200, min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000, use_tqdm=True):
+  """
+  :arg clusters:      the dict mapping parent span to list of child span
+  :arg span2cluster_label: the inverse of the above.
+  :arg mmap_file:     the name of the mmap file.
+  :arg mmap_len:      the current length of the mmap file.
+  :arg embed_dim:     the dimension of an embedding.
+  :arg dtype:         the numpy dtype.
+  :arg skip_idxs:     Optioal. the idx into the embeddings that will not be clustered or searched for.
+  :arg idxs:          Optioal. if provided, the particular embedding idx that will be clustered in this call.
+  :arg max_level:      the maximum level of the cluster hiearchy.
+  :arg max_cluster_size:the maximum size of any particular cluster.
+  :arg min_overlap_merge_cluster. When incremental clustering, the minimum overlap between one cluster and another before merging them.
+  :arg kmeans_batch_size: the size of each batch of embeddings that are kmean batched.
+  :arg use_tqdm:        whether to report the progress of the clustering.
+  
+  """
   global device
   if skip_idxs is None: 
     skip_idxs = set()
@@ -335,10 +353,10 @@ def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, mmap_le
       if span not in clusters.get(label,[]):
         clusters[label] = clusters.get(label,[]) + [span]
   #we are not going to cluster idxs that should be skipped
-  if cluster_idxs:
-    cluster_idxs = [idx for idx in cluster_idxs if idx not in skip_idxs]
+  if idxs:
+    idxs = [idx for idx in idxs if idx not in skip_idxs]
   #remove some idx from the clusters so we can re-compute the clusters
-  remove_idxs = list(skip_idxs) + ([] if cluster_idxs is None else cluster_idxs)
+  remove_idxs = list(skip_idxs) + ([] if idxs is None else idxs)
   if remove_idxs is not None:
     need_recompute_clusters=False
     for idx in remove_idxs:
@@ -378,12 +396,12 @@ def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, mmap_le
   # at level 0, the spans are the indexes themselves, so no need to map using all_spans
   all_spans = None
   for level in range(max_level):
-    assert level == 0 or (all_spans is not None and cluster_idxs is not None)
+    assert level == 0 or (all_spans is not None and idxs is not None)
     #print ("got here")
-    if cluster_idxs is None: 
+    if idxs is None: 
       len_spans = mmap_len
     else:
-      len_spans = len(cluster_idxs)
+      len_spans = len(idxs)
     # we are going to do a minimum of 6 times in case there are not already clustered items
     # from previous iterations. 
     num_times = max(6,math.ceil(len_spans/int(.7*kmeans_batch_size)))
@@ -396,13 +414,13 @@ def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, mmap_le
     for times in num_times2:
         max_rng = min(len_spans, rng+int(.7*kmeans_batch_size))
         #create the next batch to cluster
-        if cluster_idxs is None:
+        if idxs is None:
           spans = list(range(rng, max_rng))
           not_already_clustered = [idx for idx in range(rng) if (all_spans is not None and all_spans[idx] not in span2cluster_label) or \
                         (all_spans is None and idx not in span2cluster_label)]
         else:
-          spans = cluster_idxs[rng: max_rng] 
-          not_already_clustered = [idx for idx in range(rng) if cluster_idxs[:rng] if (all_spans is not None and all_spans[idx] not in span2cluster_label) or \
+          spans = idxs[rng: max_rng] 
+          not_already_clustered = [idx for idx in range(rng) if idxs[:rng] if (all_spans is not None and all_spans[idx] not in span2cluster_label) or \
                         (all_spans is None and idx not in span2cluster_label)]
         num_itmes_left = kmeans_batch_size - len(spans)
         if len(not_already_clustered) > int(.5*num_itmes_left):
@@ -463,7 +481,7 @@ def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, mmap_le
     # prepare data for next level clustering
     all_spans = [label for label in clusters.keys() if label[0] == level]
     if len(all_spans) < max_cluster_size: break
-    cluster_idxs = [idx for idx, label in enumerate(all_spans) if label not in span2cluster_label]
+    idxs = [idx for idx, label in enumerate(all_spans) if label not in span2cluster_label]
   
   return clusters, span2cluster_label
         
