@@ -758,194 +758,13 @@ class RiverbedModel(nn.Module):
 
 #################################################################################
 # SPAN AND DOCUMENT PROCESSOR
-# includes labeling of spans of text with different features, including clustering
+# An  ingester-model-view-controller framework for span and document processing. 
+
+# this class is for creating and featuring spans from multiple documents, which are fragments of one or more sentences (not necessarily a paragraph).
+# each span is a dict/json object. A span can specific to semantic search or bm25, and can include be indexed (span_idx) by (file name, line no, offset). The spans are also clustered. Finally the spans are serialzied 
+# into a jsonl.gz file.
 # assumes the sentences inside a document are NOT shuffeled, but documents can be shuffled. 
-
-def _intro_with_date(self, span):
-    text, position, ents = span['text'], span['position'], span['ents']
-    if position < 0.05 and text.strip() and (len(text) < 50 and text[0] not in "0123456789" and text[0] == text[0].upper() and text.split()[-1][0] == text.split()[-1][0].upper()):
-      date = [e[0] for e in ents if e[1] == 'DATE']
-      if date: 
-        date = date[0]
-        date = self.dateutil_parse_ext(date)
-      if  date: 
-        return 'intro: date of '+ date +"; "+text + " || "
-      else:
-        return 'intro: ' +text + " || "
-
-def _section_with_date(self, span):
-    text, position, ents = span['text'], span['position'], span['ents']
-    if  position >= 0.05 and position < 0.95 and text.strip() and (len(text) < 50 and text[0] not in "0123456789" and text[0] == text[0].upper() and text.split()[-1][0] == text.split()[-1][0].upper()):
-      date = [e[0] for e in ents if e[1] == 'DATE']
-      if date: 
-        date = date[0]
-        date = self.dateutil_parse_ext(date)
-      if  date: 
-        return 'section: date of '+ date +"; "+text + " || "
-      else:
-        return  'section: ' +text + " || "
-    return None
-
-def _conclusion_with_date(self, span):
-    text, position, ents = span['text'], span['position'], span['ents']
-    if  position >= 0.95 and text.strip() and (len(text) < 50 and text[0] not in "0123456789" and text[0] == text[0].upper() and text.split()[-1][0] == text.split()[-1][0].upper()):
-      date = [e[0] for e in ents if e[1] == 'DATE']
-      if date: 
-        date = date[0]
-        date = self.dateutil_parse_ext(date)
-      if  date: 
-        return 'conclusion: date of '+ date +"; "+text + " || "
-      else:
-        return 'conclusion: ' +text + " || "
-    return None
-
-    
-# the similarity models sometimes put too much weight on proper names, etc. but we might want to cluster by general concepts
-# such as change of control, regulatory actions, etc. The proper names themselves can be collapsed to one canonical form (The Person). 
-# Similarly, we want similar concepts (e.g., compound words) to cluster to one canonical form.
-# we do this by collapsing to an NER label and/or creating a synonym map from compound words to known tokens. See _create_ontology
-# and we use that data to generalize the sentence here.  
-#assumes the text has already been tokenized and ents has been sorted with longerst entity to shortest entity
-# TODO: have an option NOT to generalize the prefix. 
-def _generalize_text_and_filter_ents(tokenizer, tokenized_text, ents, ner_to_generalize=(), use_synonym_replacement=False):
-    if not ner_to_generalize and not synonyms and not ents: return tokenized_text, ents
-    
-    #do a second tokenize if we want to do synonym replacement.
-    if use_synonym_replacement:
-      tokenized_text = tokenizer.tokenize(text, use_synonym_replacement=True)  
-    filtered_ents = []
-    
-    #replace with placeholders
-    for idx, ent in enumerate(ents):
-        entity, label = ent
-        if "@#@" not in text: break
-        if f"@#@{idx}@#@" not in text: continue
-        text = text.replace(f"@#@{idx}@#@", entity) 
-    text = text.replace("_", " ")
-    
-    #see if there are multiple of the same labels 
-    label_cnts = dict([(a,b) for a, b in Counter([label for entity, label in ents]).items() if b > 1])
-    max_label_cnts = copy.copy(label_cnts)
-    entity_2_id = {}
-    for idx, ent in enumerate(ents):
-        entity, label = ent
-        entity_id = entity_2_id.get(entity) 
-        if "@#@" not in tokenized_text: break
-        if f"@#@{idx}@#@" not in tokenized_text: continue
-        if entity not in entity_2_id and label in label_cnts:
-          entity_id = entity_2_id[entity] = 1 + (max_label_cnts[label] - label_cnts[label])
-          label_cnts[label] = label_cnts[label] - 1
-        filtered_ents.append((entity, label,  text.count(f"@#@{idx}@#@")))
-        if label in ner_to_generalize:   
-          if label == 'ORG':
-            tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Organization' + ('' if entity_id is None else f" {entity_id}"))
-          elif label == 'PERSON':
-            tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Person'+ ('' if entity_id is None else f" {entity_id}"))
-          elif label == 'FAC':
-            tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Facility'+ ('' if entity_id is None else f" {entity_id}"))
-          elif label in ('GPE', 'LOC'):
-            tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Location'+ ('' if entity_id is None else f" {entity_id}"))
-          elif label in ('DATE', ):
-            tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Date'+ ('' if entity_id is None else f" {entity_id}"))
-          elif label in ('LAW', ):
-            tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Law'+ ('' if entity_id is None else f" {entity_id}"))  
-          elif label in ('EVENT', ):
-            tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Event'+ ('' if entity_id is None else f" {entity_id}"))            
-          elif label in ('MONEY', ):
-            tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Amount'+ ('' if entity_id is None else f" {entity_id}"))
-          else:
-            tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", entity.replace(" ", "_"))
-        else:
-          tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", entity.replace(" ", "_"))    
-
-    for _ in range(3):
-      tokenized_text = tokenized_text.replace("The Person and The Person", "The Person").replace("The Person The Person", "The Person").replace("The Person, The Person", "The Person")
-      tokenized_text = tokenized_text.replace("The Facility and The Facility", "The Facility").replace("The Facility The Facility", "The Facility").replace("The Facility, The Facility", "The Facility")
-      tokenized_text = tokenized_text.replace("The Organization and The Organization", "The Organization").replace("The Organization The Organization", "The Organization").replace("The Organization, The Organization", "The Organization")
-      tokenized_text = tokenized_text.replace("The Location and The Location", "The Location").replace("The Location The Location", "The Location").replace("The Location, The Location", "The Location")
-      tokenized_text = tokenized_text.replace("The Date and The Date", "The Date").replace("The Date The Date", "The Date").replace("The Date, The Date", "The Date")
-      tokenized_text = tokenized_text.replace("The Law and The Law", "The Law").replace("The Law The Law", "The Law").replace("The Law, The Law", "The Law")
-      tokenized_text = tokenized_text.replace("The Event and The Event", "The Event").replace("The Event The Event", "The Event").replace("The Event, The Event", "The Event")
-      tokenized_text = tokenized_text.replace("The Amount and The Amount", "The Amount").replace("The Amount The Amount", "The Amount").replace("The Amount, The Amount", "The Amount")
-      
-    return tokenized_text, filtered_ents
-
-
-
-# code more informative labels for the span clusters
-def _create_informative_parent_label_from_tfidf(clusters, span2idx, span2data, span2cluster_label, span_label2user_label=None, \
-                                          label2term_frequency=None, document_frequency=None, domain_stopwords_set=stopwords_set, max_levels=4):
-    if label2term_frequency is None: label2term_frequency = {}
-    if document_frequency is None: document_frequency = {}
-    if span_label2user_label is None: span_label2user_label = {}
-    #we gather info for term_frequency-inverse_document_frequency with respect to each token in each clusters
-    for label, values in clusters.items(): 
-      if label[0] == 0 and label not in span_label2user_label:
-        for item in values:
-          if span in span2idx:
-            data = span2data[span]
-            text = data['tokenized_text']
-            #we don't want the artificial labels to skew the tfidf calculations
-            #assumes we don't have more than 10 of the same label
-            text = text.replace('The Organization','').replace('The_Organization','')
-            text = text.replace('The Person','').replace('The_Person','')
-            text = text.replace('The Facility','').replace('The_Facility','')
-            text = text.replace('The Location','').replace('The_Location','')          
-            text = text.replace('The Date','').replace('The_Date','')
-            text = text.replace('The Law','').replace('The_Law','')
-            text = text.replace('The Amount','').replace('The_Amount','')
-            text = text.replace('The Event','').replace('The_Event','')
-            
-            #we add back the entities we had replaced with the artificial labels into the term_frequency-inverse_document_frequency calculations
-            ents =  list(itertools.chain(*[[a[0].replace(" ", "_")]*a[-1] for a in span['ents']]))
-            if span['offset'] == 0:
-              if "||" in text:
-                prefix, text = text.split("||",1)
-                prefix = prefix.split(":")[-1].split(";")[-1].strip()
-                text = prefix.split() + text.replace("(", " ( ").replace(")", " ) ").split() + ents
-              else:
-                 text = text.replace("(", " ( ").replace(")", " ) ").split() + ents
-            else:
-              text = text.split("||",1)[-1].strip().split() + ents
-            len_text = len(text)
-            text = [a for a in text if len(a) > 1 and ("_" not in a or (a.count("_")+1 != len([b for b in a.lower().split("_") if  b in domain_stopwords_set])))  and a.lower() not in domain_stopwords_set and a[0].lower() in "abcdefghijklmnopqrstuvwxyz"]
-            cnts = Counter(text)
-            aHash = label2term_frequency[label] =  label2term_frequency.get(label, {})
-            for token, cnt in cnts.items():
-              aHash[token] = cnt/len_text
-            for token in cnts.keys():
-              document_frequency[token] = document_frequency.get(token,0) + 1
-      
-    #Now, acually create the new label from the tfidf of the tokens in this cluster
-    #TODO, see how we might save away the tfidf or get the tfidf from the bm25 indexer. 
-    for label, term_frequency in label2term_frequency.items():
-        tfidf = copy.copy(term_frequency)    
-        for token in list(tfidf.keys()):
-          tfidf[token]  = tfidf[token] * min(1.5, tokenizer.token2weight.get(token, 1)) * math.log(1.0/(1+document_frequency[token]))
-        top_tokens2 = [a[0].lower().strip("~!@#$%^&*()<>,.:;")  for a in Counter(tfidf).most_common(min(len(tfidf), 40))]
-        top_tokens2 = [a for a in top_tokens2 if a not in domain_stopwords_set and ("_" not in a or (a.count("_")+1 != len([b for b in a.split("_") if  b in domain_stopwords_set])))]
-        top_tokens = []
-        for t in top_tokens2:
-          if t not in top_tokens:
-            top_tokens.append(t)
-        if top_tokens:
-          if len(top_tokens) > 5: top_tokens = top_tokens[:5]
-          new_label = ", ".join(top_tokens) 
-          span_label2user_label[label] = new_label
-          
-    #create parent labels
-    for old_label, new_label in span_label2user_label.items():
-      for parent_old_label in [(level, old_label[1]) for level in range(1, max_levels)]:
-        if parent_old_label clusters:
-          span_label2user_label[parent_old_label]= ("¶"*parent_old_label[0])+new_label
-      
-    return span_label2user_label, label2term_frequency, document_frequency
-    
-
-#this class is for creating and featuring spans from multiple documents, which are fragments of one or more sentences (not necessarily a paragraph).
-#each span is a dict/json object. A span can be indexed (span_idx) by (file name, line no, offset). The spans are also clustered and searchable. 
-#we can use the ontology for query expansion as part of the bm25 search. 
-class RiverbedPreprocessor(PreprocessorMixin):
+class RiverbedProcessor(MixingProcessor):
   RELATIVE_LOW = 0
   RELATIVE_MEDIUM = 1
   RELATIVE_HIGH= 2
@@ -973,8 +792,193 @@ class RiverbedPreprocessor(PreprocessorMixin):
       ('conclusion_with_date', _conclusion_with_date) \
       ]
   
+  
+  def _intro_with_date(self, span):
+      text, position, ents = span['text'], span['position'], span['ents']
+      if position < 0.05 and text.strip() and (len(text) < 50 and text[0] not in "0123456789" and text[0] == text[0].upper() and text.split()[-1][0] == text.split()[-1][0].upper()):
+        date = [e[0] for e in ents if e[1] == 'DATE']
+        if date: 
+          date = date[0]
+          date = self.dateutil_parse_ext(date)
+        if  date: 
+          return 'intro: date of '+ date +"; "+text + " || "
+        else:
+          return 'intro: ' +text + " || "
 
-  def __init__(self, project_name,  curr_file_size, jsonl_file_idx, span2idx, batch, retained_batch, span_lfs,  span2cluster_label, \
+  def _section_with_date(self, span):
+      text, position, ents = span['text'], span['position'], span['ents']
+      if  position >= 0.05 and position < 0.95 and text.strip() and (len(text) < 50 and text[0] not in "0123456789" and text[0] == text[0].upper() and text.split()[-1][0] == text.split()[-1][0].upper()):
+        date = [e[0] for e in ents if e[1] == 'DATE']
+        if date: 
+          date = date[0]
+          date = self.dateutil_parse_ext(date)
+        if  date: 
+          return 'section: date of '+ date +"; "+text + " || "
+        else:
+          return  'section: ' +text + " || "
+      return None
+
+  def _conclusion_with_date(self, span):
+      text, position, ents = span['text'], span['position'], span['ents']
+      if  position >= 0.95 and text.strip() and (len(text) < 50 and text[0] not in "0123456789" and text[0] == text[0].upper() and text.split()[-1][0] == text.split()[-1][0].upper()):
+        date = [e[0] for e in ents if e[1] == 'DATE']
+        if date: 
+          date = date[0]
+          date = self.dateutil_parse_ext(date)
+        if  date: 
+          return 'conclusion: date of '+ date +"; "+text + " || "
+        else:
+          return 'conclusion: ' +text + " || "
+      return None
+
+
+  # the similarity models sometimes put too much weight on proper names, etc. but we might want to cluster by general concepts
+  # such as change of control, regulatory actions, etc. The proper names themselves can be collapsed to one canonical form (The Person). 
+  # Similarly, we want similar concepts (e.g., compound words) to cluster to one canonical form.
+  # we do this by collapsing to an NER label and/or creating a synonym map from compound words to known tokens. See _create_ontology
+  # and we use that data to generalize the sentence here.  
+  #assumes the text has already been tokenized and ents has been sorted with longerst entity to shortest entity
+  # TODO: have an option NOT to generalize the prefix. 
+  def _generalize_text_and_filter_ents(self, tokenizer, tokenized_text, ents, ner_to_generalize=(), use_synonym_replacement=False):
+      if not ner_to_generalize and not synonyms and not ents: return tokenized_text, ents
+
+      #do a second tokenize if we want to do synonym replacement.
+      if use_synonym_replacement:
+        tokenized_text = tokenizer.tokenize(text, use_synonym_replacement=True)  
+      filtered_ents = []
+
+      #replace with placeholders
+      for idx, ent in enumerate(ents):
+          entity, label = ent
+          if "@#@" not in text: break
+          if f"@#@{idx}@#@" not in text: continue
+          text = text.replace(f"@#@{idx}@#@", entity) 
+      text = text.replace("_", " ")
+
+      #see if there are multiple of the same labels 
+      label_cnts = dict([(a,b) for a, b in Counter([label for entity, label in ents]).items() if b > 1])
+      max_label_cnts = copy.copy(label_cnts)
+      entity_2_id = {}
+      for idx, ent in enumerate(ents):
+          entity, label = ent
+          entity_id = entity_2_id.get(entity) 
+          if "@#@" not in tokenized_text: break
+          if f"@#@{idx}@#@" not in tokenized_text: continue
+          if entity not in entity_2_id and label in label_cnts:
+            entity_id = entity_2_id[entity] = 1 + (max_label_cnts[label] - label_cnts[label])
+            label_cnts[label] = label_cnts[label] - 1
+          filtered_ents.append((entity, label,  text.count(f"@#@{idx}@#@")))
+          if label in ner_to_generalize:   
+            if label == 'ORG':
+              tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Organization' + ('' if entity_id is None else f" {entity_id}"))
+            elif label == 'PERSON':
+              tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Person'+ ('' if entity_id is None else f" {entity_id}"))
+            elif label == 'FAC':
+              tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Facility'+ ('' if entity_id is None else f" {entity_id}"))
+            elif label in ('GPE', 'LOC'):
+              tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Location'+ ('' if entity_id is None else f" {entity_id}"))
+            elif label in ('DATE', ):
+              tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Date'+ ('' if entity_id is None else f" {entity_id}"))
+            elif label in ('LAW', ):
+              tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Law'+ ('' if entity_id is None else f" {entity_id}"))  
+            elif label in ('EVENT', ):
+              tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Event'+ ('' if entity_id is None else f" {entity_id}"))            
+            elif label in ('MONEY', ):
+              tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Amount'+ ('' if entity_id is None else f" {entity_id}"))
+            else:
+              tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", entity.replace(" ", "_"))
+          else:
+            tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", entity.replace(" ", "_"))    
+
+      for _ in range(3):
+        tokenized_text = tokenized_text.replace("The Person and The Person", "The Person").replace("The Person The Person", "The Person").replace("The Person, The Person", "The Person")
+        tokenized_text = tokenized_text.replace("The Facility and The Facility", "The Facility").replace("The Facility The Facility", "The Facility").replace("The Facility, The Facility", "The Facility")
+        tokenized_text = tokenized_text.replace("The Organization and The Organization", "The Organization").replace("The Organization The Organization", "The Organization").replace("The Organization, The Organization", "The Organization")
+        tokenized_text = tokenized_text.replace("The Location and The Location", "The Location").replace("The Location The Location", "The Location").replace("The Location, The Location", "The Location")
+        tokenized_text = tokenized_text.replace("The Date and The Date", "The Date").replace("The Date The Date", "The Date").replace("The Date, The Date", "The Date")
+        tokenized_text = tokenized_text.replace("The Law and The Law", "The Law").replace("The Law The Law", "The Law").replace("The Law, The Law", "The Law")
+        tokenized_text = tokenized_text.replace("The Event and The Event", "The Event").replace("The Event The Event", "The Event").replace("The Event, The Event", "The Event")
+        tokenized_text = tokenized_text.replace("The Amount and The Amount", "The Amount").replace("The Amount The Amount", "The Amount").replace("The Amount, The Amount", "The Amount")
+
+      return tokenized_text, filtered_ents
+
+
+
+  # code more informative labels for the span clusters
+  def _create_informative_parent_label_from_tfidf(self, clusters, span2idx, span2data, span2cluster_label, span_label2user_label=None, \
+                                            label2term_frequency=None, document_frequency=None, domain_stopwords_set=stopwords_set, max_levels=4):
+      if label2term_frequency is None: label2term_frequency = {}
+      if document_frequency is None: document_frequency = {}
+      if span_label2user_label is None: span_label2user_label = {}
+      #we gather info for term_frequency-inverse_document_frequency with respect to each token in each clusters
+      for label, values in clusters.items(): 
+        if label[0] == 0 and label not in span_label2user_label:
+          for item in values:
+            if span in span2idx:
+              data = span2data[span]
+              text = data['tokenized_text']
+              #we don't want the artificial labels to skew the tfidf calculations
+              #assumes we don't have more than 10 of the same label
+              text = text.replace('The Organization','').replace('The_Organization','')
+              text = text.replace('The Person','').replace('The_Person','')
+              text = text.replace('The Facility','').replace('The_Facility','')
+              text = text.replace('The Location','').replace('The_Location','')          
+              text = text.replace('The Date','').replace('The_Date','')
+              text = text.replace('The Law','').replace('The_Law','')
+              text = text.replace('The Amount','').replace('The_Amount','')
+              text = text.replace('The Event','').replace('The_Event','')
+
+              #we add back the entities we had replaced with the artificial labels into the term_frequency-inverse_document_frequency calculations
+              ents =  list(itertools.chain(*[[a[0].replace(" ", "_")]*a[-1] for a in span['ents']]))
+              if span['offset'] == 0:
+                if "||" in text:
+                  prefix, text = text.split("||",1)
+                  prefix = prefix.split(":")[-1].split(";")[-1].strip()
+                  text = prefix.split() + text.replace("(", " ( ").replace(")", " ) ").split() + ents
+                else:
+                   text = text.replace("(", " ( ").replace(")", " ) ").split() + ents
+              else:
+                text = text.split("||",1)[-1].strip().split() + ents
+              len_text = len(text)
+              text = [a for a in text if len(a) > 1 and ("_" not in a or (a.count("_")+1 != len([b for b in a.lower().split("_") if  b in domain_stopwords_set])))  and a.lower() not in domain_stopwords_set and a[0].lower() in "abcdefghijklmnopqrstuvwxyz"]
+              cnts = Counter(text)
+              aHash = label2term_frequency[label] =  label2term_frequency.get(label, {})
+              for token, cnt in cnts.items():
+                aHash[token] = cnt/len_text
+              for token in cnts.keys():
+                document_frequency[token] = document_frequency.get(token,0) + 1
+
+      #Now, acually create the new label from the tfidf of the tokens in this cluster
+      #TODO, see how we might save away the tfidf or get the tfidf from the bm25 indexer. 
+      for label, term_frequency in label2term_frequency.items():
+          tfidf = copy.copy(term_frequency)    
+          for token in list(tfidf.keys()):
+            tfidf[token]  = tfidf[token] * min(1.5, tokenizer.token2weight.get(token, 1)) * math.log(1.0/(1+document_frequency[token]))
+          top_tokens2 = [a[0].lower().strip("~!@#$%^&*()<>,.:;")  for a in Counter(tfidf).most_common(min(len(tfidf), 40))]
+          top_tokens2 = [a for a in top_tokens2 if a not in domain_stopwords_set and ("_" not in a or (a.count("_")+1 != len([b for b in a.split("_") if  b in domain_stopwords_set])))]
+          top_tokens = []
+          for t in top_tokens2:
+            if t not in top_tokens:
+              top_tokens.append(t)
+          if top_tokens:
+            if len(top_tokens) > 5: top_tokens = top_tokens[:5]
+            new_label = ", ".join(top_tokens) 
+            span_label2user_label[label] = new_label
+
+      #create parent labels
+      for old_label, new_label in span_label2user_label.items():
+        for parent_old_label in [(level, old_label[1]) for level in range(1, max_levels)]:
+          if parent_old_label clusters:
+            span_label2user_label[parent_old_label]= ("¶"*parent_old_label[0])+new_label
+
+      return span_label2user_label, label2term_frequency, document_frequency
+
+
+# This class uses the RivberbedPreprocessor to generate spans and index the spans. It also provides APIs for searching the spans.
+#we can use the ontology for query expansion as part of the bm25 search. 
+class RiverbedSearcherIndexer:
+
+  def __init__(self, project_name, processor, span2idx, batch, retained_batch, span_lfs,  span2cluster_label, \
                 start_idx = 0, embed_search_field="text", bm25_field="text", text_span_size=1000, embedder="minilm", do_ontology=True, running_features_per_label={}, \
                 ner_to_generalize=(), span_level_feature_extractors=default_span_level_feature_extractors, \
                 running_features_size=100, label2term_frequency=None, document_frequency=None, domain_stopwords_set=stopwords_set,\
@@ -1279,4 +1283,12 @@ class RiverbedPreprocessor(PreprocessorMixin):
   def from_pretrained(project_name):
       self = torch.load(open(f"{project_name}/{project_name}.pickle", "rb"))
       return self
-    
+
+#given the results of the indexer and processor, perform analysis on the data seralized to jsonl.gz file and one or more searches of the indexed data.     
+class RiverbedAnalyzer:
+  pass
+
+#this forms part of the view portion of the MVC
+#used for exploring and viewing different parts of data and results from the analyzer. 
+class RiverbedVisualizer:
+  pass
