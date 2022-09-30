@@ -96,7 +96,7 @@ def apply_model(embedder, sent):
       dat = minilm_model(**toks)
       dat = mean_pooling(dat, toks.attention_mask)
   elif embedder == "labse":
-      toks = labse_tokenizer(sent, padding=True, truncation=True, return_tensors="pt", max_length=512).to(device)
+      toks = labse_tokenizer(sent, padding=True, truncation=True, return_tensors="pt", max_length=400).to(device)
       dat = labse_model(**toks).pooler_output   
   return dat     
 
