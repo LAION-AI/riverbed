@@ -77,7 +77,7 @@ class PreprocessorMixin:
 
 #TODO. modify the embed_text function to store away a tuple idx -> embedding idx. The tuple idx corresponds to a unique id generated 
 #by the preprocessor, e.g., (lineno, offset) or (file name, lineno, offset), etc. 
-class BasicLinePrepocessor(PreprocessorMixin):
+class BasicLinePeprocessor(PreprocessorMixin):
   def __init__(self, start_idx = 0, embed_search_field="text", bm25_field="text", searcher=None):
     self.reset_embed_search_idx(start_idx)
     self.reset_bm25_idx(start_idx)
@@ -136,7 +136,7 @@ class Searcher(nn.Module):
                span2cluster_label=None, idxs=None, max_level=4, max_cluster_size=200, \
                min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000, \
                universal_embed_mode = None, prototype_sentences=None,  prototypes=None, universal_downsampler =None, min_num_prorotypes=50000, \
-               use_tqdm=True, embed_search_field_preprocessor=None, bm25_field_preprocessor=None
+               use_tqdm=True, preprocessor=None
               ):
     #TODO, add a embedding_preprocessor. Given a batch of sentences, and an embedding, create additional embeddings corresponding to the batch. 
     """
@@ -206,7 +206,7 @@ class Searcher(nn.Module):
     global device
     global  labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
     super().__init__()
-    if embed_search_field_preprocessor is None: embed_search_field_preprocessor = BasicLineProcessor(embed_search_field=embed_search_field, bm25_field=bm25_field)
+    if embed_search_field_preprocessor is None: embed_search_field_preprocessor = BasicLinePeprocessor(embed_search_field=embed_search_field, bm25_field=bm25_field)
     self.embedder, self.preprocessor = embedder, preprocessor
     if idx_dir is None and filename is not None:
       idx_dir = f"{filename}_idx"
@@ -229,7 +229,7 @@ class Searcher(nn.Module):
       if type(self.content_data_store) is GzipByLineIdx:
         self.content_data_store = self.content_data_store 
       else:   
-        self.content_data_store = content_data_storeIdx(content_data_store=content_data_store) 
+        self.content_data_store = FileByLineIdx(content_data_store=content_data_store) 
     labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set = init_models()
     if downsampler is None:
       if embedder == "clip":
@@ -327,7 +327,7 @@ class Searcher(nn.Module):
     dat = torch.nn.functional.normalize(dat, dim=1)
     dat = self.downsampler(dat)
     if self.universal_embed_mode:
-      dat = cosine_similarity(dat, prototypes)
+      dat = cosine_similarity(dat, self.prototypes)
       dat = torch.nn.functional.normalize(dat, dim=1)
       dat = self.universal_downsampler(dat)
     return dat
