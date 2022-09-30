@@ -869,7 +869,78 @@ def _generalize_text_and_filter_ents(tokenizer, tokenized_text, ents, ner_to_gen
       tokenized_text = tokenized_text.replace("The Amount and The Amount", "The Amount").replace("The Amount The Amount", "The Amount").replace("The Amount, The Amount", "The Amount")
       
     return tokenized_text, filtered_ents
-  
+
+
+
+# code more informative labels for the span clusters
+def _create_informative_parent_label_from_tfidf(clusters, span2idx, span2data, span2cluster_label, span_label2user_label=None, \
+                                          label2term_frequency=None, document_frequency=None, domain_stopwords_set=stopwords_set, max_levels=4):
+    if label2term_frequency is None: label2term_frequency = {}
+    if document_frequency is None: document_frequency = {}
+    if span_label2user_label is None: span_label2user_label = {}
+    #we gather info for term_frequency-inverse_document_frequency with respect to each token in each clusters
+    for label, values in clusters.items(): 
+      if label[0] == 0 and label not in span_label2user_label:
+        for item in values:
+          if span in span2idx:
+            data = span2data[span]
+            text = data['tokenized_text']
+            #we don't want the artificial labels to skew the tfidf calculations
+            #assumes we don't have more than 10 of the same label
+            text = text.replace('The Organization','').replace('The_Organization','')
+            text = text.replace('The Person','').replace('The_Person','')
+            text = text.replace('The Facility','').replace('The_Facility','')
+            text = text.replace('The Location','').replace('The_Location','')          
+            text = text.replace('The Date','').replace('The_Date','')
+            text = text.replace('The Law','').replace('The_Law','')
+            text = text.replace('The Amount','').replace('The_Amount','')
+            text = text.replace('The Event','').replace('The_Event','')
+            
+            #we add back the entities we had replaced with the artificial labels into the term_frequency-inverse_document_frequency calculations
+            ents =  list(itertools.chain(*[[a[0].replace(" ", "_")]*a[-1] for a in span['ents']]))
+            if span['offset'] == 0:
+              if "||" in text:
+                prefix, text = text.split("||",1)
+                prefix = prefix.split(":")[-1].split(";")[-1].strip()
+                text = prefix.split() + text.replace("(", " ( ").replace(")", " ) ").split() + ents
+              else:
+                 text = text.replace("(", " ( ").replace(")", " ) ").split() + ents
+            else:
+              text = text.split("||",1)[-1].strip().split() + ents
+            len_text = len(text)
+            text = [a for a in text if len(a) > 1 and ("_" not in a or (a.count("_")+1 != len([b for b in a.lower().split("_") if  b in domain_stopwords_set])))  and a.lower() not in domain_stopwords_set and a[0].lower() in "abcdefghijklmnopqrstuvwxyz"]
+            cnts = Counter(text)
+            aHash = label2term_frequency[label] =  label2term_frequency.get(label, {})
+            for token, cnt in cnts.items():
+              aHash[token] = cnt/len_text
+            for token in cnts.keys():
+              document_frequency[token] = document_frequency.get(token,0) + 1
+      
+    #Now, acually create the new label from the tfidf of the tokens in this cluster
+    #TODO, see how we might save away the tfidf or get the tfidf from the bm25 indexer. 
+    for label, term_frequency in label2term_frequency.items():
+        tfidf = copy.copy(term_frequency)    
+        for token in list(tfidf.keys()):
+          tfidf[token]  = tfidf[token] * min(1.5, tokenizer.token2weight.get(token, 1)) * math.log(1.0/(1+document_frequency[token]))
+        top_tokens2 = [a[0].lower().strip("~!@#$%^&*()<>,.:;")  for a in Counter(tfidf).most_common(min(len(tfidf), 40))]
+        top_tokens2 = [a for a in top_tokens2 if a not in domain_stopwords_set and ("_" not in a or (a.count("_")+1 != len([b for b in a.split("_") if  b in domain_stopwords_set])))]
+        top_tokens = []
+        for t in top_tokens2:
+          if t not in top_tokens:
+            top_tokens.append(t)
+        if top_tokens:
+          if len(top_tokens) > 5: top_tokens = top_tokens[:5]
+          new_label = ", ".join(top_tokens) 
+          span_label2user_label[label] = new_label
+          
+    #create parent labels
+    for old_label, new_label in span_label2user_label.items():
+      for parent_old_label in [(level, old_label[1]) for level in range(1, max_levels)]:
+        if parent_old_label clusters:
+          span_label2user_label[parent_old_label]= ("¶"*parent_old_label[0])+new_label
+      
+    return span_label2user_label, label2term_frequency, document_frequency
+    
 
 #this class is for creating and featuring spans from multiple documents, which are fragments of one or more sentences (not necessarily a paragraph).
 #each span is a dict/json object. A span can be indexed (span_idx) by (file name, line no, offset). The spans are also clustered and searchable. 
