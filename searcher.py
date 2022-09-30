@@ -206,7 +206,7 @@ class Searcher(nn.Module):
     global device
     global  labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
     super().__init__()
-    if embed_search_field_preprocessor is None: embed_search_field_preprocessor = BasicLinePeprocessor(embed_search_field=embed_search_field, bm25_field=bm25_field)
+    if preprocessor is None: preprocessor = BasicLinePeprocessor(embed_search_field=embed_search_field, bm25_field=bm25_field)
     self.embedder, self.preprocessor = embedder, preprocessor
     if idx_dir is None and filename is not None:
       idx_dir = f"{filename}_idx"
