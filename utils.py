@@ -56,16 +56,16 @@ def init_models():
   if minilm_model is None:
     clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")   
     minilm_tokenizer = AutoTokenizer.from_pretrained('sentence-transformers/all-MiniLM-L6-v2')
-    labse_tokenizer = BertTokenizerFast.from_pretrained("setu4993/smaller-LaBSE")
+    labse_tokenizer = BertTokenizerFast.from_pretrained("sentence-transformers/LaBSE")
 
     if device == 'cuda':
       clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").half().eval()
       minilm_model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2').half().eval()
-      labse_model = BertModel.from_pretrained("setu4993/smaller-LaBSE").half().eval()
+      labse_model = BertModel.from_pretrained("sentence-transformers/LaBSE").half().eval()
     else:
       clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").eval()
       minilm_model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2').eval()
-      lbase_model = BertModel.from_pretrained("setu4993/smaller-LaBSE").eval()
+      lbase_model = BertModel.from_pretrained("sentence-transformers/LaBSE").eval()
 
     spacy_nlp = spacy.load('en_core_web_md')
     stopwords_set = set(nltk_stopwords.words('english') + ['...', 'could', 'should', 'shall', 'can', 'might', 'may', 'include', 'including'])
@@ -102,13 +102,13 @@ def apply_model(embedder, sent):
         dat = labse_model(**toks).pooler_output   
     return dat
   else:
-    #poor man length batched breaking by length 1000
+    #poor man length batched breaking by length 2000
     #print (len(sent))
     batch = []
     all_dat = []
-    doing_1000 = False
+    doing_2000 = False
     for s in sent:
-      if not doing_1000 and len(s) >= 1000:
+      if not doing_2000 and len(s) >= 2000:
         if batch:
           if embedder == "clip":
             toks = clip_processor(batch, padding=True, truncation=True, return_tensors="pt").to(device)
@@ -122,8 +122,8 @@ def apply_model(embedder, sent):
             dat = labse_model(**toks).pooler_output
           all_dat.append(dat)
         batch = [s]
-        doing_500 = True
-      elif doing_1000 and len(s) < 1000:
+        doing_2000 = True
+      elif doing_2000 and len(s) < 2000:
         if batch:
           if embedder == "clip":
             toks = clip_processor(batch, padding=True, truncation=True, return_tensors="pt").to(device)
@@ -134,25 +134,28 @@ def apply_model(embedder, sent):
             dat = mean_pooling(dat, toks.attention_mask)
           elif embedder == "labse":
             toks = labse_tokenizer(batch, padding=True, truncation=True, return_tensors="pt", max_length=512).to(device)
+            if toks.shape[1] > 400:
+              print (max([len(s) for s in batch]))
+            print (toks.shape)
             dat = labse_model(**toks).pooler_output
           all_dat.append(dat)
         batch = [s]
-        doing_500 = False
+        doing_2000 = False
       else:
         batch.append(s)
     if batch:
-      if batch:
-          if embedder == "clip":
-            toks = clip_processor(batch, padding=True, truncation=True, return_tensors="pt").to(device)
-            dat = clip_model.get_text_features(**toks)
-          elif embedder == "minilm":
-            toks = minilm_tokenizer(batch, padding=True, truncation=True, return_tensors="pt").to(device)
-            dat = minilm_model(**toks)
-            dat = mean_pooling(dat, toks.attention_mask)
-          elif embedder == "labse":
-            toks = labse_tokenizer(batch, padding=True, truncation=True, return_tensors="pt", max_length=512).to(device)
-            dat = labse_model(**toks).pooler_output
-          all_dat.append(dat)
+      if embedder == "clip":
+        toks = clip_processor(batch, padding=True, truncation=True, return_tensors="pt").to(device)
+        dat = clip_model.get_text_features(**toks)
+      elif embedder == "minilm":
+        toks = minilm_tokenizer(batch, padding=True, truncation=True, return_tensors="pt").to(device)
+        dat = minilm_model(**toks)
+        dat = mean_pooling(dat, toks.attention_mask)
+      elif embedder == "labse":
+        toks = labse_tokenizer(batch, padding=True, truncation=True, return_tensors="pt", max_length=512).to(device)
+        dat = labse_model(**toks).pooler_output
+      all_dat.append(dat)
+    if len(all_dat) == 1: return all_dat[0]
     return torch.vstack(all_dat)    
 
 def get_model_embed_dim(embedder):
@@ -227,7 +230,7 @@ def get_embeddings(sent, downsampler, dtype=np.float16, embedder="minilm", unive
 #create embeddings for all text in dat_iter. data_iter can be an interable of just the text or a (idx, text) pair.
 #saves to the mmap_file. returns downsampler, skip_idxs, dtype, mmap_len, embed_dim.
 #skip_idxs are the lines/embeddings that are empty and should not be clustered search indexed.
-def embed_text(dat_iter, mmap_file, start_idx=None, downsampler=None, skip_idxs=None,  dtype=np.float16, mmap_len=0, embed_dim=25,  embedder="minilm", chunk_size=1000,  universal_embed_mode=None, prototypes=None, universal_downsampler=None, use_tqdm=True):
+def embed_text(dat_iter, mmap_file, start_idx=None, downsampler=None, skip_idxs=None,  dtype=np.float16, mmap_len=0, embed_dim=25,  embedder="minilm", chunk_size=500,  universal_embed_mode=None, prototypes=None, universal_downsampler=None, use_tqdm=True):
     global device, labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
     assert not universal_embed_mode or (prototypes is not None and universal_downsampler is not None)   
     assert downsampler is not None
