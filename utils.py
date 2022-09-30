@@ -110,16 +110,6 @@ def get_model_embed_dim(embedder):
     return labse_model.config.hidden_size   
 
 
-def _get_content_from_line(l, search_field="text"):
-    l =l.decode().replace("\\n", "\n").replace("\\t", "\t").strip()
-    if not l: return ''
-    if l[0] == "{" and l[-1] == "}":
-      content = l.split(search_field+'": "')[1]
-      content = content.split('", "')[0].replace("_", " ")
-    else:
-      content = l.replace("_", " ")
-    return content
-
 def _dateutil_parse_ext(text):
     try: 
       int(text.strip())
