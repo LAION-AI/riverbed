@@ -128,7 +128,7 @@ class BasicLinePeprocessor(PreprocessorMixin):
 #TODO. Change this to inherit from a transformers.PretrainedModel.
 class Searcher(nn.Module):
   
-  def __init__(self,  idx_dir=None, filename=None, content_data_store=None, mmap_file=None, mmap_len=0, embed_dim=25, dtype=np.float16, \
+  def __init__(self,  filename=None, idx_dir=None, content_data_store=None, mmap_file=None, mmap_len=0, embed_dim=25, dtype=np.float16, \
                parents=None, parent_levels=None, parent_labels=None, skip_idxs=None, \
                parent2idx=None, top_parents=None, top_parent_idxs=None, clusters=None,  embedder="minilm", chunk_size=1000, \
                embed_search_field="text", bm25_field=None, downsampler=None, auto_embed_text=False, \
@@ -142,9 +142,9 @@ class Searcher(nn.Module):
     """
         Cluster indexes and performs approximate nearest neighbor search on a memmap file. 
         Also provides a wrapper for Whoosh BM25.
-        :arg idx_dir:    Optional. If not passed then it will be "filename_idx". If no filename is passed, then it will be the current directory. 
         :arg filename:   Optional. The name of the file that is to be indexed and searched. 
                               Can be a txt or jsonl file or a gzip of the foregoing. 
+        :arg idx_dir:    Optional. If not passed then it will be "filename_idx". If no filename is passed, then it will be the current directory. 
         :arg content_data_store:      Optional. The data store object, which can be a GzipFileByLineIdx, FileByLineIdx, or 
                              anything accessible by indexing content_data_store[i] and exposing len() which returns the number of items/lines.  
                              If filename is passed byt content_data_store is not passed, it will be created. 
@@ -218,6 +218,7 @@ class Searcher(nn.Module):
     if mmap_file is None:
       mmap_file = f"{self.idx_dir}/search_index_{embed_search_field}_{embedder}_{embed_dim}.mmap"
     if content_data_store is None:
+      print (filename)
       if filename is not None:
         if filename.endswith(".gz"):
           content_data_store = GzipByLineIdx.open(filename)
@@ -246,6 +247,7 @@ class Searcher(nn.Module):
     self.skip_idxs = set(list(self.skip_idxs if hasattr(self, 'skip_idxs') and self.skip_idxs else []) + list(skip_idxs))
     if universal_embed_mode not in (None, "assigned"):
       auto_embed_text = True
+    print (auto_embed_text, self.content_data_store)
     if auto_embed_text and self.content_data_store is not None:
       self.embed_text(chunk_size=chunk_size, use_tqdm=use_tqdm)
     if universal_embed_mode not in (None, "assigned") and clusters is None:
@@ -253,7 +255,7 @@ class Searcher(nn.Module):
     if os.path.exists(self.mmap_file) and (idxs is not None or auto_create_embeddings_idx):
       self.recreate_embeddings_idx(clusters=self.clusters, span2cluster_label=span2cluster_label, idxs=idxs, max_level=max_level, max_cluster_size=max_cluster_size, \
                                min_overlap_merge_cluster=min_overlap_merge_cluster, prefered_leaf_node_size=prefered_leaf_node_size, kmeans_batch_size=kmeans_batch_size)
-    else:
+    elif self.clusters:
       self.recreate_parents_data()
     if auto_create_bm25_idx and self.content_data_store:
        self.recreate_bm25_idx(auto_create_bm25_idx=auto_create_bm25_idx, idxs=idxs, use_tqdm=use_tqdm)
@@ -366,7 +368,7 @@ class Searcher(nn.Module):
     if os.path.exists(self.mmap_file) and (idxs is not None or auto_create_embeddings_idx):
       self.recreate_embeddings_idx(clusters=self.clusters, span2cluster_label=span2cluster_label, idxs=idxs, max_level=max_level, max_cluster_size=max_cluster_size, \
                                min_overlap_merge_cluster=min_overlap_merge_cluster, prefered_leaf_node_size=prefered_leaf_node_size, kmeans_batch_size=kmeans_batch_size)
-    else:
+    elif self.clusters: 
       self.recreate_parents_data()
     if auto_create_bm25_idx and self.content_data_store:
        self.recreate_bm25_idx(auto_create_bm25_idx=auto_create_bm25_idx, idxs=idxs, use_tqdm=use_tqdm)
@@ -402,7 +404,8 @@ class Searcher(nn.Module):
   #get the sentence embedding for the sent or batch of sentences
   def get_embeddings(self, sent_or_batch):
     return get_embeddings(sent_or_batch, downsampler=self.downsampler, dtype=self.dtype, embedder=self.embedder, \
-                          universal_embed_mode=self.universal_embed_mode, prototypes=self.prototypes, universal_downsampler=self.universal_downsampler)
+                          universal_embed_mode=self.universal_embed_mode, prototypes=self.prototypes, \
+                          universal_downsampler=self.universal_downsampler)
               
   #embed all of self.content_data_store or (idx, content) for idx in idxs for the row/content from content_data_store
   def embed_text(self, start_idx=None, chunk_size=1000, idxs=None, use_tqdm=True, auto_create_bm25_idx=False, **kwargs):
