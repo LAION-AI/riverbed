@@ -123,6 +123,9 @@ class RiverbedTokenizer:
 
 #################################################################################
 #MODEL CODE
+#this class is used to model whether a segment of text is similar to training data (via perplexity using kenlm). 
+#this class also allows us to analyze the words used in the training data. 
+#it is used in conjunction with the RiverbedTokenizer to find compound words in a sentence. 
 class RiverbedModel(nn.Module):
 
   def __init__(self):
@@ -753,7 +756,11 @@ class RiverbedModel(nn.Module):
       return self
 
 
-# CODE FOR SPAN PROCESSING
+#################################################################################
+# SPAN AND DOCUMENT PROCESSOR
+# includes labeling of spans of text with different features, including clustering
+# assumes the sentences inside a document are NOT shuffeled, but documents can be shuffled. 
+
 def _intro_with_date(self, span):
     text, position, ents = span['text'], span['position'], span['ents']
     if position < 0.05 and text.strip() and (len(text) < 50 and text[0] not in "0123456789" and text[0] == text[0].upper() and text.split()[-1][0] == text.split()[-1][0].upper()):
@@ -863,11 +870,10 @@ def _generalize_text_and_filter_ents(tokenizer, tokenized_text, ents, ner_to_gen
       
     return tokenized_text, filtered_ents
   
-#################################################################################
-# SPAN AND DOCUMENT PROCESSOR
-# includes labeling of spans of text with different features, including clustering
-# assumes each batch is NOT shuffeled.    
-class SpansPeprocessor(RiverbedPreprocessor):
+
+#this class is for creating and featuring spans from multiple documents, which are fragments of one or more sentences (not necessarily a paragraph).
+#each span is a dict/json object. A span can be indexed (span_idx) by (file name, line no, offset). The spans are also clustered and searchable. 
+class RiverbedPreprocessor(PreprocessorMixin):
   RELATIVE_LOW = 0
   RELATIVE_MEDIUM = 1
   RELATIVE_HIGH= 2
@@ -1072,7 +1078,6 @@ class SpansPeprocessor(RiverbedPreprocessor):
     label2term_frequency = self.label2term_frequency = {} if not hasattr(self, 'label2term_frequency') else self.label2term_frequency
     document_frequency = self.document_frequency = {} if not hasattr(self, 'document_frequency') else self.document_frequency
     span2cluster_label = self.span2cluster_label = {} if not hasattr(self, 'span2cluster_label') else self.span2cluster_label
-    label_models = self.label_models = {} if not hasattr(self, 'label_models') else self.label_models
     if (not hasattr(model, 'kenlm_model') or model.kenlm_model is not None) and auto_create_tokenizer_and_model:
       tokenizer, model = self.tokenizer, self.model = RiverbedModel.create_tokenizer_and_model(project_name, files, )
     kenlm_model = self.model.kenlm_model 
@@ -1187,9 +1192,11 @@ class SpansPeprocessor(RiverbedPreprocessor):
       
       
           
-    span2idx, span_clusters, label2term_frequency, document_frequency, span2cluster_label, label_models = self.span2idx, self.span_clusters, self.label2term_frequency, self.document_frequency, self.span2cluster_label, self.label_models                    
+    span2idx, span_clusters, label2term_frequency, document_frequency, span2cluster_label = self.span2idx, self.span_clusters, self.label2term_frequency, self.document_frequency, self.span2cluster_label                    
     self.searcher = searcher.switch_search_context(project_name, data_iterator=data_iterator, search_field="tokenized_text", bm25_field="text", embedder=embedder, \
                              auto_embed_text=True, auto_create_bm25_idx=True, auto_create_embeddings_idx=True)
+    
+    #TODO: cleanup label2term_frequency, document_frequency
     return self
 
   def gzip_jsonl_file(self):
