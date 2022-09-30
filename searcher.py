@@ -698,7 +698,7 @@ class Searcher(nn.Module):
       self = torch.load(open(f"{idx_dir}/search_index.pickle", "rb"))
       self.idx_dir = idx_dir
       if os.path.exists(f"{idx_dir}/{self.mmap_file}"):
-        self.mmap_file = f"{idx_dir}/{self.mmap_file}
+        self.mmap_file = f"{idx_dir}/{self.mmap_file}"
       if filename:
         if filename.endswith(".gz"):
           self.content_data_store = GzipByLineIdx.open(filename)
