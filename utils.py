@@ -88,17 +88,72 @@ def use_model(embedder):
       
 def apply_model(embedder, sent):  
   global labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
-  if embedder == "clip":
-      toks = clip_processor(sent, padding=True, truncation=True, return_tensors="pt").to(device)
-      dat = clip_model.get_text_features(**toks)
-  elif embedder == "minilm":
-      toks = minilm_tokenizer(sent, padding=True, truncation=True, return_tensors="pt").to(device)
-      dat = minilm_model(**toks)
-      dat = mean_pooling(dat, toks.attention_mask)
-  elif embedder == "labse":
-      toks = labse_tokenizer(sent, padding=True, truncation=True, return_tensors="pt", max_length=400).to(device)
-      dat = labse_model(**toks).pooler_output   
-  return dat     
+  
+  if type(sent) is str:
+    if embedder == "clip":
+        toks = clip_processor(sent, padding=True, truncation=True, return_tensors="pt").to(device)
+        dat = clip_model.get_text_features(**toks)
+    elif embedder == "minilm":
+        toks = minilm_tokenizer(sent, padding=True, truncation=True, return_tensors="pt").to(device)
+        dat = minilm_model(**toks)
+        dat = mean_pooling(dat, toks.attention_mask)
+    elif embedder == "labse":
+        toks = labse_tokenizer(sent, padding=True, truncation=True, return_tensors="pt", max_length=512).to(device)
+        dat = labse_model(**toks).pooler_output   
+    return dat
+  else:
+    #poor man length batched breaking by length 1000
+    #print (len(sent))
+    batch = []
+    all_dat = []
+    doing_1000 = False
+    for s in sent:
+      if not doing_1000 and len(s) >= 1000:
+        if batch:
+          if embedder == "clip":
+            toks = clip_processor(batch, padding=True, truncation=True, return_tensors="pt").to(device)
+            dat = clip_model.get_text_features(**toks)
+          elif embedder == "minilm":
+            toks = minilm_tokenizer(batch, padding=True, truncation=True, return_tensors="pt").to(device)
+            dat = minilm_model(**toks)
+            dat = mean_pooling(dat, toks.attention_mask)
+          elif embedder == "labse":
+            toks = labse_tokenizer(batch, padding=True, truncation=True, return_tensors="pt", max_length=512).to(device)
+            dat = labse_model(**toks).pooler_output
+          all_dat.append(dat)
+        batch = [s]
+        doing_500 = True
+      elif doing_1000 and len(s) < 1000:
+        if batch:
+          if embedder == "clip":
+            toks = clip_processor(batch, padding=True, truncation=True, return_tensors="pt").to(device)
+            dat = clip_model.get_text_features(**toks)
+          elif embedder == "minilm":
+            toks = minilm_tokenizer(batch, padding=True, truncation=True, return_tensors="pt").to(device)
+            dat = minilm_model(**toks)
+            dat = mean_pooling(dat, toks.attention_mask)
+          elif embedder == "labse":
+            toks = labse_tokenizer(batch, padding=True, truncation=True, return_tensors="pt", max_length=512).to(device)
+            dat = labse_model(**toks).pooler_output
+          all_dat.append(dat)
+        batch = [s]
+        doing_500 = False
+      else:
+        batch.append(s)
+    if batch:
+      if batch:
+          if embedder == "clip":
+            toks = clip_processor(batch, padding=True, truncation=True, return_tensors="pt").to(device)
+            dat = clip_model.get_text_features(**toks)
+          elif embedder == "minilm":
+            toks = minilm_tokenizer(batch, padding=True, truncation=True, return_tensors="pt").to(device)
+            dat = minilm_model(**toks)
+            dat = mean_pooling(dat, toks.attention_mask)
+          elif embedder == "labse":
+            toks = labse_tokenizer(batch, padding=True, truncation=True, return_tensors="pt", max_length=512).to(device)
+            dat = labse_model(**toks).pooler_output
+          all_dat.append(dat)
+    return torch.vstack(all_dat)    
 
 def get_model_embed_dim(embedder):
   global labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
