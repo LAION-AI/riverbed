@@ -689,7 +689,7 @@ class Searcher(nn.Module):
       self.content_data_store.fobj = fobj
       
   @staticmethod
-  def from_pretrained(idx_dir=None, filename=None):
+  def from_pretrained(filename=None, idx_dir=None):
       global device
       assert idx_dir is not None or filename is not None
       if idx_dir is None: idx_dir = f"{filename}_idx"
