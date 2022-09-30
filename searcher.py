@@ -222,13 +222,8 @@ class Searcher(nn.Module):
         if filename.endswith(".gz"):
           content_data_store = GzipByLineIdx.open(filename)
         else:
-          content_data_store = open(filename, "rb")  
-    self.content_data_store = content_data_store
-    if self.content_data_store is None: 
-      if type(self.content_data_store) is GzipByLineIdx:
-        self.content_data_store = self.content_data_store 
-      else:   
-        self.content_data_store = FileByLineIdx(content_data_store=content_data_store) 
+          content_data_store =  FileByLineIdx(fobj=open(filename, "rb"))  
+    self.content_data_store = content_data_store 
     labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set = init_models()
     if downsampler is None:
       model_embed_dim = get_model_embed_dim(embedder)
