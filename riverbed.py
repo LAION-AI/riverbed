@@ -944,6 +944,7 @@ def _create_informative_parent_label_from_tfidf(clusters, span2idx, span2data, s
 
 #this class is for creating and featuring spans from multiple documents, which are fragments of one or more sentences (not necessarily a paragraph).
 #each span is a dict/json object. A span can be indexed (span_idx) by (file name, line no, offset). The spans are also clustered and searchable. 
+#we can use the ontology for query expansion as part of the bm25 search. 
 class RiverbedPreprocessor(PreprocessorMixin):
   RELATIVE_LOW = 0
   RELATIVE_MEDIUM = 1
@@ -972,21 +973,17 @@ class RiverbedPreprocessor(PreprocessorMixin):
       ('conclusion_with_date', _conclusion_with_date) \
       ]
   
-  def __init__(self, project_name, *args, **kwargs):
-    super().__init__()
-    
-    self.searcher = SearcherIdx(project_name, *args, **kwargs)
-  
-  def __init__(self, project_name, start_idx = 0, search_field="text",  curr_file_size, jsonl_file_idx, span2idx, batch, retained_batch, \
-                jsonl_file, batch_id_prefix, span_lfs,  span2cluster_label, \
-                text_span_size=1000, kmeans_batch_size=50000, epoch = 10, \
-                embed_batch_size=7000, min_prev_ids=10000, embedder="minilm", \
-                max_ontology_depth=4, max_top_parents=10000, do_ontology=True, \
-                running_features_per_label={}, ner_to_generalize=(), span_level_feature_extractors=default_span_level_feature_extractors, \
+
+  def __init__(self, project_name,  curr_file_size, jsonl_file_idx, span2idx, batch, retained_batch, span_lfs,  span2cluster_label, \
+                start_idx = 0, embed_search_field="text", bm25_field="text", text_span_size=1000, embedder="minilm", do_ontology=True, running_features_per_label={}, \
+                ner_to_generalize=(), span_level_feature_extractors=default_span_level_feature_extractors, \
                 running_features_size=100, label2term_frequency=None, document_frequency=None, domain_stopwords_set=stopwords_set,\
-                verbose_snrokel=False,  span_per_cluster=10, use_synonym_replacement=False, ):
+                use_synonym_replacement=False, ):
+    super().__init__()
     self.idx = start_idx
-    self.search_field = search_field
+    self.embed_search_field = embed_search_field
+    self.bm25_field = bm25_field
+    self.searcher = Searcher()
 
 
   def tokenize(self, *args, **kwargs):
