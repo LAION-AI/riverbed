@@ -687,7 +687,7 @@ class Searcher(nn.Module):
       if self.downsampler is not None:
         self.downsampler.to(device2)
       self.parents = parents
-      if type(self.content_data_store) is FileByLineIdx
+      if type(self.content_data_store) is FileByLineIdx:
         self.content_data_store.fobj = fobj
         
   @staticmethod
