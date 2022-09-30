@@ -179,7 +179,7 @@ def embed_text(dat_iter, mmap_file, start_idx=None, downsampler=None, skip_idxs=
     #a copy of get_embeddings without the overhead of switching models. makes it a bit faster.
     def _get_embeddings(sent):
       with torch.no_grad():
-        dat = apply_model(embedder, ent)
+        dat = apply_model(embedder, sent)
         dat = torch.nn.functional.normalize(dat, dim=1)
         dat = downsampler(dat)
         if universal_embed_mode:
