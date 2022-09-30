@@ -471,7 +471,7 @@ class Searcher(nn.Module):
     
     if clusters is None or idxs is not None:
       if clusters is None and idxs is not None: clusters = self.clusters
-      clusters, _ = self.cluster(clusters=clusters, span2cluster_label=span2cluster_label, cluster_idxs=idxs, max_level=max_level, max_cluster_size=max_cluster_size, \
+      clusters, _ = self.cluster(clusters=clusters, span2cluster_label=span2cluster_label, idxs=idxs, max_level=max_level, max_cluster_size=max_cluster_size, \
                                min_overlap_merge_cluster=min_overlap_merge_cluster, prefered_leaf_node_size=prefered_leaf_node_size, kmeans_batch_size=kmeans_batch_size)
     #print (clusters)
     self.clusters = clusters
@@ -488,10 +488,10 @@ class Searcher(nn.Module):
     return self.parent2idx.keys()
   
 
-  def cluster(self, clusters=None, span2cluster_label=None, cluster_idxs=None, max_level=4, max_cluster_size=200, \
+  def cluster(self, clusters=None, span2cluster_label=None, idxs=None, max_level=4, max_cluster_size=200, \
                                min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000, use_tqdm=True):
     return create_hiearchical_clusters(clusters=clusters, span2cluster_label=span2cluster_label, mmap_file=self.mmap_file, mmap_len=self.mmap_len, embed_dim=self.embed_dim, dtype=self.dtype, \
-                                      skip_idxs=self.skip_idxs, cluster_idxs=cluster_idxs, max_level=max_level, \
+                                      skip_idxs=self.skip_idxs, idxs=idxs, max_level=max_level, \
                                       max_cluster_size=max_cluster_size, min_overlap_merge_cluster=min_overlap_merge_cluster, \
                                       prefered_leaf_node_size=prefered_leaf_node_size, kmeans_batch_size=kmeans_batch_size, use_tqdm=use_tqdm)
   
