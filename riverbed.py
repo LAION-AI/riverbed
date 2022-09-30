@@ -1286,9 +1286,29 @@ class RiverbedSearcherIndexer:
 
 #given the results of the indexer and processor, perform analysis on the data seralized to jsonl.gz file and one or more searches of the indexed data.     
 class RiverbedAnalyzer:
-  pass
+  def __init__(self, project_name, searcher_indexer, processor):
+    self.project_name, self.searcher_indexer, self.processor = project_name, searcher_indexer, processor
+    
+  def search_and_label(self, positive_query_set, negative_query_set):
+    pass
+  
+  #returns a model - could be any transformer classification head or sci-kitlearn supervised learning system
+  def fit(self, labaled_content_data_store, predicted_labels):
+    pass
+  
+  #returns a tag
+  def predict(self, model, example):
+    pass
+  
+  #label all entries in the jsonl spans and emits a labeled_file_name.jsonl.gz file. Fills in the prediction in the label_field.
+  #will not label the iterm if the confidence score is below filter_below_confidence_score
+  def label_all_in_project(self, model, label_file_name, label_field, filter_below_confidence_score=0.0):
+    pass
 
 #this forms part of the view portion of the MVC
 #used for exploring and viewing different parts of data and results from the analyzer. 
+#display results and pandas data frames in command line, notebook or as a flask API service. 
 class RiverbedVisualizer:
-  pass
+  def __init__(self, project_name, analyzer, searcher_indexer, processor):
+    self.project_name, self.analyzer, self.searcher_indexer, self.processor = project_name, analyzer, searcher_indexer, processor
+    
