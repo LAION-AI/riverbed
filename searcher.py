@@ -53,6 +53,17 @@ try:
 except:
    labse_tokenizer= labse_model=  clip_processor = minilm_tokenizer= clip_model= minilm_model= spacy_nlp= stopwords_set = None
 
+
+def get_content_from_line(l, search_field="text"):
+    l =l.decode().replace("\\n", "\n").replace("\\t", "\t").strip()
+    if not l: return ''
+    if l[0] == "{" and l[-1] == "}":
+      content = l.split(search_field+'": "')[1]
+      content = content.split('", "')[0].replace("_", " ")
+    else:
+      content = l.replace("_", " ")
+    return content
+    
 class PreprocessorMixin:
   def __init__(self, start_idx = 0, embed_search_field="text", bm25_field="text"):
     raise NotImplementedError
@@ -94,7 +105,7 @@ class BasicLinePeprocessor(PreprocessorMixin):
   # gets in a lines iterator and outputs subsequent dict generator
   def process_embed_search_field(self, lines_iterator, *args, **kwargs):
     for line in lines_iterator:
-      l =  _get_content_from_line(line, self.embed_search_field)
+      l =  get_content_from_line(line, self.embed_search_field)
       if not l: 
         yield None
         continue
@@ -111,7 +122,7 @@ class BasicLinePeprocessor(PreprocessorMixin):
   # gets in a lines iterator and outputs subsequent dict generator
   def process_bm25_field(self, lines_iterator, *args, **kwargs):
     for line in lines_iterator:
-      l =  _get_content_from_line(line, self.bm25_field)
+      l =  get_content_from_line(line, self.bm25_field)
       if not l: 
         yield None
         continue
@@ -267,17 +278,17 @@ class Searcher(nn.Module):
     if universal_embed_mode:
       assert (prototypes is None and prototype_sentences is None and universal_downsampler is None) or universal_embed_mode == "assigned"
       if universal_embed_mode == "random":
-        prototype_sentences = [_get_content_from_line(self.content_data_store[i], embed_search_field) for i in random.sample(list(range(len(self.content_data_store)), min_num_prorotypes))]
+        prototype_sentences = [get_content_from_line(self.content_data_store[i], embed_search_field) for i in random.sample(list(range(len(self.content_data_store)), min_num_prorotypes))]
       elif universal_embed_mode == "cluster":
         level_0_parents = [span[1] for span in self.parent2idx.keys() if span[0] == 0]
-        prototype_sentences = [_get_content_from_line(self.content_data_store[span[1]], embed_search_field) for span in level_0_parents]
+        prototype_sentences = [get_content_from_line(self.content_data_store[span[1]], embed_search_field) for span in level_0_parents]
       assert prototype_sentences
       if len(prototype_senences) > min_num_prorotypes:
          assert universal_embed_mode != "assigned"
          prototype_senences = random.sample(prototype_senences,min_num_prorotypes)
       elif len(prototype_senences) < min_num_prorotypes:
          assert universal_embed_mode != "assigned"
-         prototype_sentences.extend([_get_content_from_line(self.content_data_store[i], embed_search_field) for i in random.sample(list(range(len(self.content_data_store)), min_num_prorotypes-len(prorotype_senences)))])
+         prototype_sentences.extend([get_content_from_line(self.content_data_store[i], embed_search_field) for i in random.sample(list(range(len(self.content_data_store)), min_num_prorotypes-len(prorotype_senences)))])
       prototypes = self.get_embeddings(prototype_sentences)
       universal_downsampler = nn.Linear(len(prototype_sentences), embed_dim, bias=False)
       self.prototype_sentences,  self.prototypes, self.universal_downsampler = prototype_sentences,  prototypes, universal_downsampler
@@ -420,7 +431,7 @@ class Searcher(nn.Module):
         content_data_store.seek(0, 0)
                                       
       for l in content_data_store:
-        yield _get_content_from_line(l, embed_search_field)
+        yield get_content_from_line(l, embed_search_field)
       if hasattr(content_data_store, 'tell'):
         content_data_store.seek(pos,0)
     ###  
@@ -428,7 +439,7 @@ class Searcher(nn.Module):
     if idxs is not None:
       #TODO:
       #data_iterator = [(idx, self.preprocessor.process_one_line_for_embed_search(self.content_data_store[idx])) for idx in idxs]
-      data_iterator = [(idx, _get_content_from_line(self.content_data_store[idx], embed_search_field)) for idx in idxs]
+      data_iterator = [(idx, get_content_from_line(self.content_data_store[idx], embed_search_field)) for idx in idxs]
     else:
       # TODO: 
       # self.preprocessor.reset_embed_search_idx(0)
@@ -521,7 +532,7 @@ class Searcher(nn.Module):
       #self.preprocessor.reset_bm25_idx(0)
       #data_iterator = self.preprocessor.process_bm25_field(content_data_store, **kwargs)
       for idx, l in data_iterator:
-          content= _get_content_from_line(l, bm25_field)
+          content= get_content_from_line(l, bm25_field)
           if not content: continue
           writer.add_document(id=str(idx), content=content)  
       writer.commit()
