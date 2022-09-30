@@ -358,12 +358,7 @@ class Searcher(nn.Module):
       if hasattr(self,f'downsampler_{self.embed_search_field}_{embedder}_{self.embed_dim}'):
         downsampler = getattr(self,f'downsampler_{self.embed_search_field}_{embedder}_{self.embed_dim}')
       else:
-        if embedder == "clip":
-          model_embed_dim = clip_model.config.text_config.hidden_size
-        elif embedder == "minilm":
-          model_embed_dim = minilm_model.config.hidden_size
-        elif embedder == "labse":
-          model_embed_dim = labse_model.config.hidden_size   
+        model_embed_dim = get_model_embed_dim(embedder)  
         downsampler = nn.Linear(model_embed_dim, self.embed_dim, bias=False).eval() 
     if clusters is None:
       if hasattr(self,f'clusters_{self.embed_search_field}_{embedder}_{self.embed_dim}'):
@@ -657,40 +652,42 @@ class Searcher(nn.Module):
     if idx_dir is not None:
       if self.idx_dir != idx_dir:
         os.system(f"cp -rf {self.idx_dir} {idx_dir}")
-    if True:
-      content_data_store = self.content_data_store
-      mmap_file = self.mmap_file
-      old_idx_dir = self.idx_dir 
-      self.idx_dir = None
-      if self.mmap_file.startswith(idx_dir):
-        self.mmap_file = self.mmap_file.split("/")[-1]
-      if hasattr(self, 'content_data_store') and self.content_data_store is not None:
-        if type(self.content_data_store) is GzipByLineIdx:
-          self.content_data_store = None
-        elif type(self.content_data_store) is FileByLineIdx:
-          fobj = self.content_data_store.fobj
-          self.content_data_store.fobj = None  
-      device2 = "cpu"
-      if self.downsampler is not None:
-        device2 = next(self.downsampler.parameters()).device
-        self.downsampler.cpu()
-      for field in dir(self):
-        if field.startswith("downsampler_"):
-              downsampler = getattr(self, field)
-              if downsampler is not None:
-                setattr(self, field, downsampler.cpu())
-      parents = self.parents
-      self.parents = None
-      torch.save(self, open(f"{idx_dir}/search_index.pickle", "wb"))
-      self.mmap_file = mmap_file
-      self.idx_dir = old_idx_dir
-      self.content_data_store = content_data_store
-      if self.downsampler is not None:
-        self.downsampler.to(device2)
-      self.parents = parents
-      if type(self.content_data_store) is FileByLineIdx:
-        self.content_data_store.fobj = fobj
-        
+    else:
+      idx_dir = self.idx_dir
+    
+    content_data_store = self.content_data_store
+    mmap_file = self.mmap_file
+    old_idx_dir = self.idx_dir 
+    self.idx_dir = None
+    if self.mmap_file.startswith(old_idx_dir):
+      self.mmap_file = self.mmap_file.split("/")[-1]
+    if hasattr(self, 'content_data_store') and self.content_data_store is not None:
+      if type(self.content_data_store) is GzipByLineIdx:
+        self.content_data_store = None
+      elif type(self.content_data_store) is FileByLineIdx:
+        fobj = self.content_data_store.fobj
+        self.content_data_store.fobj = None  
+    device2 = "cpu"
+    if self.downsampler is not None:
+      device2 = next(self.downsampler.parameters()).device
+      self.downsampler.cpu()
+    for field in dir(self):
+      if field.startswith("downsampler_"):
+            downsampler = getattr(self, field)
+            if downsampler is not None:
+              setattr(self, field, downsampler.cpu())
+    parents = self.parents
+    self.parents = None
+    torch.save(self, open(f"{idx_dir}/search_index.pickle", "wb"))
+    self.mmap_file = mmap_file
+    self.idx_dir = old_idx_dir
+    self.content_data_store = content_data_store
+    if self.downsampler is not None:
+      self.downsampler.to(device2)
+    self.parents = parents
+    if type(self.content_data_store) is FileByLineIdx:
+      self.content_data_store.fobj = fobj
+      
   @staticmethod
   def from_pretrained(idx_dir=None, filename=None):
       global device
@@ -706,7 +703,7 @@ class Searcher(nn.Module):
         elif type(self.content_data_store) is FileByLineIdx:
           self.content_data_store.fobj=open(filename, "rb")
       self.downsampler.eval().to(device)
-      self.recreate_parents_data()
+      if self.clusters: self.recreate_parents_data()
       if self.prototype_sentences and self.prototypes is None: 
         self.prototypes = self.get_embeddings(self.prototype_sentences)
       parents = self.parents
