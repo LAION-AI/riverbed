@@ -53,78 +53,10 @@ try:
 except:
    labse_tokenizer= labse_model=  clip_processor = minilm_tokenizer= clip_model= minilm_model= spacy_nlp= stopwords_set = None
 
-
-# code more informative labels for the span clusters
-def _create_informative_parent_label_from_tfidf(clusters, span2idx, span2data, span2cluster_label, span_label2user_label=None, \
-                                          label2term_frequency=None, document_frequency=None, domain_stopwords_set=stopwords_set, max_levels=4):
-    if label2term_frequency is None: label2term_frequency = {}
-    if document_frequency is None: document_frequency = {}
-    if span_label2user_label is None: span_label2user_label = {}
-    #we gather info for term_frequency-inverse_document_frequency with respect to each token in each clusters
-    for label, values in clusters.items(): 
-      if label[0] == 0 and label not in span_label2user_label:
-        for item in values:
-          if span in span2idx:
-            data = span2data[span]
-            text = data['tokenized_text']
-            #we don't want the artificial labels to skew the tfidf calculations
-            #assumes we don't have more than 10 of the same label
-            text = text.replace('The Organization','').replace('The_Organization','')
-            text = text.replace('The Person','').replace('The_Person','')
-            text = text.replace('The Facility','').replace('The_Facility','')
-            text = text.replace('The Location','').replace('The_Location','')          
-            text = text.replace('The Date','').replace('The_Date','')
-            text = text.replace('The Law','').replace('The_Law','')
-            text = text.replace('The Amount','').replace('The_Amount','')
-            text = text.replace('The Event','').replace('The_Event','')
-            
-            #we add back the entities we had replaced with the artificial labels into the term_frequency-inverse_document_frequency calculations
-            ents =  list(itertools.chain(*[[a[0].replace(" ", "_")]*a[-1] for a in span['ents']]))
-            if span['offset'] == 0:
-              if "||" in text:
-                prefix, text = text.split("||",1)
-                prefix = prefix.split(":")[-1].split(";")[-1].strip()
-                text = prefix.split() + text.replace("(", " ( ").replace(")", " ) ").split() + ents
-              else:
-                 text = text.replace("(", " ( ").replace(")", " ) ").split() + ents
-            else:
-              text = text.split("||",1)[-1].strip().split() + ents
-            len_text = len(text)
-            text = [a for a in text if len(a) > 1 and ("_" not in a or (a.count("_")+1 != len([b for b in a.lower().split("_") if  b in domain_stopwords_set])))  and a.lower() not in domain_stopwords_set and a[0].lower() in "abcdefghijklmnopqrstuvwxyz"]
-            cnts = Counter(text)
-            aHash = label2term_frequency[label] =  label2term_frequency.get(label, {})
-            for token, cnt in cnts.items():
-              aHash[token] = cnt/len_text
-            for token in cnts.keys():
-              document_frequency[token] = document_frequency.get(token,0) + 1
-      
-    #Now, acually create the new label from the tfidf of the tokens in this cluster
-    #TODO, see how we might save away the tfidf or get the tfidf from the bm25 indexer. 
-    for label, term_frequency in label2term_frequency.items():
-        tfidf = copy.copy(term_frequency)    
-        for token in list(tfidf.keys()):
-          tfidf[token]  = tfidf[token] * min(1.5, tokenizer.token2weight.get(token, 1)) * math.log(1.0/(1+document_frequency[token]))
-        top_tokens2 = [a[0].lower().strip("~!@#$%^&*()<>,.:;")  for a in Counter(tfidf).most_common(min(len(tfidf), 40))]
-        top_tokens2 = [a for a in top_tokens2 if a not in domain_stopwords_set and ("_" not in a or (a.count("_")+1 != len([b for b in a.split("_") if  b in domain_stopwords_set])))]
-        top_tokens = []
-        for t in top_tokens2:
-          if t not in top_tokens:
-            top_tokens.append(t)
-        if top_tokens:
-          if len(top_tokens) > 5: top_tokens = top_tokens[:5]
-          new_label = ", ".join(top_tokens) 
-          span_label2user_label[label] = new_label
-          
-    #create parent labels
-    for old_label, new_label in span_label2user_label.items():
-      for parent_old_label in [(level, old_label[1]) for level in range(1, max_levels)]:
-        if parent_old_label clusters:
-          span_label2user_label[parent_old_label]= ("¶"*parent_old_label[0])+new_label
-      
-    return span_label2user_label, label2term_frequency, document_frequency
-  
-class RiverbedPreprocessor:
-  
+class PreprocessorMixin:
+  def __init__(self, start_idx = 0, embed_search_field="text", bm25_field="text"):
+    raise NotImplementedError
+    
   def process(self, *args, **kwargs):
     raise NotImplementedError
     
@@ -134,15 +66,23 @@ class RiverbedPreprocessor:
   def serialize(self, *args, **kwargs):
     raise NotImplementedError  
         
-class BasicLinePrepocessor(RiverbedPreprocessor):
-  def __init__(self, start_idx = 0, search_field="text"):
-    self.idx = start_idx
-    self.search_field = search_field
-
+class BasicLinePrepocessor(PreprocessorMixin):
+  def __init__(self, start_idx = 0, embed_search_field="text", bm25_field="text"):
+    self.reset_embed_search_idx(start_idx_
+    self.reset_bm25_idx(start_idx)
+    self.embed_search_field = embed_search_field
+    self.bm25_field = bm25_field
+  
+  def reset_embed_search_idx(self, start_idx):
+     self.embed_search_idx = start_idx
+      
+  def reset_bm25_idx(self, start_idx):
+     self.bm25_idx = start_idx
+      
   # gets in a lines iterator and outputs subsequent dict generator
-  def process(self, lines_iterator, *args, **kwargs):
+  def process_embed_search_field(self, lines_iterator, *args, **kwargs):
     for line in lines_iterator:
-      l =  _get_content_from_line(line, self.search_field)
+      l =  _get_content_from_line(line, self.embed_search_field)
       if not l: 
         yield None
         continue
@@ -153,8 +93,25 @@ class BasicLinePrepocessor(RiverbedPreprocessor):
       offset = 0
       for l2 in l.split("\\n"):
         offset = line.index(l2, offset)
-        yield {'idx': self.idx, 'offset': offset, 'text': l2}
-      self.idx += 1
+        yield {'idx': self.embed_search_idx, 'offset': offset, 'text': l2}
+      self.embed_search_idx += 1
+      
+  # gets in a lines iterator and outputs subsequent dict generator
+  def process_bm25_field(self, lines_iterator, *args, **kwargs):
+    for line in lines_iterator:
+      l =  _get_content_from_line(line, self.embed_search_field)
+      if not l: 
+        yield None
+        continue
+      try:
+        line = line.decode()
+      except:
+        pass
+      offset = 0
+      for l2 in l.split("\\n"):
+        offset = line.index(l2, offset)
+        yield {'idx': self.bm25_idx, 'offset': offset, 'text': l2}
+      self.bm25_idx += 1
 
 #TODO. Change this to inherit from a transformers.PretrainedModel.
 class Searcher(nn.Module):
@@ -162,12 +119,12 @@ class Searcher(nn.Module):
   def __init__(self,  idx_dir=None, filename=None, content_data_store=None, mmap_file=None, mmap_len=0, embed_dim=25, dtype=np.float16, \
                parents=None, parent_levels=None, parent_labels=None, skip_idxs=None, \
                parent2idx=None, top_parents=None, top_parent_idxs=None, clusters=None,  embedder="minilm", chunk_size=1000, \
-               search_field="text", bm25_field=None, downsampler=None, auto_embed_text=False, \
+               embed_search_field="text", bm25_field=None, downsampler=None, auto_embed_text=False, \
                auto_create_embeddings_idx=False, auto_create_bm25_idx=False,  \
                span2cluster_label=None, idxs=None, max_level=4, max_cluster_size=200, \
                min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000, \
                universal_embed_mode = None, prototype_sentences=None,  prototypes=None, universal_downsampler =None, min_num_prorotypes=50000, \
-               use_tqdm=True, search_field_preprocessor=None, bm25_field_preprocessor=None
+               use_tqdm=True, embed_search_field_preprocessor=None, bm25_field_preprocessor=None
               ):
     #TODO, add a embedding_preprocessor. Given a batch of sentences, and an embedding, create additional embeddings corresponding to the batch. 
     """
@@ -203,9 +160,9 @@ class Searcher(nn.Module):
         :arg auto_embed_text. Optional. Will populate the mmap_file from the data from filename/content_data_store. 
         :arg auto_create_bm25_idx: Optional. Will do BM25 indexing of the contents of the file using whoosh, with stemming.
         :arg content_data_store           Optional. The access for a file by lines.
-        :arg search_field:      Optional. Defaults to "text". If the data is in jsonl format,
+        :arg embed_search_field:      Optional. Defaults to "text". If the data is in jsonl format,
                               this is the field that is Whoosh/bm25 indexed.
-        :arg bm25_field:        Optional. Can be different than the search_field. If none, then will be set to the search_field.
+        :arg bm25_field:        Optional. Can be different than the embed_search_field. If none, then will be set to the embed_search_field.
         :arg idxs:                Optional. Only these idxs should be indexed and searched.
         :arg skip_idxs:           Optional. The indexes that are empty and should not be searched or clustered.
         :arg content_data_store:           Optional. 
@@ -219,8 +176,7 @@ class Searcher(nn.Module):
         :arg min_num_prorotypes Optional. Will control the number of prototypes.
         :arg universal_downsampler Optional. The pythorch downsampler for mapping the output described above to a lower dimension that works across embedders
                                   and concept drift in the same embedder. maps from # of prototypes -> embed_dim. 
-        :arg search_field_preprocessor:    Optional. If not set, then the BasicLineProcessor will be used.
-        :arg bm25_field_preprocessor:      Optional. If not set, then the BasicLineProcessor will be used.
+        :arg preprocessor:      Optional. If not set, then the BasicLineProcessor will be used.
         
       NOTE: Either pass in the parents, parent_levels, parent_labels, and parent2idx data is pased or clusters is passed. 
           If none of these are passed and auto_create_embeddings_idx is set, then the data in the mmap file will be clustered and the 
@@ -238,20 +194,15 @@ class Searcher(nn.Module):
     global device
     global  labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
     super().__init__()
-    if search_field_preprocessor is None: search_field_preprocessor = BasicLineProcessor(search_field=search_field)
-    if bm25_field_preprocessor is None: 
-       if bm25_field is None:
-          bm25_field_preprocessor = search_field_preprocessor
-        else:
-          bm25_field_preprocessor = = BasicLinePreprocessor(search_field=bm25_field_preprocessor)
-    self.embedder, self.search_field_preprocessor, self.bm25_field_preprocessor = embedder, search_field_preprocessor, bm25_field_preprocessor
+    if embed_search_field_preprocessor is None: embed_search_field_preprocessor = BasicLineProcessor(embed_search_field=embed_search_field, bm25_field=bm25_field)
+    self.embedder, self.preprocessor = embedder, preprocessor
     if idx_dir is None and filename is not None
       idx_dir = f"{filename}_idx"
     elif idx_dir is None: idx_dir = "./"
       
     self.idx_dir = idx_dir
     if mmap_file is None:
-      mmap_file = f"{self.idx_dir}/search_index_{search_field}_{embedder}_{embed_dim}.mmap"
+      mmap_file = f"{self.idx_dir}/search_index_{embed_search_field}_{embedder}_{embed_dim}.mmap"
     if content_data_store is None:
       if filename.endswith(".gz"):
         content_data_store = self.content_data_store = GzipByLineIdx.open(filename)
@@ -276,9 +227,9 @@ class Searcher(nn.Module):
       elif embedder == "labse":
         model_embed_dim = labse_model.config.hidden_size   
       downsampler = nn.Linear(model_embed_dim, embed_dim, bias=False).eval() 
-    if bm25_field is None: bm25_field = search_field
-    self.universal_embed_mode, self.mmap_file, self.mmap_len, self.embed_dim, self.dtype, self.clusters, self.parent2idx,  self.parents, self.top_parents, self.top_parent_idxs, self.search_field, self.bm25_field, self.downsampler  = \
-             universal_embed_mode, mmap_file, mmap_len, embed_dim, dtype, clusters, parent2idx, parents, top_parents, top_parent_idxs, search_field, bm25_field, downsampler
+    if bm25_field is None: bm25_field = embed_search_field
+    self.universal_embed_mode, self.mmap_file, self.mmap_len, self.embed_dim, self.dtype, self.clusters, self.parent2idx,  self.parents, self.top_parents, self.top_parent_idxs, self.embed_search_field, self.bm25_field, self.downsampler  = \
+             universal_embed_mode, mmap_file, mmap_len, embed_dim, dtype, clusters, parent2idx, parents, top_parents, top_parent_idxs, embed_search_field, bm25_field, downsampler
     self.prototype_sentences,  self.prototypes, self.universal_downsampler = prototype_sentences,  prototypes, universal_downsampler
     if self.downsampler is not None: 
       if self.dtype == np.float16:
@@ -304,24 +255,26 @@ class Searcher(nn.Module):
     else:
       self.recreate_parents_data()
     if auto_create_bm25_idx and self.content_data_store:
-       self.recreate_whoosh_idx(auto_create_bm25_idx=auto_create_bm25_idx, idxs=idxs, use_tqdm=use_tqdm)
-    setattr(self,f'downsampler_{self.search_field}_{embedder}_{self.embed_dim}', self.downsampler)
-    setattr(self,f'clusters_{self.search_field}_{self.embedder}_{self.embed_dim}', self.clusters)
+       self.recreate_bm25_idx(auto_create_bm25_idx=auto_create_bm25_idx, idxs=idxs, use_tqdm=use_tqdm)
+    setattr(self,f'downsampler_{self.embed_search_field}_{embedder}_{self.embed_dim}', self.downsampler)
+    setattr(self,f'clusters_{self.embed_search_field}_{self.embedder}_{self.embed_dim}', self.clusters)
+    
+    ## experimental universal embedding code
     self.universal_embed_mode = universal_embed_mode
     if universal_embed_mode:
       assert (prototypes is None and prototype_sentences is None and universal_downsampler is None) or universal_embed_mode == "assigned"
       if universal_embed_mode == "random":
-        prototype_sentences = [_get_content_from_line(self.content_data_store[i], search_field) for i in random.sample(list(range(len(self.content_data_store)), min_num_prorotypes))]
+        prototype_sentences = [_get_content_from_line(self.content_data_store[i], embed_search_field) for i in random.sample(list(range(len(self.content_data_store)), min_num_prorotypes))]
       elif universal_embed_mode == "cluster":
         level_0_parents = [span[1] for span in self.parent2idx.keys() if span[0] == 0]
-        prototype_sentences = [_get_content_from_line(self.content_data_store[span[1]], search_field) for span in level_0_parents]
+        prototype_sentences = [_get_content_from_line(self.content_data_store[span[1]], embed_search_field) for span in level_0_parents]
       assert prototype_sentences
       if len(prototype_senences) > min_num_prorotypes:
          assert universal_embed_mode != "assigned"
          prototype_senences = random.sample(prototype_senences,min_num_prorotypes)
       elif len(prototype_senences) < min_num_prorotypes:
          assert universal_embed_mode != "assigned"
-         prototype_sentences.extend([_get_content_from_line(self.content_data_store[i], search_field) for i in random.sample(list(range(len(self.content_data_store)), min_num_prorotypes-len(prorotype_senences)))])
+         prototype_sentences.extend([_get_content_from_line(self.content_data_store[i], embed_search_field) for i in random.sample(list(range(len(self.content_data_store)), min_num_prorotypes-len(prorotype_senences)))])
       prototypes = self.get_embeddings(prototype_sentences)
       universal_downsampler = nn.Linear(len(prototype_sentences), embed_dim, bias=False)
       self.prototype_sentences,  self.prototypes, self.universal_downsampler = prototype_sentences,  prototypes, universal_downsampler
@@ -337,7 +290,7 @@ class Searcher(nn.Module):
           self.prototypes = self.prototypes.to(device)
       #now re-create the embeddings, and remove the old embedder based embeddings since we won't use those anymore.
       os.system(f"rm -rf {self.mmap_file}")
-      self.mmap_file = f"{self.idx_dir}/search_index_{search_field}_universal_{embed_dim}.mmap"
+      self.mmap_file = f"{self.idx_dir}/search_index_{embed_search_field}_universal_{embed_dim}.mmap"
       if auto_embed_text and self.content_data_store is not None:
         self.embed_text(chunk_size=chunk_size, use_tqdm=use_tqdm)
       self.recreate_parents_data()
@@ -367,6 +320,7 @@ class Searcher(nn.Module):
       dat = self.universal_downsampler(dat)
     return dat
   
+  #switch to a different embedder for the same data.
   def switch_search_context(self, downsampler = None, mmap_file=None, embedder="minilm", clusters=None, \
                             span2cluster_label=None, idxs=None, max_level=4, max_cluster_size=200, chunk_size=1000,  \
                             parent2idx=None, parents=None, top_parents=None, top_parent_idxs=None, skip_idxs=None, \
@@ -374,7 +328,7 @@ class Searcher(nn.Module):
                             reuse_clusters=False, min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000, use_tqdm=True
                           ):
     global device
-    if hasattr(self,f'downsampler_{self.search_field}_{self.embedder}_{self.embed_dim}'): getattr(self,f'downsampler_{self.search_field}_{self.embedder}_{self.embed_dim}').cpu()
+    if hasattr(self,f'downsampler_{self.embed_search_field}_{self.embedder}_{self.embed_dim}'): getattr(self,f'downsampler_{self.embed_search_field}_{self.embedder}_{self.embed_dim}').cpu()
     if hasattr(self, 'downsampler') and self.downsampler is not None: self.downsampler.cpu()
     content_data_store = self.content_data_store
     if self.universal_embed_mode == "clustered":
@@ -384,13 +338,13 @@ class Searcher(nn.Module):
       clusters = self.clusters
     if mmap_file is None:
       if  self.universal_embed_mode:
-        mmap_file = f"{self.idx_dir}/search_index_{self.search_field}_universal_{self.embed_dim}.mmap"
+        mmap_file = f"{self.idx_dir}/search_index_{self.embed_search_field}_universal_{self.embed_dim}.mmap"
         auto_embed_text=not os.path.exists(self.mmap_file) # the universal embeddings are created once. 
       else:
-        mmap_file = f"{self.idx_dir}/search_index_{self.search_field}_{embedder}_{self.embed_dim}.mmap"
+        mmap_file = f"{self.idx_dir}/search_index_{self.embed_search_field}_{embedder}_{self.embed_dim}.mmap"
     if downsampler is None:
-      if hasattr(self,f'downsampler_{self.search_field}_{embedder}_{self.embed_dim}'):
-        downsampler = getattr(self,f'downsampler_{self.search_field}_{embedder}_{self.embed_dim}')
+      if hasattr(self,f'downsampler_{self.embed_search_field}_{embedder}_{self.embed_dim}'):
+        downsampler = getattr(self,f'downsampler_{self.embed_search_field}_{embedder}_{self.embed_dim}')
       else:
         if embedder == "clip":
           model_embed_dim = clip_model.config.text_config.hidden_size
@@ -400,8 +354,8 @@ class Searcher(nn.Module):
           model_embed_dim = labse_model.config.hidden_size   
         downsampler = nn.Linear(model_embed_dim, self.embed_dim, bias=False).eval() 
     if clusters is None:
-      if hasattr(self,f'clusters_{self.search_field}_{embedder}_{self.embed_dim}'):
-        clusters = getattr(self,f'clusters_{self.search_field}_{embedder}_{self.embed_dim}')
+      if hasattr(self,f'clusters_{self.embed_search_field}_{embedder}_{self.embed_dim}'):
+        clusters = getattr(self,f'clusters_{self.embed_search_field}_{embedder}_{self.embed_dim}')
     self.embedder, self.mmap_file, self.clusters, self.parent2idx,  self.parents, self.top_parents, self.top_parent_idxs,  self.downsampler  = \
              embedder, mmap_file, clusters, parent2idx, parents, top_parents, top_parent_idxs, downsampler
     if skip_idxs is None: skip_idxs = []
@@ -414,7 +368,9 @@ class Searcher(nn.Module):
     else:
       self.recreate_parents_data()
     if auto_create_bm25_idx and self.content_data_store:
-       self.recreate_whoosh_idx(auto_create_bm25_idx=auto_create_bm25_idx, idxs=idxs, use_tqdm=use_tqdm)
+       self.recreate_bm25_idx(auto_create_bm25_idx=auto_create_bm25_idx, idxs=idxs, use_tqdm=use_tqdm)
+        
+    #experimental universal embedding code
     if self.universal_embed_mode is not None and self.prototype_sentences:
       self.prototypes = self.get_embeddings(self.prototype_sentences)
     if self.downsampler is not None: 
@@ -432,8 +388,8 @@ class Searcher(nn.Module):
         self.prototypes = self.prototypes.half().to(device)
       else:
         self.prototypes = self.prototypes.to(device)
-    setattr(self,f'downsampler_{self.search_field}_{embedder}_{self.embed_dim}', self.downsampler)
-    setattr(self,f'clusters_{self.search_field}_{self.embedder}_{self.embed_dim}', self.clusters)
+    setattr(self,f'downsampler_{self.embed_search_field}_{embedder}_{self.embed_dim}', self.downsampler)
+    setattr(self,f'clusters_{self.embed_search_field}_{self.embedder}_{self.embed_dim}', self.clusters)
     parents = self.parents
     del self.parents
     self.register_buffer('parents', parents)
@@ -442,7 +398,7 @@ class Searcher(nn.Module):
     self.register_buffer('prototypes', prototypes)
     return self
   
-  #get the sentence embedding for the sent or batch
+  #get the sentence embedding for the sent or batch of sentences
   def get_embeddings(self, sent_or_batch):
     return get_embeddings(sent_or_batch, downsampler=self.downsampler, dtype=self.dtype, embedder=self.embedder, \
                           universal_embed_mode=self.universal_embed_mode, prototypes=self.prototypes, universal_downsampler=self.universal_downsampler)
@@ -451,28 +407,34 @@ class Searcher(nn.Module):
   def embed_text(self, start_idx=None, chunk_size=1000, idxs=None, use_tqdm=True, auto_create_bm25_idx=False, **kwargs):
     assert self.content_data_store is not None
     if start_idx is None: start_idx = 0
-    search_field = self.search_field 
+    embed_search_field = self.embed_search_field 
     ###
-    def content_data_store_data_reader():
+    def content_data_store_reader():
       content_data_store = self.content_data_store
       if hasattr(content_data_store, 'tell'):
         pos = content_data_store.tell()
         content_data_store.seek(0, 0)
+                                      
       for l in content_data_store:
-        yield _get_content_from_line(l, search_field)
+        yield _get_content_from_line(l, embed_search_field)
       if hasattr(content_data_store, 'tell'):
         content_data_store.seek(pos,0)
     ###  
     
     if idxs is not None:
-      data_iterator = [(idx, _get_content_from_line(self.content_data_store[idx], search_field)) for idx in idxs]
+      #TODO:
+      #data_iterator = [(idx, self.preprocessor.process_one_line_for_embed_search(self.content_data_store[idx])) for idx in idxs]
+      data_iterator = [(idx, _get_content_from_line(self.content_data_store[idx], embed_search_field)) for idx in idxs]
     else:
-      data_iterator = content_data_store_data_reader()  
-    # we can feed the data_iterator = self.search_field_preprocessor(data_iterator, **kwargs)
+      # TODO: 
+      # self.preprocessor.reset_embed_search_idx(0)
+      # data_iterator = self.preprocessor.process_embed_search_field(data_iterator, **kwargs)
+      data_iterator = content_data_store_reader()  
+    
     self.mmap_len, skip_idxs =  embed_text(data_iterator, self.mmap_file, start_idx=start_idx, downsampler=self.downsampler, \
                           mmap_len=self.mmap_len, embed_dim=self.embed_dim, embedder=self.embedder, chunk_size=chunk_size, use_tqdm=use_tqdm, \
                           universal_embed_mode=self.universal_embed_mode, prototypes=self.prototypes, universal_downsampler=self.universal_downsampler)
-    setattr(self,f'downsampler_{self.search_field}_{self.embedder}_{self.embed_dim}', self.downsampler)
+    setattr(self,f'downsampler_{self.embed_search_field}_{self.embedder}_{self.embed_dim}', self.downsampler)
     self.skip_idxs = set(list(self.skip_idxs)+skip_idxs)
       
 
@@ -522,7 +484,7 @@ class Searcher(nn.Module):
   
   
   
-  def recreate_whoosh_idx(self, auto_create_bm25_idx=False, idxs=None, use_tqdm=True):
+  def recreate_bm25_idx(self, auto_create_bm25_idx=False, idxs=None, use_tqdm=True):
     assert self.content_data_store is not None
     content_data_store = self.content_data_store
     bm25_field = self.bm25_field 
@@ -551,6 +513,9 @@ class Searcher(nn.Module):
           data_iterator = tqdm.tqdm(enumerate(content_data_store))
         else:
           data_iterator = enumerate(content_data_store)
+      # TODO: 
+      #self.preprocessor.reset_bm25_idx(0)
+      #data_iterator = self.preprocessor.process_bm25_field(content_data_store, **kwargs)
       for idx, l in data_iterator:
           content= _get_content_from_line(l, bm25_field)
           if not content: continue
@@ -560,8 +525,6 @@ class Searcher(nn.Module):
         content_data_store.seek(pos,0)
 
                
-  def whoosh_searcher(self):
-      return self.whoosh_ix.searcher()
     
   #search using embedding based and/or bm25 search. returns generator of a dict obj containing the results in 'id', 'text',and 'score. 
   #if the underlying data is jsonl, then the result of the data will also be returned in the dict.
@@ -597,7 +560,7 @@ class Searcher(nn.Module):
       cnt = limit
     if query is not None:        
       assert hasattr(self, 'whoosh_ix'), "must be created with bm25 indexing"
-      with self.whoosh_searcher() as searcher:
+      with self.whoosh_ix.searcher() as searcher:
         if type(query) is str:
            query = QueryParser("content", self.whoosh_ix.schema).parse(query)
         results = searcher.search(query, limit=limit)
