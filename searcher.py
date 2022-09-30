@@ -693,8 +693,8 @@ class Searcher(nn.Module):
   @staticmethod
   def from_pretrained(idx_dir=None, filename=None):
       global device
-      assert idx_dir is not None or filename is not None:
-        if idx_dir is None: idx_dir = f"{filename}_idx"
+      assert idx_dir is not None or filename is not None
+      if idx_dir is None: idx_dir = f"{filename}_idx"
       self = torch.load(open(f"{idx_dir}/search_index.pickle", "rb"))
       self.idx_dir = idx_dir
       if os.path.exists(f"{idx_dir}/{self.mmap_file}"):
