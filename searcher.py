@@ -213,17 +213,16 @@ class Searcher(nn.Module):
     elif idx_dir is None: idx_dir = "./"
       
     self.idx_dir = idx_dir
+    if not os.path.exists(self.idx_dir):
+      os.makedirs(self.idx_dir)   
     if mmap_file is None:
       mmap_file = f"{self.idx_dir}/search_index_{embed_search_field}_{embedder}_{embed_dim}.mmap"
     if content_data_store is None:
-      if filename.endswith(".gz"):
-        content_data_store = self.content_data_store = GzipByLineIdx.open(filename)
-      else:
-        content_data_store = self.content_data_store = open(filename, "rb")  
-    else:
-      self.content_data_store = content_data_store
-    if not os.path.exists(self.idx_dir):
-      os.makedirs(self.idx_dir)   
+      if filename is not None:
+        if filename.endswith(".gz"):
+          content_data_store = GzipByLineIdx.open(filename)
+        else:
+          content_data_store = open(filename, "rb")  
     self.content_data_store = content_data_store
     if self.content_data_store is None: 
       if type(self.content_data_store) is GzipByLineIdx:
@@ -232,12 +231,7 @@ class Searcher(nn.Module):
         self.content_data_store = FileByLineIdx(content_data_store=content_data_store) 
     labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set = init_models()
     if downsampler is None:
-      if embedder == "clip":
-        model_embed_dim = clip_model.config.text_config.hidden_size
-      elif embedder == "minilm":
-        model_embed_dim = minilm_model.config.hidden_size
-      elif embedder == "labse":
-        model_embed_dim = labse_model.config.hidden_size   
+      model_embed_dim = get_model_embed_dim(embedder)
       downsampler = nn.Linear(model_embed_dim, embed_dim, bias=False).eval() 
     if bm25_field is None: bm25_field = embed_search_field
     self.universal_embed_mode, self.mmap_file, self.mmap_len, self.embed_dim, self.dtype, self.clusters, self.parent2idx,  self.parents, self.top_parents, self.top_parent_idxs, self.embed_search_field, self.bm25_field, self.downsampler  = \
