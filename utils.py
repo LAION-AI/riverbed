@@ -227,7 +227,7 @@ def get_embeddings(sent, downsampler, dtype=np.float16, embedder="minilm", unive
 #create embeddings for all text in dat_iter. data_iter can be an interable of just the text or a (idx, text) pair.
 #saves to the mmap_file. returns downsampler, skip_idxs, dtype, mmap_len, embed_dim.
 #skip_idxs are the lines/embeddings that are empty and should not be clustered search indexed.
-def embed_text(dat_iter, mmap_file, start_idx=None, downsampler=None, skip_idxs=None,  dtype=np.float16, mmap_len=0, embed_dim=25,  embedder="minilm", chunk_size=500,  universal_embed_mode=None, prototypes=None, universal_downsampler=None, use_tqdm=True):
+def embed_text(dat_iter, mmap_file, start_idx=None, downsampler=None, skip_idxs=None,  dtype=np.float16, mmap_len=0, embed_dim=25,  embedder="minilm", chunk_size=1000,  universal_embed_mode=None, prototypes=None, universal_downsampler=None, use_tqdm=True):
     global device, labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
     assert not universal_embed_mode or (prototypes is not None and universal_downsampler is not None)   
     assert downsampler is not None
