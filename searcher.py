@@ -141,7 +141,7 @@ class Searcher(nn.Module):
   
   def __init__(self,  filename=None, idx_dir=None, content_data_store=None, mmap_file=None, mmap_len=0, embed_dim=25, dtype=np.float16, \
                parents=None, parent_levels=None, parent_labels=None, skip_idxs=None, \
-               parent2idx=None, top_parents=None, top_parent_idxs=None, clusters=None,  embedder="minilm", chunk_size=1000, \
+               parent2idx=None, top_parents=None, top_parent_idxs=None, clusters=None,  embedder="minilm", chunk_size=500, \
                embed_search_field="text", bm25_field=None, downsampler=None, auto_embed_text=False, \
                auto_create_embeddings_idx=False, auto_create_bm25_idx=False,  \
                span2cluster_label=None, idxs=None, max_level=4, max_cluster_size=200, \
@@ -334,7 +334,7 @@ class Searcher(nn.Module):
   
   #switch to a different embedder for the same data.
   def switch_search_context(self, downsampler = None, mmap_file=None, embedder="minilm", clusters=None, \
-                            span2cluster_label=None, idxs=None, max_level=4, max_cluster_size=200, chunk_size=1000,  \
+                            span2cluster_label=None, idxs=None, max_level=4, max_cluster_size=200, chunk_size=500,  \
                             parent2idx=None, parents=None, top_parents=None, top_parent_idxs=None, skip_idxs=None, \
                             auto_embed_text=False,auto_create_embeddings_idx=False, auto_create_bm25_idx=False,  \
                             reuse_clusters=False, min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000, use_tqdm=True
@@ -412,7 +412,7 @@ class Searcher(nn.Module):
                           universal_downsampler=self.universal_downsampler)
               
   #embed all of self.content_data_store or (idx, content) for idx in idxs for the row/content from content_data_store
-  def embed_text(self, start_idx=None, chunk_size=1000, idxs=None, use_tqdm=True, auto_create_bm25_idx=False, **kwargs):
+  def embed_text(self, start_idx=None, chunk_size=500, idxs=None, use_tqdm=True, auto_create_bm25_idx=False, **kwargs):
     assert self.content_data_store is not None
     if start_idx is None: start_idx = 0
     embed_search_field = self.embed_search_field 
