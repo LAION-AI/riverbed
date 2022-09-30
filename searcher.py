@@ -208,7 +208,7 @@ class Searcher(nn.Module):
     super().__init__()
     if embed_search_field_preprocessor is None: embed_search_field_preprocessor = BasicLineProcessor(embed_search_field=embed_search_field, bm25_field=bm25_field)
     self.embedder, self.preprocessor = embedder, preprocessor
-    if idx_dir is None and filename is not None
+    if idx_dir is None and filename is not None:
       idx_dir = f"{filename}_idx"
     elif idx_dir is None: idx_dir = "./"
       
