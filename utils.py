@@ -98,6 +98,15 @@ def apply_model(embedder, sent):
       dat = labse_model(**toks).pooler_output   
   return dat     
 
+def get_model_embed_dim(embedder):
+  if embedder == "clip":
+    return clip_model.config.text_config.hidden_size
+  elif embedder == "minilm":
+    return minilm_model.config.hidden_size
+  elif embedder == "labse":
+    return labse_model.config.hidden_size   
+
+
 def _get_content_from_line(l, search_field="text"):
     l =l.decode().replace("\\n", "\n").replace("\\t", "\t").strip()
     if not l: return ''
