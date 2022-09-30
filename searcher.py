@@ -56,23 +56,35 @@ except:
 class PreprocessorMixin:
   def __init__(self, start_idx = 0, embed_search_field="text", bm25_field="text"):
     raise NotImplementedError
-    
-  def process(self, *args, **kwargs):
+
+  def reset_embed_search_idx(self, start_idx):
     raise NotImplementedError
     
-  def index(self, *args, **kwargs):
+  def reset_bm25_idx(self, start_idx):
     raise NotImplementedError
   
-  def serialize(self, *args, **kwargs):
+  def process_embed_search_field(self, lines_iterator, *args, **kwargs):
+    raise NotImplementedError
+
+  def process_bm25_field(self, lines_iterator, *args, **kwargs):
     raise NotImplementedError  
-        
+  
+  def process_one_line_for_embed_search_field(self, line, *args, **kwargs):
+    raise NotImplementedError
+
+  def process_one_line_for_bm25_field(self, line, *args, **kwargs):
+    raise NotImplementedError  
+
+#TODO. modify the embed_text function to store away a tuple idx -> embedding idx. The tuple idx corresponds to a unique id generated 
+#by the preprocessor, e.g., (lineno, offset) or (file name, lineno, offset), etc. 
 class BasicLinePrepocessor(PreprocessorMixin):
-  def __init__(self, start_idx = 0, embed_search_field="text", bm25_field="text"):
-    self.reset_embed_search_idx(start_idx_
+  def __init__(self, start_idx = 0, embed_search_field="text", bm25_field="text", searcher=None):
+    self.reset_embed_search_idx(start_idx)
     self.reset_bm25_idx(start_idx)
     self.embed_search_field = embed_search_field
     self.bm25_field = bm25_field
-  
+    self.searcher = searcher
+    
   def reset_embed_search_idx(self, start_idx):
      self.embed_search_idx = start_idx
       
@@ -99,7 +111,7 @@ class BasicLinePrepocessor(PreprocessorMixin):
   # gets in a lines iterator and outputs subsequent dict generator
   def process_bm25_field(self, lines_iterator, *args, **kwargs):
     for line in lines_iterator:
-      l =  _get_content_from_line(line, self.embed_search_field)
+      l =  _get_content_from_line(line, self.bm25_field)
       if not l: 
         yield None
         continue
