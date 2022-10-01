@@ -32,7 +32,7 @@ from sklearn.cluster import MiniBatchKMeans
 from collections import Counter
 import random
 import tqdm
-from transformers import AutoTokenizer, AutoModel, BertTokenizerFast, CLIPProcessor, CLIPModel, BertModel
+from transformers import AutoModelForMaskedLM, AutoTokenizer, AutoModel, BertTokenizerFast, CLIPProcessor, CLIPModel, BertModel
 from nltk.corpus import stopwords as nltk_stopwords
 from torch import nn
 import spacy
@@ -56,7 +56,6 @@ def init_models():
   if minilm_model is None:
 
     codebert_tokenizertokenizer = AutoTokenizer.from_pretrained("microsoft/graphcodebert-base")
-
     clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")   
     minilm_tokenizer = AutoTokenizer.from_pretrained('sentence-transformers/all-MiniLM-L6-v2')
     labse_tokenizer = BertTokenizerFast.from_pretrained("sentence-transformers/LaBSE")
