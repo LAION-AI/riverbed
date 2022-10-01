@@ -214,10 +214,12 @@ def get_embeddings(sent, downsampler, dtype=np.float16, embedder="minilm", unive
   use_model(embedder)
   with torch.no_grad():
     dat = apply_model(embedder, sent)
+    #consider doing softmax
     dat = torch.nn.functional.normalize(dat, dim=1)
     dat = downsampler(dat)
     if universal_embed_mode:
       dat = cosine_similarity(dat, prototypes)
+      #consider doing this instead  nn.functional.softmax(dat / temperature, dim=-1), where temperature = 2.0
       dat = torch.nn.functional.normalize(dat, dim=1)
       dat = universal_downsampler(dat)
     if dtype == np.float16: 
@@ -238,10 +240,12 @@ def embed_text(dat_iter, mmap_file, start_idx=None, downsampler=None, skip_idxs=
     def _get_embeddings(sent):
       with torch.no_grad():
         dat = apply_model(embedder, sent)
+        #consider doing softmax
         dat = torch.nn.functional.normalize(dat, dim=1)
         dat = downsampler(dat)
         if universal_embed_mode:
           dat = cosine_similarity(dat, prototypes)
+          #consider doing this instead  nn.functional.softmax(dat / temperature, dim=-1), where temperature = 2.0
           dat = torch.nn.functional.normalize(dat, dim=1)
           dat = universal_downsampler(dat)
         if dtype == np.float16: 
