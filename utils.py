@@ -116,7 +116,7 @@ def apply_model(embedder, sent):
     return dat
   ###
   if type(sent) is str:
-    retturn get_one_embed(sent, embedder)
+    return get_one_embed(sent, embedder)
   else:
     #poor man length batched breaking by length 2000
     #print (len(sent))
