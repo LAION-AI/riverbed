@@ -974,35 +974,36 @@ class RiverbedProcessor(MixingProcessor):
       return span_label2user_label, label2term_frequency, document_frequency
 
 
-# This class uses the RivberbedPreprocessor to generate spans and index the spans. It also provides APIs for searching the spans.
-#we can use the ontology for query expansion as part of the bm25 search. 
-class RiverbedSearcherIndexer:
-
-  def __init__(self, project_name, processor, span2idx, batch, retained_batch, span_lfs,  span2cluster_label, \
-                start_idx = 0, embed_search_field="text", bm25_field="text", text_span_size=1000, embedder="minilm", do_ontology=True, running_features_per_label={}, \
-                ner_to_generalize=(), span_level_feature_extractors=default_span_level_feature_extractors, \
-                running_features_size=100, label2term_frequency=None, document_frequency=None, domain_stopwords_set=stopwords_set,\
-                use_synonym_replacement=False, ):
-    super().__init__()
-    self.idx = start_idx
-    self.embed_search_field = embed_search_field
-    self.bm25_field = bm25_field
-    self.searcher = Searcher()
-
-
-  def tokenize(self, *args, **kwargs):
-    return self.tokenizer.tokenize(*args, **kwargs)
-
   #transform a doc into a span batch, breaking up doc into spans
   #all spans/leaf nodes of a cluster are stored as a triple of (name, lineno, offset)
-  def _create_spans_batch(self, curr_file_size, doc, text_span_size=1000, ner_to_generalize=(), use_synonym_replacement=False):
-      batch2 = []
-      if True:
-        name, curr_lineno, ents, text  = doc['name'], doc['lineno'], doc['ents'], doc['text']
-        for idx, ent in enumerate(ents):
+  #extract both bm25_field and embed_search_field and inject intout output data yielded from this method
+  def process(self, data_iterator, curr_file_size, tokenizer, text_span_size=1000, ner_to_generalize=(), use_synonym_replacement=False):
+    for line in data_iterator:
+        #TOD: decide how injest and emit the data (as jsonl/dict objects")
+        embed_search_content =  get_content_from_line(line, self.embed_search_field)
+        bm25_content =  get_content_from_line(line, self.bm25_field)
+        ents = list(itertools.chain(*[[(e.text, e.label_)] if '||' not in e.text else [(e.text.split("||")[0].strip(), e.label_), (e.text.split("||")[-1].strip(), e.label_)] for e in spacy_nlp(line).ents]))
+        ents = [e for e in ents if e[0]]
+        ents = [[a[0], a[1], b] for a, b in Counter(ents).items()]
+        for prefix, extract in self.prefix_extractors:
+            extracted_text = extract(self, {'text':line, 'position':position, 'ents':ents}) 
+            if extracted_text:
+              line = extracted_text
+              if curr: 
+                curr = curr.replace(". .", ". ").replace("..", ".").replace(":.", ".")
+                hash_id = hash(curr)
+                if not dedup or (hash_id not in seen):
+                  seen[hash_id] = 1
+                  curr_ents = list(itertools.chain(*[[(e.text, e.label_)] if '||' not in e.text else [(e.text.split("||")[0].strip(), e.label_), (e.text.split("||")[-1].strip(), e.label_)] for e in spacy_nlp(curr).ents]))
+                  curr_ents = list(set([e for e in curr_ents if e[0]]))
+                  curr_ents.sort(key=lambda a: len(a[0]), reverse=True)
+                  
+        batch2 = []
+        
+        for idx, ent in enumerate(curr_ents):
           text = text.replace(ent[0], f' @#@{idx}@#@ ')
-        # we do placeholder replacement tokenize to make ngram tokens underlined, so that we don't split a span in the middle of an ner token or ngram.
-        text  = self.tokenizer.tokenize(text, use_synonym_replacement=False) 
+        # we do placeholder replacement tokenizing to make ngram tokens underlined, so that we don't split a span in the middle of an ner token or ngram.
+        text  = tokenizer.tokenize(text, use_synonym_replacement=False) 
         len_text = len(text)
         prefix = ""
         if "||" in text:
@@ -1026,17 +1027,15 @@ class RiverbedSearcherIndexer:
           tokenized_text, ents2 = _generalize_text_and_filter_ents(self.tokenizer, tokenized_text2, ents, ner_to_generalize, use_synonym_replacement=use_synonym_replacement) 
           if prefix and offset > 0:
             _, text2 = text2.split(" || ... ", 1)
-          sub_span = copy.deepcopy(span)
-          sub_span['position'] += offset/curr_file_size
-          sub_span['offset'] = offset
-          sub_span['text'] = text2
-          sub_span['tokenized_text'] = tokenized_text 
-          sub_span['ents'] = ents2
-          batch2.append(sub_span)
+          span = copy.deepcopy(doc)
+          span['position'] += offset/curr_file_size
+          span['offset'] = offset
+          span['text'] = text2
+          span['tokenized_text'] = tokenized_text 
+          span['ents'] = ents2
+          yield span
           offset = max_rng
 
-      return batch2
-    
 
   
   def _create_span_features(self, batch, span_level_feature_extractors, running_features_per_label, running_features_size):
@@ -1120,24 +1119,26 @@ class RiverbedSearcherIndexer:
   def _create_span_embeds_and_span2cluster_label(self):
     pass
   
-    # gets in a lines iterator and outputs subsequent dict generator
-  def process(self, lines_iterator, *args, **kwargs):
-    for line in lines_iterator:
-      doc =  _get_content_from_line(line, self.search_field)
-      if not l: 
-        yield None
-        continue
-      try:
-        line = line.decode()
-      except:
-        pass
-      offset = 0
-      for data in self._create_spans_batch(curr_file_size, doc, text_span_size=kwargs.get('text_span_size',1000), \
-                                           ner_to_generalize=kwargs.get('ner_to_generalize', ()),0\
-                                           use_synonym_replacement=kwargs.get('use_synonym_replacement', False)):
-        yield data
-      self.idx += 1
       
+# This class uses the RivberbedPreprocessor to generate spans and index the spans. It also provides APIs for searching the spans.
+#we can use the ontology for query expansion as part of the bm25 search. 
+class RiverbedSearcherIndexer:
+
+  def __init__(self, project_name, processor, span2idx, batch, retained_batch, span_lfs,  span2cluster_label, \
+                start_idx = 0, embed_search_field="text", bm25_field="text", text_span_size=1000, embedder="minilm", do_ontology=True, running_features_per_label={}, \
+                ner_to_generalize=(), span_level_feature_extractors=default_span_level_feature_extractors, \
+                running_features_size=100, label2term_frequency=None, document_frequency=None, domain_stopwords_set=stopwords_set,\
+                use_synonym_replacement=False, ):
+    super().__init__()
+    self.idx = start_idx
+    self.embed_search_field = embed_search_field
+    self.bm25_field = bm25_field
+    self.searcher = Searcher()
+
+
+  def tokenize(self, *args, **kwargs):
+    return self.tokenizer.tokenize(*args, **kwargs)
+
   # the main method for processing documents and their spans. 
   def index(self, content_store_objs):
     global clip_model, minilm_model, labse_model
@@ -1193,25 +1194,16 @@ class RiverbedSearcherIndexer:
 
         #turn the file position into a percentage
         if len(line) < max_len_for_prefix:
-          ents = list(itertools.chain(*[[(e.text, e.label_)] if '||' not in e.text else [(e.text.split("||")[0].strip(), e.label_), (e.text.split("||")[-1].strip(), e.label_)] for e in spacy_nlp(line).ents]))
-          ents = [e for e in ents if e[0]]
-          ents = [[a[0], a[1], b] for a, b in Counter(ents).items()]
-          for prefix, extract in prefix_extractors:
-            extracted_text = extract(self, {'text':line, 'position':position, 'ents':ents}) 
-            if extracted_text:
-              line = extracted_text
-              if curr: 
-                curr = curr.replace(". .", ". ").replace("..", ".").replace(":.", ".")
-                hash_id = hash(curr)
-                if not dedup or (hash_id not in seen):
-                  seen[hash_id] = 1
-                  curr_ents = list(itertools.chain(*[[(e.text, e.label_)] if '||' not in e.text else [(e.text.split("||")[0].strip(), e.label_), (e.text.split("||")[-1].strip(), e.label_)] for e in spacy_nlp(curr).ents]))
-                  curr_ents = list(set([e for e in curr_ents if e[0]]))
-                  curr_ents.sort(key=lambda a: len(a[0]), reverse=True)
-                  for item in self._create_spans_batch(curr_file_size, {'text': curr, 'ents': curr_ents, }, text_span_size=text_span_size, ner_to_generalize=ner_to_generalize, use_synonym_replacement=use_synonym_replacement)
+                  for key_words, tokenized_text in zip(self.processor.process_bm25_field(curr_file_size, self.tokenizer), 
+                                            self.processor.process_embed_search_field(curr_file_size, {'text': curr,}, \ 
+                                                                                      text_span_size=text_span_size, \
+                                                                                      ner_to_generalize=ner_to_generalize, \
+                                                                                      use_synonym_replacement=use_synonym_replacement)):
+              
                     item['name'] =name
                     item['lineno'] = curr_lineno
                     item['position'] = curr_position
+                    
                     batch.append(item)
                 curr = ""
                 curr_lineno = lineno
@@ -1292,8 +1284,10 @@ class RiverbedAnalyzer:
   def search_and_label(self, positive_query_set, negative_query_set):
     pass
   
-  #returns a model - could be any transformer classification head or sci-kitlearn supervised learning system
-  def fit(self, labaled_content_data_store, predicted_labels):
+  #returns a model - could be any transformer w/ classification head or scikitlearn supervised learning system
+  #labeled content datastore is any dict iterator (or df iterator?). the predicted fields is the field to predict. 
+  #e.g., Is the span about high risk, medium risk or low risk?
+  def fit(self, labled_content_data_store, predicted_fields):
     pass
   
   #returns a tag
@@ -1311,4 +1305,10 @@ class RiverbedAnalyzer:
 class RiverbedVisualizer:
   def __init__(self, project_name, analyzer, searcher_indexer, processor):
     self.project_name, self.analyzer, self.searcher_indexer, self.processor = project_name, analyzer, searcher_indexer, processor
-    
+  
+  def draw(self):
+    pass
+  
+  def df(self, slice):
+    pass
+  
