@@ -74,6 +74,10 @@ class PreprocessorMixin:
   def reset_bm25_idx(self, start_idx):
     raise NotImplementedError
   
+  #perform both bm25 and embed_search processing/transmation of the text, and yield data.
+  def process(self, lines_iterator, *args, **kwargs):
+    raise NotImplementedError
+    
   def process_embed_search_field(self, lines_iterator, *args, **kwargs):
     raise NotImplementedError
 
@@ -101,7 +105,24 @@ class BasicLinePeprocessor(PreprocessorMixin):
       
   def reset_bm25_idx(self, start_idx):
      self.bm25_idx = start_idx
-      
+  
+  # gets in a lines iterator and outputs subsequent dict generator
+  def process(self, lines_iterator, *args, **kwargs):
+    for line in lines_iterator:
+      line1, line2 =  get_content_from_line(line, self.embed_search_field, self.bm25_field)
+      if not l: 
+        yield None
+        continue
+      try:
+        line = line.decode()
+      except:
+        pass
+      offset = 0
+      for text, key_words in zip(line1.split("\\n"), line2.split("\\n")):
+        offset = line.index(text, offset)
+        yield {'idx': self.embed_search_idx, 'offset': offset, 'text': text, 'key_words': key_words}
+      self.embed_search_idx += 1
+  
   # gets in a lines iterator and outputs subsequent dict generator
   def process_embed_search_field(self, lines_iterator, *args, **kwargs):
     for line in lines_iterator:
