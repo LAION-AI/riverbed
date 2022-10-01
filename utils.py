@@ -226,7 +226,7 @@ def get_embeddings(sent, downsampler, dtype=np.float16, embedder="minilm", unive
 #skip_idxs are the lines/embeddings that are empty and should not be clustered search indexed.
 def embed_text(dat_iter, mmap_file, start_idx=None, downsampler=None, skip_idxs=None,  dtype=np.float16, mmap_len=0, embed_dim=25,  \
                embedder="minilm", chunk_size=500,  universal_embed_mode=None, prototypes=None, \
-               downsampler_temperature=2.0, universal_downsampler=None, universal_downsampler_temperature=2.0 use_tqdm=True):
+               downsampler_temperature=2.0, universal_downsampler=None, universal_downsampler_temperature=2.0, use_tqdm=True):
     global device, labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
     assert not universal_embed_mode or (prototypes is not None and universal_downsampler is not None)   
     assert downsampler is not None
