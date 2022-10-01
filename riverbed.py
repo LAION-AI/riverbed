@@ -123,22 +123,14 @@ class RiverbedTokenizer:
 
 #################################################################################
 #MODEL CODE
-#this class is used to create new tokens and embeddings adapted to a specific training data.
-#it also models whether a segment of text is similar to training data (via perplexity using kenlm). 
-#this class also allows us to analyze the words used in the training data. 
-#it is paired to a specific RiverbedTokenizer that tokenizes the domain specific words. 
-class RiverbedAdapterModel(nn.Module):
+#this class is used to analyze the words including compound words in a corpush.
+class RiverbedWordAnalyzerModel(nn.Module):
 
   def __init__(self):
    super().__init__()
    global labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set 
    labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set = init_models()
    self.searcher = Searcher()
-   self.domain_compound_words = {}
-   # not happy -> no_happy, which is similar to "sad", "angry", "unhappy"
-   self.prototype_tokens = [] # the top_k token in each of the leaf cluster of the searcher.cluster that exists in one of 
-                              # the labse_tokenizer, clip_processor or minilm_tokenizer 
-   self.prototypes = None
    self.tokenizer = None
    self.synonyms = None
    self.clusters = None
@@ -146,20 +138,6 @@ class RiverbedAdapterModel(nn.Module):
   
   def search(self, *args, **kwargs):
     self.searcher(*args, **kwargs)
-    
-  # get the downsampled sentence embeddings. can be used to train the downsampler(s).
-  def forward(self, *args, **kwargs):
-    if 'text' in kwargs:
-      text = kwargs['text']
-      # we tokenize using the RiverbedTokenizer to take into account n-grams
-      text = self.tokenizer.tokenize(text) 
-      #now replace each of the ngrams that are specific to the domain compound words with pad_token.
-      #create non-learnable embeddings for compound words as a weighted sum of the prototypes*weights.
-      #we create the downsample sentence embeding with mean of the ngram and the non-ngram 
-      #sentences. 
-      #then we tokenize using the embedder tokenizer
-    dat = self.searcher(*args, **kwargs)
-    return dat
   
 
   @staticmethod
