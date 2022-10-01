@@ -49,20 +49,25 @@ try:
   if minilm_model is not None: 
     pass
 except:
-   labse_tokenizer= labse_model=  clip_processor = minilm_tokenizer= clip_model= minilm_model= spacy_nlp= stopwords_set = None
+   codebert_tokenizer = codebert_model = labse_tokenizer= labse_model=  clip_processor = minilm_tokenizer= clip_model= minilm_model= spacy_nlp= stopwords_set = None
 
 def init_models():    
-  global labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
+  global codebert_tokenizer, codebert_model, labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
   if minilm_model is None:
+
+    codebert_tokenizertokenizer = AutoTokenizer.from_pretrained("microsoft/graphcodebert-base")
+
     clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")   
     minilm_tokenizer = AutoTokenizer.from_pretrained('sentence-transformers/all-MiniLM-L6-v2')
     labse_tokenizer = BertTokenizerFast.from_pretrained("sentence-transformers/LaBSE")
 
     if device == 'cuda':
+      codebert_model = AutoModelForMaskedLM.from_pretrained("microsoft/graphcodebert-base").half().eval()
       clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").half().eval()
       minilm_model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2').half().eval()
       labse_model = BertModel.from_pretrained("sentence-transformers/LaBSE").half().eval()
     else:
+      codebert_model = AutoModelForMaskedLM.from_pretrained("microsoft/graphcodebert-base").eval()
       clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").eval()
       minilm_model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2').eval()
       lbase_model = BertModel.from_pretrained("sentence-transformers/LaBSE").eval()
@@ -72,7 +77,7 @@ def init_models():
   return  labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
 
 def use_model(embedder):
-  global labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
+  global codebert_tokenizer, codebert_model, labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
   if embedder == "clip":
       clip_model = clip_model.to(device)
       minilm_model =  minilm_model.cpu()
@@ -85,11 +90,15 @@ def use_model(embedder):
       clip_model = clip_model.cpu()
       minilm_model =  minilm_model.cpu()
       labse_model =  labse_model.to(device)
+  elif embedder == "codebert":
+      clip_model = clip_model.cpu()
+      minilm_model =  minilm_model.cpu()
+      codebert_model =  codebert_model.to(device)      
+      labse_model =  labse_model.cpu()      
       
 def apply_model(embedder, sent):  
-  global labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
-  
-  if type(sent) is str:
+  global codebert_tokenizer, codebert_model, labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
+  def get_one_embed(sent, embedder):
     if embedder == "clip":
         toks = clip_processor(sent, padding=True, truncation=True, return_tensors="pt").to(device)
         dat = clip_model.get_text_features(**toks)
@@ -97,10 +106,17 @@ def apply_model(embedder, sent):
         toks = minilm_tokenizer(sent, padding=True, truncation=True, return_tensors="pt").to(device)
         dat = minilm_model(**toks)
         dat = mean_pooling(dat, toks.attention_mask)
+    elif embedder == "codebert":
+        toks = codebert_tokenizer(sent, padding=True, truncation=True, return_tensors="pt").to(device)
+        dat = codebert_model(**toks)
+        dat = mean_pooling(dat, toks.attention_mask)
     elif embedder == "labse":
         toks = labse_tokenizer(sent, padding=True, truncation=True, return_tensors="pt", max_length=512).to(device)
         dat = labse_model(**toks).pooler_output   
     return dat
+  ###
+  if type(sent) is str:
+    retturn get_one_embed(sent, embedder)
   else:
     #poor man length batched breaking by length 2000
     #print (len(sent))
@@ -110,50 +126,20 @@ def apply_model(embedder, sent):
     for s in sent:
       if not doing_2000 and len(s) >= 2000:
         if batch:
-          if embedder == "clip":
-            toks = clip_processor(batch, padding=True, truncation=True, return_tensors="pt").to(device)
-            dat = clip_model.get_text_features(**toks)
-          elif embedder == "minilm":
-            toks = minilm_tokenizer(batch, padding=True, truncation=True, return_tensors="pt").to(device)
-            dat = minilm_model(**toks)
-            dat = mean_pooling(dat, toks.attention_mask)
-          elif embedder == "labse":
-            toks = labse_tokenizer(batch, padding=True, truncation=True, return_tensors="pt", max_length=512).to(device)
-            dat = labse_model(**toks).pooler_output
+          dat = get_one_embed(batch, embedder)
           all_dat.append(dat)
         batch = [s]
         doing_2000 = True
       elif doing_2000 and len(s) < 2000:
         if batch:
-          if embedder == "clip":
-            toks = clip_processor(batch, padding=True, truncation=True, return_tensors="pt").to(device)
-            dat = clip_model.get_text_features(**toks)
-          elif embedder == "minilm":
-            toks = minilm_tokenizer(batch, padding=True, truncation=True, return_tensors="pt").to(device)
-            dat = minilm_model(**toks)
-            dat = mean_pooling(dat, toks.attention_mask)
-          elif embedder == "labse":
-            toks = labse_tokenizer(batch, padding=True, truncation=True, return_tensors="pt", max_length=512).to(device)
-            if toks.shape[1] > 400:
-              print (max([len(s) for s in batch]))
-            print (toks.shape)
-            dat = labse_model(**toks).pooler_output
+          dat = get_one_embed(batch, embedder)
           all_dat.append(dat)
         batch = [s]
         doing_2000 = False
       else:
         batch.append(s)
     if batch:
-      if embedder == "clip":
-        toks = clip_processor(batch, padding=True, truncation=True, return_tensors="pt").to(device)
-        dat = clip_model.get_text_features(**toks)
-      elif embedder == "minilm":
-        toks = minilm_tokenizer(batch, padding=True, truncation=True, return_tensors="pt").to(device)
-        dat = minilm_model(**toks)
-        dat = mean_pooling(dat, toks.attention_mask)
-      elif embedder == "labse":
-        toks = labse_tokenizer(batch, padding=True, truncation=True, return_tensors="pt", max_length=512).to(device)
-        dat = labse_model(**toks).pooler_output
+      dat = get_one_embed(batch, embedder)
       all_dat.append(dat)
     if len(all_dat) == 1: return all_dat[0]
     return torch.vstack(all_dat)    
@@ -164,6 +150,8 @@ def get_model_embed_dim(embedder):
     return clip_model.config.text_config.hidden_size
   elif embedder == "minilm":
     return minilm_model.config.hidden_size
+  elif embedder == "codebert":
+    return codebert_model.config.hidden_size  
   elif embedder == "labse":
     return labse_model.config.hidden_size   
 
