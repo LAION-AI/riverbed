@@ -361,6 +361,7 @@ class Searcher(nn.Module):
                             reuse_clusters=False, min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000, use_tqdm=True
                           ):
     global device
+    global  labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
     if hasattr(self,f'downsampler_{self.embed_search_field}_{self.embedder}_{self.embed_dim}'): getattr(self,f'downsampler_{self.embed_search_field}_{self.embedder}_{self.embed_dim}').cpu()
     if hasattr(self, 'downsampler') and self.downsampler is not None: self.downsampler.cpu()
     content_data_store = self.content_data_store
@@ -375,6 +376,7 @@ class Searcher(nn.Module):
         auto_embed_text=not os.path.exists(self.mmap_file) # the universal embeddings are created once. 
       else:
         mmap_file = f"{self.idx_dir}/search_index_{self.embed_search_field}_{embedder}_{self.embed_dim}.mmap"
+    labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set = init_models()
     if downsampler is None:
       if hasattr(self,f'downsampler_{self.embed_search_field}_{embedder}_{self.embed_dim}'):
         downsampler = getattr(self,f'downsampler_{self.embed_search_field}_{embedder}_{self.embed_dim}')
