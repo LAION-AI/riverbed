@@ -55,18 +55,18 @@ def init_models():
   global codebert_tokenizer, codebert_model, labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
   if minilm_model is None:
 
-    codebert_tokenizertokenizer = AutoTokenizer.from_pretrained("microsoft/graphcodebert-base")
+    codebert_tokenizer = AutoTokenizer.from_pretrained("microsoft/graphcodebert-base")
     clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")   
     minilm_tokenizer = AutoTokenizer.from_pretrained('sentence-transformers/all-MiniLM-L6-v2')
     labse_tokenizer = BertTokenizerFast.from_pretrained("sentence-transformers/LaBSE")
 
     if device == 'cuda':
-      codebert_model = AutoModelForMaskedLM.from_pretrained("microsoft/graphcodebert-base").half().eval()
+      codebert_model = AutoModel.from_pretrained("microsoft/graphcodebert-base").half().eval()
       clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").half().eval()
       minilm_model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2').half().eval()
       labse_model = BertModel.from_pretrained("sentence-transformers/LaBSE").half().eval()
     else:
-      codebert_model = AutoModelForMaskedLM.from_pretrained("microsoft/graphcodebert-base").eval()
+      codebert_model = AutoModel.from_pretrained("microsoft/graphcodebert-base").eval()
       clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").eval()
       minilm_model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2').eval()
       lbase_model = BertModel.from_pretrained("sentence-transformers/LaBSE").eval()
