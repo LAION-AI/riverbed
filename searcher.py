@@ -432,7 +432,8 @@ class Searcher(nn.Module):
   def get_embeddings(self, sent_or_batch):
     return get_embeddings(sent_or_batch, downsampler=self.downsampler, dtype=self.dtype, embedder=self.embedder, \
                           universal_embed_mode=self.universal_embed_mode, prototypes=self.prototypes, \
-                          universal_downsampler=self.universal_downsampler)
+                          universal_downsampler=self.universal_downsampler,  downsampler_temperature = self.downsampler_temperature, \
+                          universal_downsampler_temperature=self.universal_downsampler_temperature)
               
   #embed all of self.content_data_store or (idx, content) for idx in idxs for the row/content from content_data_store
   def embed_text(self, start_idx=None, chunk_size=500, idxs=None, use_tqdm=True, auto_create_bm25_idx=False, **kwargs):
@@ -464,7 +465,8 @@ class Searcher(nn.Module):
     
     self.mmap_len, skip_idxs =  embed_text(data_iterator, self.mmap_file, start_idx=start_idx, downsampler=self.downsampler, \
                           mmap_len=self.mmap_len, embed_dim=self.embed_dim, embedder=self.embedder, chunk_size=chunk_size, use_tqdm=use_tqdm, \
-                          universal_embed_mode=self.universal_embed_mode, prototypes=self.prototypes, universal_downsampler=self.universal_downsampler)
+                          universal_embed_mode=self.universal_embed_mode, prototypes=self.prototypes, universal_downsampler=self.universal_downsampler, \
+                          downsampler_temperature = self.downsampler_temperature, universal_downsampler_temperature=self.universal_downsampler_temperature)
     setattr(self,f'downsampler_{self.embed_search_field}_{self.embedder}_{self.embed_dim}', self.downsampler)
     self.skip_idxs = set(list(self.skip_idxs)+skip_idxs)
       
