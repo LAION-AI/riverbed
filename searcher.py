@@ -168,7 +168,7 @@ class Searcher(nn.Module):
                span2cluster_label=None, idxs=None, max_level=4, max_cluster_size=200, \
                min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000, \
                universal_embed_mode = None, prototype_sentences=None,  prototypes=None, universal_downsampler =None, min_num_prorotypes=50000, \
-               use_tqdm=True, preprocessor=None
+               universal_downsampler_temperature=2.0,  downsampler_temperature=2.0,use_tqdm=True, preprocessor=None
               ):
     #TODO, add a embedding_preprocessor. Given a batch of sentences, and an embedding, create additional embeddings corresponding to the batch. 
     """
@@ -261,8 +261,8 @@ class Searcher(nn.Module):
       model_embed_dim = get_model_embed_dim(embedder)
       downsampler = nn.Linear(model_embed_dim, embed_dim, bias=False).eval() 
     if bm25_field is None: bm25_field = embed_search_field
-    self.universal_embed_mode, self.mmap_file, self.mmap_len, self.embed_dim, self.dtype, self.clusters, self.parent2idx,  self.parents, self.top_parents, self.top_parent_idxs, self.embed_search_field, self.bm25_field, self.downsampler  = \
-             universal_embed_mode, mmap_file, mmap_len, embed_dim, dtype, clusters, parent2idx, parents, top_parents, top_parent_idxs, embed_search_field, bm25_field, downsampler
+    self.universal_embed_mode,  self.universal_downsampler_temperature, self.downsampler_temperature, self.mmap_file, self.mmap_len, self.embed_dim, self.dtype, self.clusters, self.parent2idx,  self.parents, self.top_parents, self.top_parent_idxs, self.embed_search_field, self.bm25_field, self.downsampler  = \
+             universal_embed_mode, universal_downsampler_temperature, downsampler_temperature,  mmap_file, mmap_len, embed_dim, dtype, clusters, parent2idx, parents, top_parents, top_parent_idxs, embed_search_field, bm25_field, downsampler
     self.prototype_sentences,  self.prototypes, self.universal_downsampler = prototype_sentences,  prototypes, universal_downsampler
     if self.downsampler is not None: 
       if self.dtype == np.float16:
