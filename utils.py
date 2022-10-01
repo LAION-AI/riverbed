@@ -194,21 +194,26 @@ def mean_pooling(model_output, attention_mask):
       input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).to(token_embeddings.dtype)
       return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
 
+#helper function
+def _get_embeddings(sent, downsampler, embedder="minilm", universal_embed_mode=None, prototypes=None, \
+                    downsampler_temperature=2.0, universal_downsampler=None, universal_downsampler_temperature=2.0):
+  dat = apply_model(embedder, sent)
+  dat = nn.functional.softmax(dat / downsampler_temperature, dim=1) #torch.nn.functional.normalize(dat, dim=1)
+  dat = downsampler(dat)
+  if universal_embed_mode:
+      dat = cosine_similarity(dat, prototypes)
+      dat = nn.functional.softmax(dat / universal_downsampler_temperature, dim=1) # torch.nn.functional.normalize(dat, dim=1)
+      dat = universal_downsampler(dat)
+  return dat
+
 #get the embeddings using the appropriate downsampling
-def get_embeddings(sent, downsampler, dtype=np.float16, embedder="minilm", universal_embed_mode=None, prototypes=None, universal_downsampler=None):
+def get_embeddings(sent, downsampler, dtype=np.float16, embedder="minilm", universal_embed_mode=None, prototypes=None, downsampler_temperature=2.0, universal_downsampler=None, universal_downsampler_temperature=2.0):
   global labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
   init_models()
   use_model(embedder)
   with torch.no_grad():
-    dat = apply_model(embedder, sent)
-    #consider doing softmax
-    dat = torch.nn.functional.normalize(dat, dim=1)
-    dat = downsampler(dat)
-    if universal_embed_mode:
-      dat = cosine_similarity(dat, prototypes)
-      #consider doing this instead  nn.functional.softmax(dat / temperature, dim=-1), where temperature = 2.0
-      dat = torch.nn.functional.normalize(dat, dim=1)
-      dat = universal_downsampler(dat)
+    dat = _get_embeddings(sent, downsampler, embedder, universal_embed_mode, prototypes, downsampler_temperature, \
+                          universal_downsampler, universal_downsampler_temperature)
     if dtype == np.float16: 
       dat = dat.half()
     else:
@@ -219,28 +224,12 @@ def get_embeddings(sent, downsampler, dtype=np.float16, embedder="minilm", unive
 #create embeddings for all text in dat_iter. data_iter can be an interable of just the text or a (idx, text) pair.
 #saves to the mmap_file. returns downsampler, skip_idxs, dtype, mmap_len, embed_dim.
 #skip_idxs are the lines/embeddings that are empty and should not be clustered search indexed.
-def embed_text(dat_iter, mmap_file, start_idx=None, downsampler=None, skip_idxs=None,  dtype=np.float16, mmap_len=0, embed_dim=25,  embedder="minilm", chunk_size=500,  universal_embed_mode=None, prototypes=None, universal_downsampler=None, use_tqdm=True):
+def embed_text(dat_iter, mmap_file, start_idx=None, downsampler=None, skip_idxs=None,  dtype=np.float16, mmap_len=0, embed_dim=25,  \
+               embedder="minilm", chunk_size=500,  universal_embed_mode=None, prototypes=None, \
+               downsampler_temperature=2.0, universal_downsampler=None, universal_downsampler_temperature=2.0 use_tqdm=True):
     global device, labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
     assert not universal_embed_mode or (prototypes is not None and universal_downsampler is not None)   
     assert downsampler is not None
-    #a copy of get_embeddings without the overhead of switching models. makes it a bit faster.
-    def _get_embeddings(sent):
-      with torch.no_grad():
-        dat = apply_model(embedder, sent)
-        #consider doing softmax
-        dat = torch.nn.functional.normalize(dat, dim=1)
-        dat = downsampler(dat)
-        if universal_embed_mode:
-          dat = cosine_similarity(dat, prototypes)
-          #consider doing this instead  nn.functional.softmax(dat / temperature, dim=-1), where temperature = 2.0
-          dat = torch.nn.functional.normalize(dat, dim=1)
-          dat = universal_downsampler(dat)
-        if dtype == np.float16: 
-          dat = dat.half()
-        else:
-          dat = dat.float()
-        return dat
-
     init_models()
     use_model(embedder)
     if start_idx is None: start_idx = mmap_len
@@ -267,14 +256,16 @@ def embed_text(dat_iter, mmap_file, start_idx=None, downsampler=None, skip_idxs=
           idxs.append(idx)
         if not l or len(batch) >= chunk_size:  
           if batch:
-            dat = _get_embeddings(batch).cpu().numpy()
+            dat = _get_embeddings(batch, downsampler, embedder, universal_embed_mode, prototypes, \
+                                  downsampler_temperature, universal_downsampler, universal_downsampler_temperature).cpu().numpy()
             cluster_embeddings = np_memmap(mmap_file, shape=[mmap_len, embed_dim], dat=dat, idxs=idxs, dtype=dtype)  
             batch = []
             idxs = []
           if not l:
             skip_idxs.append(idx) 
     if batch:
-      dat = _get_embeddings(batch).cpu().numpy()
+      dat = _get_embeddings(batch, downsampler, embedder, universal_embed_mode, prototypes, \
+                                  downsampler_temperature, universal_downsampler, universal_downsampler_temperature).cpu().numpy()
       cluster_embeddings = np_memmap(mmap_file, shape=[mmap_len, embed_dim], dat=dat, idxs=idxs, dtype=dtype)  
       batch = []
       idxs = []
