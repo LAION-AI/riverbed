@@ -73,7 +73,7 @@ def get_content_from_line(l, search_field="text", search_field2=None):
       return content, content2
     return content
     
-class PreprocessorMixin:
+class IndexerMixin:
   def __init__(self, start_idx = 0, embed_search_field="text", bm25_field="text"):
     raise NotImplementedError
 
@@ -100,8 +100,8 @@ class PreprocessorMixin:
     raise NotImplementedError  
 
 #TODO. modify the embed_text function to store away a tuple idx -> embedding idx. The tuple idx corresponds to a unique id generated 
-#by the preprocessor, e.g., (lineno, offset) or (file name, lineno, offset), etc. 
-class BasicLinePeprocessor(PreprocessorMixin):
+#by the indexer, e.g., (lineno, offset) or (file name, lineno, offset), etc. 
+class BasicIndexer(IndexerMixin):
   def __init__(self, lineno=-1, start_idx = 0, multi_files=False, embed_search_field="text", bm25_field=None):
     ret = init_models()
     self.doc2query_tokenizer, self.doc2query_model = ret[0], ret[1]
@@ -173,7 +173,7 @@ class BasicLinePeprocessor(PreprocessorMixin):
         self.bm25_idx += 1
   
 #TODO. Change this to inherit from a transformers.PretrainedModel.
-class Searcher(nn.Module):
+class SearcherIndexer(nn.Module):
   
   def __init__(self,  filename=None, idx_dir=None, content_data_store=None, mmap_file=None, mmap_len=0, embed_dim=25, dtype=np.float16, \
                parents=None, parent_levels=None, parent_labels=None, skip_idxs=None, \
@@ -183,9 +183,9 @@ class Searcher(nn.Module):
                span2cluster_label=None, idxs=None, max_level=4, max_cluster_size=200, \
                min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000, \
                universal_embed_mode = None, prototype_sentences=None,  prototypes=None, universal_downsampler =None, min_num_prorotypes=50000, \
-               temperature_universal_downsampler=1.0,  temperature_downsampler=1.0,use_tqdm=True, preprocessor=None
+               temperature_universal_downsampler=1.0,  temperature_downsampler=1.0,use_tqdm=True, indexer=None
               ):
-    #TODO, add a embedding_preprocessor. Given a batch of sentences, and an embedding, create additional embeddings corresponding to the batch. 
+    #TODO, add a embedding_indexer. Given a batch of sentences, and an embedding, create additional embeddings corresponding to the batch. 
     """
         Cluster indexes and performs approximate nearest neighbor search on a memmap file. 
         Also provides a wrapper for Whoosh BM25.
@@ -235,7 +235,7 @@ class Searcher(nn.Module):
         :arg min_num_prorotypes Optional. Will control the number of prototypes.
         :arg universal_downsampler Optional. The pythorch downsampler for mapping the output described above to a lower dimension that works across embedders
                                   and concept drift in the same embedder. maps from # of prototypes -> embed_dim. 
-        :arg preprocessor:      Optional. If not set, then the BasicLineProcessor will be used.
+        :arg indexer:      Optional. If not set, then the BasicIndexer will be used.
         
       NOTE: Either pass in the parents, parent_levels, parent_labels, and parent2idx data is pased or clusters is passed. 
           If none of these are passed and auto_create_embeddings_idx is set, then the data in the mmap file will be clustered and the 
@@ -253,8 +253,8 @@ class Searcher(nn.Module):
     global device
     super().__init__()
     init_models()
-    if preprocessor is None: preprocessor = BasicLinePeprocessor(embed_search_field=embed_search_field, bm25_field=bm25_field)
-    self.embedder, self.preprocessor = embedder, preprocessor
+    if indexer is None: indexer = BasicIndexer(embed_search_field=embed_search_field, bm25_field=bm25_field)
+    self.embedder, self.indexer = embedder, indexer
     if idx_dir is None and filename is not None:
       idx_dir = f"{filename}_idx"
     elif idx_dir is None: idx_dir = "./"
@@ -468,12 +468,12 @@ class Searcher(nn.Module):
     
     if idxs is not None:
       #TODO:
-      #data_iterator = [(idx, self.preprocessor.process_one_line_for_embed_search(self.content_data_store[idx])) for idx in idxs]
+      #data_iterator = [(idx, self.indexer.process_one_line_for_embed_search(self.content_data_store[idx])) for idx in idxs]
       data_iterator = [(idx, get_content_from_line(self.content_data_store[idx], embed_search_field)) for idx in idxs]
     else:
       # TODO: 
-      # self.preprocessor.reset_embed_search_idx(0)
-      # data_iterator = self.preprocessor.process_embed_search_field(data_iterator, **kwargs)
+      # self.indexer.reset_embed_search_idx(0)
+      # data_iterator = self.indexer.process_embed_search_field(data_iterator, **kwargs)
       data_iterator = content_data_store_reader()  
     
     self.mmap_len, skip_idxs =  embed_text(data_iterator, self.mmap_file, start_idx=start_idx, downsampler=self.downsampler, \
@@ -560,8 +560,8 @@ class Searcher(nn.Module):
         else:
           data_iterator = enumerate(content_data_store)
       # TODO: 
-      #self.preprocessor.reset_bm25_idx(0)
-      #data_iterator = self.preprocessor.process_bm25_field(content_data_store, **kwargs)
+      #self.indexer.reset_bm25_idx(0)
+      #data_iterator = self.indexer.process_bm25_field(content_data_store, **kwargs)
       for idx, l in data_iterator:
           content= get_content_from_line(l, bm25_field)
           if not content: continue
