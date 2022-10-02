@@ -180,42 +180,42 @@ class BasicIndexer(IndexerMixin):
             for dat in batch:
               yield dat
           else:
-          input_ids = tokenizer.encode([a['embedding_text'] for a in batch], max_length=512, truncation=True, return_tensors='pt')
-          with torch.no_grad():
-            outputs = model.generate(
-              input_ids=input_ids,
-              max_length=64,
-              do_sample=True,
-              top_p=0.85,
-              num_return_sequences=20)
-            outputs = [tokenizer.decode(outputs[i], skip_special_tokens=True) for i in range(len(outputs))]
-          for dat, rng in zip(batch, range(0, len(outputs), 20)):
-            queries = outputs[rng:rng+20]
-            dat['queries'] = queries
-            dat['keywords'] += " ".join(queries)
-            yield dat
-          batch = []
-          batch_size = 0
+            input_ids = tokenizer.encode([a['embedding_text'] for a in batch], max_length=512, truncation=True, return_tensors='pt')
+            with torch.no_grad():
+              outputs = model.generate(
+                input_ids=input_ids,
+                max_length=64,
+                do_sample=True,
+                top_p=0.85,
+                num_return_sequences=20)
+              outputs = [tokenizer.decode(outputs[i], skip_special_tokens=True) for i in range(len(outputs))]
+            for dat, rng in zip(batch, range(0, len(outputs), 20)):
+              queries = outputs[rng:rng+20]
+              dat['queries'] = queries
+              dat['keywords'] += " ".join(queries)
+              yield dat
+            batch = []
+            batch_size = 0
       
       if batch:
           if not self.do_doc2query:
             for dat in batch:
               yield dat
           else:
-          input_ids = tokenizer.encode([a['embedding_text'] for a in batch], max_length=512, truncation=True, return_tensors='pt')
-          with torch.no_grad():
-            outputs = model.generate(
-              input_ids=input_ids,
-              max_length=64,
-              do_sample=True,
-              top_p=0.85,
-              num_return_sequences=20)
-            outputs = [tokenizer.decode(output, skip_special_tokens=True) for output in outputs]
-          for dat, rng in zip(batch, range(0, len(outputs), 20)):
-            queries = outputs[rng:rng+20]
-            dat['queries'] = queries
-            dat['queries'] += " ".join(queries)
-            yield dat  
+            input_ids = tokenizer.encode([a['embedding_text'] for a in batch], max_length=512, truncation=True, return_tensors='pt')
+            with torch.no_grad():
+              outputs = model.generate(
+                input_ids=input_ids,
+                max_length=64,
+                do_sample=True,
+                top_p=0.85,
+                num_return_sequences=20)
+              outputs = [tokenizer.decode(output, skip_special_tokens=True) for output in outputs]
+            for dat, rng in zip(batch, range(0, len(outputs), 20)):
+              queries = outputs[rng:rng+20]
+              dat['queries'] = queries
+              dat['queries'] += " ".join(queries)
+              yield dat  
           
             
   
