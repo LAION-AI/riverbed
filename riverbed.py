@@ -121,24 +121,606 @@ class RiverbedTokenizer:
       self = pickle.load(open(f"{tokenizer_name}/{tokenizer_name}.pickle", "rb"))
       return self
 
+
+#################################################################################
+# SPAN AND DOCUMENT PROCESSOR
+# An  ingester-model-view-controller framework for span and document processing. 
+
+# this class is for creating and featuring spans from multiple documents, which are fragments of one or more sentences (not necessarily a paragraph).
+# each span is a dict/json object. A span can specific to semantic search or bm25, and can include be indexed (span_idx) by (file name, line no, offset). The spans are also clustered. Finally the spans are serialzied 
+# into a jsonl.gz file.
+# assumes the sentences inside a document are NOT shuffeled, but documents can be shuffled. 
+class RiverbedProcessor(MixingProcessor):
+  RELATIVE_LOW = 0
+  RELATIVE_MEDIUM = 1
+  RELATIVE_HIGH= 2
+  
+  # for feature extraction on a single span and potentially between spans in a series. 
+  # tuples of (feature_label, lower_band, upper_band, extractor). assumes prefix extraction has occured.
+  # returns data which can be used to store in the feature_label for a span. if upper_band and lower_band are set, then an additional label X_level stores
+  # the relative level label as well.
+  #
+  #TODO: other potential features include similarity of embedding from its cluster centroid
+  #compound words %
+  #stopwords %
+  #term_frequency-inverse_document_frequency weight
+  
+  default_span_level_feature_extractors = [
+      ('perplexity', .5, 1.5, lambda self, span: 0.0 if self.riverbed_model is None else self.riverbed_model.get_perplexity(span['tokenized_text'])),
+      ('prefix', None, None, lambda self, span: "" if " || " not in span['text'] else  span['text'].split(" || ", 1)[0].strip()),
+      ('date', None, None, lambda self, span: "" if " || " not in span['text'] else span['text'].split(" || ")[0].split(":")[-1].split("date of")[-1].strip("; ")), 
+  ]
+
+  # for extracting a prefix for a segment of text. a segment can contain multiple spans.
+  default_prefix_extractors = [
+      ('intro_with_date', _intro_with_date), \
+      ('section_with_date', _section_with_date), \
+      ('conclusion_with_date', _conclusion_with_date) \
+      ]
+  
+  
+  def _intro_with_date(self, span):
+      text, position, ents = span['text'], span['position'], span['ents']
+      if position < 0.05 and text.strip() and (len(text) < 50 and text[0] not in "0123456789" and text[0] == text[0].upper() and text.split()[-1][0] == text.split()[-1][0].upper()):
+        date = [e[0] for e in ents if e[1] == 'DATE']
+        if date: 
+          date = date[0]
+          date = self.dateutil_parse_ext(date)
+        if  date: 
+          return 'intro: date of '+ date +"; "+text + " || "
+        else:
+          return 'intro: ' +text + " || "
+
+  def _section_with_date(self, span):
+      text, position, ents = span['text'], span['position'], span['ents']
+      if  position >= 0.05 and position < 0.95 and text.strip() and (len(text) < 50 and text[0] not in "0123456789" and text[0] == text[0].upper() and text.split()[-1][0] == text.split()[-1][0].upper()):
+        date = [e[0] for e in ents if e[1] == 'DATE']
+        if date: 
+          date = date[0]
+          date = self.dateutil_parse_ext(date)
+        if  date: 
+          return 'section: date of '+ date +"; "+text + " || "
+        else:
+          return  'section: ' +text + " || "
+      return None
+
+  def _conclusion_with_date(self, span):
+      text, position, ents = span['text'], span['position'], span['ents']
+      if  position >= 0.95 and text.strip() and (len(text) < 50 and text[0] not in "0123456789" and text[0] == text[0].upper() and text.split()[-1][0] == text.split()[-1][0].upper()):
+        date = [e[0] for e in ents if e[1] == 'DATE']
+        if date: 
+          date = date[0]
+          date = self.dateutil_parse_ext(date)
+        if  date: 
+          return 'conclusion: date of '+ date +"; "+text + " || "
+        else:
+          return 'conclusion: ' +text + " || "
+      return None
+
+
+  # the similarity models sometimes put too much weight on proper names, etc. but we might want to cluster by general concepts
+  # such as change of control, regulatory actions, etc. The proper names themselves can be collapsed to one canonical form (The Person). 
+  # Similarly, we want similar concepts (e.g., compound words) to cluster to one canonical form.
+  # we do this by collapsing to an NER label and/or creating a synonym map from compound words to known tokens. See _create_ontology
+  # and we use that data to generalize the sentence here.  
+  #assumes the text has already been tokenized and ents has been sorted with longerst entity to shortest entity
+  # TODO: have an option NOT to generalize the prefix. 
+  def _generalize_text_and_filter_ents(self, tokenizer, tokenized_text, ents, ner_to_generalize=(), use_synonym_replacement=False):
+      if not ner_to_generalize and not synonyms and not ents: return tokenized_text, ents
+
+      #do a second tokenize if we want to do synonym replacement.
+      if use_synonym_replacement:
+        tokenized_text = tokenizer.tokenize(text, use_synonym_replacement=True)  
+      filtered_ents = []
+
+      #replace with placeholders
+      for idx, ent in enumerate(ents):
+          entity, label = ent
+          if "@#@" not in text: break
+          if f"@#@{idx}@#@" not in text: continue
+          text = text.replace(f"@#@{idx}@#@", entity) 
+      text = text.replace("_", " ")
+
+      #see if there are multiple of the same labels 
+      label_cnts = dict([(a,b) for a, b in Counter([label for entity, label in ents]).items() if b > 1])
+      max_label_cnts = copy.copy(label_cnts)
+      entity_2_id = {}
+      for idx, ent in enumerate(ents):
+          entity, label = ent
+          entity_id = entity_2_id.get(entity) 
+          if "@#@" not in tokenized_text: break
+          if f"@#@{idx}@#@" not in tokenized_text: continue
+          if entity not in entity_2_id and label in label_cnts:
+            entity_id = entity_2_id[entity] = 1 + (max_label_cnts[label] - label_cnts[label])
+            label_cnts[label] = label_cnts[label] - 1
+          filtered_ents.append((entity, label,  text.count(f"@#@{idx}@#@")))
+          if label in ner_to_generalize:   
+            if label == 'ORG':
+              tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Organization' + ('' if entity_id is None else f" {entity_id}"))
+            elif label == 'PERSON':
+              tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Person'+ ('' if entity_id is None else f" {entity_id}"))
+            elif label == 'FAC':
+              tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Facility'+ ('' if entity_id is None else f" {entity_id}"))
+            elif label in ('GPE', 'LOC'):
+              tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Location'+ ('' if entity_id is None else f" {entity_id}"))
+            elif label in ('DATE', ):
+              tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Date'+ ('' if entity_id is None else f" {entity_id}"))
+            elif label in ('LAW', ):
+              tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Law'+ ('' if entity_id is None else f" {entity_id}"))  
+            elif label in ('EVENT', ):
+              tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Event'+ ('' if entity_id is None else f" {entity_id}"))            
+            elif label in ('MONEY', ):
+              tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Amount'+ ('' if entity_id is None else f" {entity_id}"))
+            else:
+              tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", entity.replace(" ", "_"))
+          else:
+            tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", entity.replace(" ", "_"))    
+
+      for _ in range(3):
+        tokenized_text = tokenized_text.replace("The Person and The Person", "The Person").replace("The Person The Person", "The Person").replace("The Person, The Person", "The Person")
+        tokenized_text = tokenized_text.replace("The Facility and The Facility", "The Facility").replace("The Facility The Facility", "The Facility").replace("The Facility, The Facility", "The Facility")
+        tokenized_text = tokenized_text.replace("The Organization and The Organization", "The Organization").replace("The Organization The Organization", "The Organization").replace("The Organization, The Organization", "The Organization")
+        tokenized_text = tokenized_text.replace("The Location and The Location", "The Location").replace("The Location The Location", "The Location").replace("The Location, The Location", "The Location")
+        tokenized_text = tokenized_text.replace("The Date and The Date", "The Date").replace("The Date The Date", "The Date").replace("The Date, The Date", "The Date")
+        tokenized_text = tokenized_text.replace("The Law and The Law", "The Law").replace("The Law The Law", "The Law").replace("The Law, The Law", "The Law")
+        tokenized_text = tokenized_text.replace("The Event and The Event", "The Event").replace("The Event The Event", "The Event").replace("The Event, The Event", "The Event")
+        tokenized_text = tokenized_text.replace("The Amount and The Amount", "The Amount").replace("The Amount The Amount", "The Amount").replace("The Amount, The Amount", "The Amount")
+
+      return tokenized_text, filtered_ents
+
+
+
+  # code more informative labels for the span clusters
+  def _create_informative_parent_label_from_tfidf(self, clusters, span2idx, span2data, span2cluster_label, span_label2user_label=None, \
+                                            label2term_frequency=None, document_frequency=None, domain_stopwords_set=stopwords_set, max_levels=4):
+      if label2term_frequency is None: label2term_frequency = {}
+      if document_frequency is None: document_frequency = {}
+      if span_label2user_label is None: span_label2user_label = {}
+      #we gather info for term_frequency-inverse_document_frequency with respect to each token in each clusters
+      for label, values in clusters.items(): 
+        if label[0] == 0 and label not in span_label2user_label:
+          for item in values:
+            if span in span2idx:
+              data = span2data[span]
+              text = data['tokenized_text']
+              #we don't want the artificial labels to skew the tfidf calculations
+              #assumes we don't have more than 10 of the same label
+              text = text.replace('The Organization','').replace('The_Organization','')
+              text = text.replace('The Person','').replace('The_Person','')
+              text = text.replace('The Facility','').replace('The_Facility','')
+              text = text.replace('The Location','').replace('The_Location','')          
+              text = text.replace('The Date','').replace('The_Date','')
+              text = text.replace('The Law','').replace('The_Law','')
+              text = text.replace('The Amount','').replace('The_Amount','')
+              text = text.replace('The Event','').replace('The_Event','')
+
+              #we add back the entities we had replaced with the artificial labels into the term_frequency-inverse_document_frequency calculations
+              ents =  list(itertools.chain(*[[a[0].replace(" ", "_")]*a[-1] for a in span['ents']]))
+              if span['offset'] == 0:
+                if "||" in text:
+                  prefix, text = text.split("||",1)
+                  prefix = prefix.split(":")[-1].split(";")[-1].strip()
+                  text = prefix.split() + text.replace("(", " ( ").replace(")", " ) ").split() + ents
+                else:
+                   text = text.replace("(", " ( ").replace(")", " ) ").split() + ents
+              else:
+                text = text.split("||",1)[-1].strip().split() + ents
+              len_text = len(text)
+              text = [a for a in text if len(a) > 1 and ("_" not in a or (a.count("_")+1 != len([b for b in a.lower().split("_") if  b in domain_stopwords_set])))  and a.lower() not in domain_stopwords_set and a[0].lower() in "abcdefghijklmnopqrstuvwxyz"]
+              cnts = Counter(text)
+              aHash = label2term_frequency[label] =  label2term_frequency.get(label, {})
+              for token, cnt in cnts.items():
+                aHash[token] = cnt/len_text
+              for token in cnts.keys():
+                document_frequency[token] = document_frequency.get(token,0) + 1
+
+      #Now, acually create the new label from the tfidf of the tokens in this cluster
+      #TODO, see how we might save away the tfidf or get the tfidf from the bm25 indexer. 
+      for label, term_frequency in label2term_frequency.items():
+          tfidf = copy.copy(term_frequency)    
+          for token in list(tfidf.keys()):
+            tfidf[token]  = tfidf[token] * min(1.5, tokenizer.token2weight.get(token, 1)) * math.log(1.0/(1+document_frequency[token]))
+          top_tokens2 = [a[0].lower().strip("~!@#$%^&*()<>,.:;")  for a in Counter(tfidf).most_common(min(len(tfidf), 40))]
+          top_tokens2 = [a for a in top_tokens2 if a not in domain_stopwords_set and ("_" not in a or (a.count("_")+1 != len([b for b in a.split("_") if  b in domain_stopwords_set])))]
+          top_tokens = []
+          for t in top_tokens2:
+            if t not in top_tokens:
+              top_tokens.append(t)
+          if top_tokens:
+            if len(top_tokens) > 5: top_tokens = top_tokens[:5]
+            new_label = ", ".join(top_tokens) 
+            span_label2user_label[label] = new_label
+
+      #create parent labels
+      for old_label, new_label in span_label2user_label.items():
+        for parent_old_label in [(level, old_label[1]) for level in range(1, max_levels)]:
+          if parent_old_label clusters:
+            span_label2user_label[parent_old_label]= ("¶"*parent_old_label[0])+new_label
+
+      return span_label2user_label, label2term_frequency, document_frequency
+
+
+  #transform a doc into a span batch, breaking up doc into spans
+  #all spans/leaf nodes of a cluster are stored as a triple of (name, lineno, offset)
+  #extract both bm25_field and embed_search_field and inject intout output data yielded from this method
+  def process(self, data_iterator, curr_file_size, tokenizer, text_span_size=1000, ner_to_generalize=(), use_synonym_replacement=False):
+    for line in data_iterator:
+        #TOD: decide how injest and emit the data (as jsonl/dict objects")
+        embed_search_content =  get_content_from_line(line, self.embed_search_field)
+        bm25_content =  get_content_from_line(line, self.bm25_field)
+        ents = list(itertools.chain(*[[(e.text, e.label_)] if '||' not in e.text else [(e.text.split("||")[0].strip(), e.label_), (e.text.split("||")[-1].strip(), e.label_)] for e in spacy_nlp(line).ents]))
+        ents = [e for e in ents if e[0]]
+        ents = [[a[0], a[1], b] for a, b in Counter(ents).items()]
+        for prefix, extract in self.prefix_extractors:
+            extracted_text = extract(self, {'text':line, 'position':position, 'ents':ents}) 
+            if extracted_text:
+              line = extracted_text
+              if curr: 
+                curr = curr.replace(". .", ". ").replace("..", ".").replace(":.", ".")
+                hash_id = hash(curr)
+                if not dedup or (hash_id not in seen):
+                  seen[hash_id] = 1
+                  curr_ents = list(itertools.chain(*[[(e.text, e.label_)] if '||' not in e.text else [(e.text.split("||")[0].strip(), e.label_), (e.text.split("||")[-1].strip(), e.label_)] for e in spacy_nlp(curr).ents]))
+                  curr_ents = list(set([e for e in curr_ents if e[0]]))
+                  curr_ents.sort(key=lambda a: len(a[0]), reverse=True)
+                  
+        batch2 = []
+        
+        for idx, ent in enumerate(curr_ents):
+          text = text.replace(ent[0], f' @#@{idx}@#@ ')
+        # we do placeholder replacement tokenizing to make ngram tokens underlined, so that we don't split a span in the middle of an ner token or ngram.
+        text  = tokenizer.tokenize(text, use_synonym_replacement=False) 
+        len_text = len(text)
+        prefix = ""
+        if "||" in text:
+          prefix, _ = text.split("||",1)
+          prefix = prefix.strip()
+        offset = 0
+        while offset < len_text:
+          max_rng  = min(len_text, offset+text_span_size+1)
+          if text[max_rng-1] != ' ':
+            #TODO: extend for non english periods and other punctuations
+            if '. ' in text[max_rng:]:
+              max_rng = max_rng + text[max_rng:].index('. ')+1
+            elif ' ' in text[max_rng:]:
+              max_rng = max_rng + text[max_rng:].index(' ')
+            else:
+              max_rng = len_text
+          if prefix and offset > 0:
+            text2 = prefix +" || ... " + text[offset:max_rng].strip().replace("_", " ").replace("  ", " ").replace("  ", " ")
+          else:
+            text2 = text[offset:max_rng].strip().replace("_", " ").replace("  ", " ").replace("  ", " ")
+          tokenized_text, ents2 = _generalize_text_and_filter_ents(self.tokenizer, tokenized_text2, ents, ner_to_generalize, use_synonym_replacement=use_synonym_replacement) 
+          if prefix and offset > 0:
+            _, text2 = text2.split(" || ... ", 1)
+          span = copy.deepcopy(doc)
+          span['position'] += offset/curr_file_size
+          span['offset'] = offset
+          span['text'] = text2
+          span['tokenized_text'] = tokenized_text 
+          span['ents'] = ents2
+          yield span
+          offset = max_rng
+
+
+  
+  def _create_span_features(self, batch, span_level_feature_extractors, running_features_per_label, running_features_size):
+    feature_labels = []
+    features = []
+    relative_levels = []
+    for feature_label, lower_band, upper_band, extractor in span_level_feature_extractors:
+      need_to_high = True
+      need_to_low = True
+      need_to_medium = True
+      prior_change = -1
+      feature_labels.append(feature_label)
+      features.append([])
+      relative_levels.append([])
+      features_per_label = features[-1]
+      relative_level_per_label = relative_levels[-1]
+      running_features = running_features_per_label[feature_label] = running_features_per_label.get(feature_label, [])
+      if lower_band is not None:
+        if len(running_features) < running_features_size:
+          for span in batch:
+            p = extractor(self, span)
+            running_features.append(p)
+            if len(running_features) >= running_features_size:
+                break
+        stdv = statistics.stdev(running_features)
+        mn = statistics.mean (running_features)
+        relative_label = self.RELATIVE_LOW
+      for idx, span in enumerate(batch):
+        p = extractor(self, span)
+        features_per_label.append(p)
+        if lower_band is not None:
+          running_features.append(p)
+          if len(running_features) >= running_features_size:    
+            stdv = statistics.stdev(running_features)
+            mn = statistics.mean (running_features)
+          if len(running_features) > running_features_size:
+            running_features.pop()    
+          if abs(p-mn) >= stdv*upper_band and need_to_high:
+            relative_label = self.RELATIVE_HIGH
+            prior_change = idx
+            need_to_high = False
+            need_to_low = True
+            need_to_medium = True
+          elif  abs(p-mn) < stdv*upper_band and abs(p-mn) > stdv*lower_band  and need_to_medium:
+            relative_label = self.RELATIVE_MEDIUM
+            prior_change = idx
+            need_to_high = True
+            need_to_low = True
+            need_to_medium = False
+          elif abs(p-mn) <= stdv*lower_band and need_to_low:
+            relative_label = self.RELATIVE_LOW
+            prior_change = idx
+            need_to_high = False
+            need_to_low = True
+            need_to_medium = False
+          running_features.append(p)
+          relative_level_per_label.append(relative_label) 
+          
+    for idx, span in enumerate(batch):
+      span['cluster_label']= None
+      span['cluster_label_before']= None
+      span['cluster_label_after']= None
+      for feature_label, features_per_label, relative_level_per_label in  zip(feature_labels, features, relative_levels):
+        span[feature_label] = features_per_label[idx]
+        if relative_level_per_label: span[feature_label+"_level"] = relative_level_per_label[idx]
+      ent_cnts = Counter(v[1].lower()+"_cnt" for v in span['ents'])
+      for feature_label, cnt in ent_cnts.items():
+        span[feature_label] = cnt
+    return batch
+  
+  #TODO: add inverse cluster size as a feature.
+  #      cosine distance to nearest neighbor cluster head
+
+  # similar to _create_token_embeds_and_synonyms, except for spans     
+  #(1) compute features and embeddings in one batch for tokenized text.
+  #(2) create clusters in an incremental fashion from batch
+  #all leaf nodes are spans
+  #spanf2idx is a mapping from the span to the actual underlying storage idx (e.g., a jsonl file or database)
+  #span2cluster_label is like the synonym data-structure for tokens.
+
+  def _create_span_embeds_and_span2cluster_label(self):
+    pass
+  
+      
+# This class uses the RivberbedPreprocessor to generate spans and index the spans. It also provides APIs for searching the spans.
+#we can use the ontology for query expansion as part of the bm25 search. 
+class RiverbedSearcherIndexer:
+
+  def __init__(self, project_name, processor, span2idx, batch, retained_batch, span_lfs,  span2cluster_label, \
+                start_idx = 0, embed_search_field="text", bm25_field="text", text_span_size=1000, embedder="minilm", do_ontology=True, running_features_per_label={}, \
+                ner_to_generalize=(), span_level_feature_extractors=default_span_level_feature_extractors, \
+                running_features_size=100, label2term_frequency=None, document_frequency=None, domain_stopwords_set=stopwords_set,\
+                use_synonym_replacement=False, ):
+    super().__init__()
+    self.idx = start_idx
+    self.embed_search_field = embed_search_field
+    self.bm25_field = bm25_field
+    self.searcher = Searcher()
+
+
+  def tokenize(self, *args, **kwargs):
+    return self.tokenizer.tokenize(*args, **kwargs)
+
+  # the main method for processing documents and their spans. 
+  def index(self, content_store_objs):
+    global clip_model, minilm_model, labse_model
+    model = self.model
+    tokenizer = self.tokenizer
+    searcher = self.searcher.switch_search_context(f"{project_name}.jsonl")
+    os.system(f"mkdir -p {project_name}.jsonl_idx")
+    span2idx = self.span2idx = OrderedDict() if not hasattr(self, 'span2idx') else self.span2idx
+    span_clusters = self.span_clusters = {} if not hasattr(self, 'span_clusters') else self.span_clusters
+    label2term_frequency = self.label2term_frequency = {} if not hasattr(self, 'label2term_frequency') else self.label2term_frequency
+    document_frequency = self.document_frequency = {} if not hasattr(self, 'document_frequency') else self.document_frequency
+    span2cluster_label = self.span2cluster_label = {} if not hasattr(self, 'span2cluster_label') else self.span2cluster_label
+    if (not hasattr(model, 'kenlm_model') or model.kenlm_model is not None) and auto_create_tokenizer_and_model:
+      tokenizer, model = self.tokenizer, self.model = RiverbedModel.create_tokenizer_and_model(project_name, files, )
+    kenlm_model = self.model.kenlm_model 
+    use_model(embedder)
+    running_features_per_label = {}
+    name = files.pop()
+    f = open(name) 
+    domain_stopwords_set = set(list(stopwords_set) + list(stopwords.keys()))
+
+
+    if seen is None: seen = {}
+    
+    for name, curr_file_size, content_store_obj in content_store_objs.items():
+      # we will collapse adjacent lines that are short. 
+      prior_line = ""
+      batch = []
+      retained_batch = []
+      curr = ""
+      cluster_embeddings = None
+      curr_date = ""
+      curr_position = 0
+      next_position = 0
+      curr_file_size = os.path.getsize(name)
+      position = 0
+      line = ""
+      lineno = -1
+      curr_lineno = 0
+      seen={}
+      for line in content_store_obj:
+        line = line.strip() #TODO: read the data from the field
+        position = next_position/curr_file_size
+        next_position = next_position + len(line)+1
+        line = line.strip().replace("  ", " ")
+        if not line: continue
+        if len(line) < min_len_for_prefix and len(line) > 0:
+          prior_line = prior_line + " " + line
+          continue
+        line = prior_line+" " + line
+        prior_line = ""
+        line = line.replace("  ", " ").replace("\t", " ").strip("_ ")
+
+        #turn the file position into a percentage
+        if len(line) < max_len_for_prefix:
+                  for key_words, tokenized_text in zip(self.processor.process_bm25_field(curr_file_size, self.tokenizer), 
+                                            self.processor.process_embed_search_field(curr_file_size, {'text': curr,}, \ 
+                                                                                      text_span_size=text_span_size, \
+                                                                                      ner_to_generalize=ner_to_generalize, \
+                                                                                      use_synonym_replacement=use_synonym_replacement)):
+              
+                    item['name'] =name
+                    item['lineno'] = curr_lineno
+                    item['position'] = curr_position
+                    
+                    batch.append(item)
+                curr = ""
+                curr_lineno = lineno
+                curr_position = position
+              break
+        if curr: 
+          curr = curr +" " + line
+        else: 
+          curr = line
+        curr = curr.replace("  ", " ")
+
+        # process the batches
+        if len(batch) >= features_batch_size:
+          batch_id_prefix += 1
+          retained_batch, span2idx, span2cluster_label, label2term_frequency, document_frequency = self._create_span_embeds_and_span2cluster_label(project_name, curr_file_size, jsonl_file_idx, span2idx, batch, \
+                                                      retained_batch, jsonl_file,  f"{batch_id_prefix}_", span_lfs,  span2cluster_label, text_span_size, \
+                                                      kmeans_batch_size=kmeans_batch_size, epoch = epoch, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, \
+                                                      max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents, do_ontology=True, embedder=embedder, \
+                                                      running_features_per_label=running_features_per_label, ner_to_generalize=ner_to_generalize, span_level_feature_extractors=span_level_feature_extractors, \
+                                                      running_features_size=running_features_size, label2term_frequency=label2term_frequency, document_frequency=document_frequency, domain_stopwords_set=domain_stopwords_set, \
+                                                      verbose_snrokel=verbose_snrokel,  span_per_cluster=span_per_cluster, use_synonym_replacement=use_synonym_replacement, )  
+          batch = []
+      
+      # do one last line and finish processing if there's anything left
+      if curr: 
+          curr = curr.replace(". .", ". ").replace("..", ".").replace(":.", ".")
+          hash_id = hash(curr)
+          if not dedup or (hash_id not in seen):
+              curr_ents = list(itertools.chain(*[[(e.text, e.label_)] if '||' not in e.text else [(e.text.split("||")[0].strip(), e.label_), (e.text.split("||")[-1].strip(), e.label_)] for e in spacy_nlp(curr).ents]))
+              curr_ents = list(set([e for e in curr_ents if e[0]]))
+              curr_ents.sort(key=lambda a: len(a[0]), reverse=True)
+              for item in self._create_spans_batch(curr_file_size, {'text': curr, 'ents': curr_ents, }, text_span_size=text_span_size, ner_to_generalize=ner_to_generalize, use_synonym_replacement=use_synonym_replacement)
+                item['name'] =name
+                item['lineno'] = curr_lineno
+                item['position'] = curr_position
+                batch.append(item)
+          
+      #do the last bactch    
+      if batch: 
+          batch_id_prefix += 1
+          retained_batch, span2idx, span2cluster_label, label2term_frequency, document_frequency = self._create_span_embeds_and_span2cluster_label(project_name, curr_file_size, jsonl_file_idx, spanf2idx, batch, \
+                                                      retained_batch, jsonl_file,  f"{batch_id_prefix}_", span_lfs,  span2cluster_label, text_span_size, \
+                                                      kmeans_batch_size=kmeans_batch_size, epoch = epoch, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids,  \
+                                                      max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents, do_ontology=True, embedder=embedder,\
+                                                      running_features_per_label=running_features_per_label, ner_to_generalize=ner_to_generalize, span_level_feature_extractors=span_level_feature_extractors, \
+                                                      running_features_size=running_features_size, label2term_frequency=label2term_frequency, document_frequency=document_frequency, domain_stopwords_set=domain_stopwords_set, \
+                                                      verbose_snrokel=verbose_snrokel)  
+          batch = []
+          
+      
+      
+          
+    span2idx, span_clusters, label2term_frequency, document_frequency, span2cluster_label = self.span2idx, self.span_clusters, self.label2term_frequency, self.document_frequency, self.span2cluster_label                    
+    self.searcher = searcher.switch_search_context(project_name, data_iterator=data_iterator, search_field="tokenized_text", bm25_field="text", embedder=embedder, \
+                             auto_embed_text=True, auto_create_bm25_idx=True, auto_create_embeddings_idx=True)
+    
+    #TODO: cleanup label2term_frequency, document_frequency
+    return self
+
+  def gzip_jsonl_file(self):
+    os.system(f"gzip {project_name}/spans.jsonl")
+    GzipFileByLine(f"{project_name}/spans.jsonl")
+    
+  def save_pretrained(self, project_name):
+      os.system(f"mkdir -p {project_name}")
+      torch.save(self, open(f"{project_name}/{project_name}.pickle", "wb"))
+    
+  @staticmethod
+  def from_pretrained(project_name):
+      self = torch.load(open(f"{project_name}/{project_name}.pickle", "rb"))
+      return self
+
+#################################################################################
+#VISUALIZER CODE
+#this forms part of the view portion of the MVC
+#used for exploring and viewing different parts of data and results from the analyzer. 
+#display results and pandas data frames in command line, notebook or as a flask API service. 
+class RiverbedVisualizer:
+  def __init__(self, project_name, analyzer, searcher_indexer, processor):
+    self.project_name, self.analyzer, self.searcher_indexer, self.processor = project_name, analyzer, searcher_indexer, processor
+  
+  def draw(self):
+    pass
+  
+  def df(self, slice):
+    pass
+  
+
 #################################################################################
 #MODEL CODE
-#this class is used to analyze the words including compound words in a corpush.
-class RiverbedWordAnalyzerModel(nn.Module):
+#this class is used to analyze the words including compound words in a corpus.
+#it can be used to generate text controlled by the kenlm perplixty and retrieved 
+#embeddings
+class RiverbedModel(nn.Module):
 
-  def __init__(self):
+  def __init__(self, project_name, searcher_indexer, processor):
    super().__init__()
    global labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set 
+   self.project_name, self.searcher_indexer, self.processor = project_name, searcher_indexer, processor
    labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set = init_models()
-   self.searcher = Searcher()
+   self.word_searcher = Searcher()
+   self.span_searcher = Searcher()
    self.tokenizer = None
    self.synonyms = None
    self.clusters = None
    self.mmap_file = ""
+   self.kenlm_model = None
   
   def search(self, *args, **kwargs):
-    self.searcher(*args, **kwargs)
+    if 'do_word_phrase' in kwargs and kwargs.get('do_word_phrase'):
+      kwargs.pop('do_word_phrase')
+      self.word_searcher.search(*args, **kwargs)
+    else:
+      self.span_searcher.search(*args, **kwargs)
   
+  #TODO: redefine forward as the span_searcher forwards.
+  #TODO: redefine generate to take into kenlm perplxity and search
+  
+
+  def generate(self, gen_model, gen_tokenizer, *args,
+                              word_str="", num_words_per_step=4, num_return_sequences=4, max_length=20, top_p=0.95,
+                              top_k=10, **kwargs):
+  p = next(clip_model.parameters())
+  current_generated_sentences = ['<pad>'] * num_return_sequences
+  for mlength in range(num_return_sequences, max(max_length, len_words*num_words_per_step), num_words_per_step):
+    input = gen_tokenizer([words]*num_return_sequences, padding=True,  return_tensors="pt").to(p.device)
+    
+    #input['decoder_input_ids'] = commongen_tokenizer(current_generated_sentences, padding=True, return_tensors="pt", add_special_tokens=False).input_ids.to(p.device)
+    out = gen_model.generate(num_return_sequences=num_return_sequences, 
+                                    top_p=top_p,
+                                    top_k=top_k, 
+                                    do_sample=True, max_length=mlength, **input)
+    text_array = gen_tokenizer.batch_decode(out, skip_special_tokens=True)
+    text_array = list(set(text_array))
+    embedding_array = torch.vstack([self.span_searcher.get_embedding(sent) for sent in text_array])
+    dist = cosine_distance(prev_embeddings, embedding_array)
+    result = dist.top_k(top_k*10)
+    text_array2 = []
+    for score, idx in zip(result.values(), result.indices()):
+      text_array2.append([score*(1/(self.get_perplexity(self.tokenize(text_array[idx]), text_array[idx]])
+    for sent in text_array2:
+      torch.mean(self.span_search.get_embedding_by_idx([a[0] for a in self.span_search(sent, limit=5)]))
+      
+      
+    out = clip_image_to_multitext_score(clip_model, clip_processor, image, text_array, decompose_image=True)
+    out1 = [(a.item(), b) for a, b in zip(out['scores'], text_array)] # we can use the box2element score here instead.
+    out1.sort(key=lambda a: a[0], reverse=True)
+    out1 = out1[:num_return_sequences]
+    current_generated_sentences = ['<pad> '+ o[1] for o in out1]
+    #print (out1)
+  return [o[1] for o in out1]
 
   @staticmethod
   def _pp(log_score, length):
@@ -730,541 +1312,9 @@ class RiverbedWordAnalyzerModel(nn.Module):
       os.system(f"rm -rf {model_name}/__tmp__*")
       return tokenizer, self
 
-  def save_pretrained(self, model_name):
-      os.system(f"mkdir -p {model_name}")
-      torch.save(self, open(f"{model_name}/{model_name}.pickle", "wb"))
-    
-  @staticmethod
-  def from_pretrained(model_name):
-      self = torch.load(open(f"{model_name}/{model_name}.pickle", "rb"))
-      return self
 
+  #ANALYZER CODE
 
-#################################################################################
-# SPAN AND DOCUMENT PROCESSOR
-# An  ingester-model-view-controller framework for span and document processing. 
-
-# this class is for creating and featuring spans from multiple documents, which are fragments of one or more sentences (not necessarily a paragraph).
-# each span is a dict/json object. A span can specific to semantic search or bm25, and can include be indexed (span_idx) by (file name, line no, offset). The spans are also clustered. Finally the spans are serialzied 
-# into a jsonl.gz file.
-# assumes the sentences inside a document are NOT shuffeled, but documents can be shuffled. 
-class RiverbedProcessor(MixingProcessor):
-  RELATIVE_LOW = 0
-  RELATIVE_MEDIUM = 1
-  RELATIVE_HIGH= 2
-  
-  # for feature extraction on a single span and potentially between spans in a series. 
-  # tuples of (feature_label, lower_band, upper_band, extractor). assumes prefix extraction has occured.
-  # returns data which can be used to store in the feature_label for a span. if upper_band and lower_band are set, then an additional label X_level stores
-  # the relative level label as well.
-  #
-  #TODO: other potential features include similarity of embedding from its cluster centroid
-  #compound words %
-  #stopwords %
-  #term_frequency-inverse_document_frequency weight
-  
-  default_span_level_feature_extractors = [
-      ('perplexity', .5, 1.5, lambda self, span: 0.0 if self.riverbed_model is None else self.riverbed_model.get_perplexity(span['tokenized_text'])),
-      ('prefix', None, None, lambda self, span: "" if " || " not in span['text'] else  span['text'].split(" || ", 1)[0].strip()),
-      ('date', None, None, lambda self, span: "" if " || " not in span['text'] else span['text'].split(" || ")[0].split(":")[-1].split("date of")[-1].strip("; ")), 
-  ]
-
-  # for extracting a prefix for a segment of text. a segment can contain multiple spans.
-  default_prefix_extractors = [
-      ('intro_with_date', _intro_with_date), \
-      ('section_with_date', _section_with_date), \
-      ('conclusion_with_date', _conclusion_with_date) \
-      ]
-  
-  
-  def _intro_with_date(self, span):
-      text, position, ents = span['text'], span['position'], span['ents']
-      if position < 0.05 and text.strip() and (len(text) < 50 and text[0] not in "0123456789" and text[0] == text[0].upper() and text.split()[-1][0] == text.split()[-1][0].upper()):
-        date = [e[0] for e in ents if e[1] == 'DATE']
-        if date: 
-          date = date[0]
-          date = self.dateutil_parse_ext(date)
-        if  date: 
-          return 'intro: date of '+ date +"; "+text + " || "
-        else:
-          return 'intro: ' +text + " || "
-
-  def _section_with_date(self, span):
-      text, position, ents = span['text'], span['position'], span['ents']
-      if  position >= 0.05 and position < 0.95 and text.strip() and (len(text) < 50 and text[0] not in "0123456789" and text[0] == text[0].upper() and text.split()[-1][0] == text.split()[-1][0].upper()):
-        date = [e[0] for e in ents if e[1] == 'DATE']
-        if date: 
-          date = date[0]
-          date = self.dateutil_parse_ext(date)
-        if  date: 
-          return 'section: date of '+ date +"; "+text + " || "
-        else:
-          return  'section: ' +text + " || "
-      return None
-
-  def _conclusion_with_date(self, span):
-      text, position, ents = span['text'], span['position'], span['ents']
-      if  position >= 0.95 and text.strip() and (len(text) < 50 and text[0] not in "0123456789" and text[0] == text[0].upper() and text.split()[-1][0] == text.split()[-1][0].upper()):
-        date = [e[0] for e in ents if e[1] == 'DATE']
-        if date: 
-          date = date[0]
-          date = self.dateutil_parse_ext(date)
-        if  date: 
-          return 'conclusion: date of '+ date +"; "+text + " || "
-        else:
-          return 'conclusion: ' +text + " || "
-      return None
-
-
-  # the similarity models sometimes put too much weight on proper names, etc. but we might want to cluster by general concepts
-  # such as change of control, regulatory actions, etc. The proper names themselves can be collapsed to one canonical form (The Person). 
-  # Similarly, we want similar concepts (e.g., compound words) to cluster to one canonical form.
-  # we do this by collapsing to an NER label and/or creating a synonym map from compound words to known tokens. See _create_ontology
-  # and we use that data to generalize the sentence here.  
-  #assumes the text has already been tokenized and ents has been sorted with longerst entity to shortest entity
-  # TODO: have an option NOT to generalize the prefix. 
-  def _generalize_text_and_filter_ents(self, tokenizer, tokenized_text, ents, ner_to_generalize=(), use_synonym_replacement=False):
-      if not ner_to_generalize and not synonyms and not ents: return tokenized_text, ents
-
-      #do a second tokenize if we want to do synonym replacement.
-      if use_synonym_replacement:
-        tokenized_text = tokenizer.tokenize(text, use_synonym_replacement=True)  
-      filtered_ents = []
-
-      #replace with placeholders
-      for idx, ent in enumerate(ents):
-          entity, label = ent
-          if "@#@" not in text: break
-          if f"@#@{idx}@#@" not in text: continue
-          text = text.replace(f"@#@{idx}@#@", entity) 
-      text = text.replace("_", " ")
-
-      #see if there are multiple of the same labels 
-      label_cnts = dict([(a,b) for a, b in Counter([label for entity, label in ents]).items() if b > 1])
-      max_label_cnts = copy.copy(label_cnts)
-      entity_2_id = {}
-      for idx, ent in enumerate(ents):
-          entity, label = ent
-          entity_id = entity_2_id.get(entity) 
-          if "@#@" not in tokenized_text: break
-          if f"@#@{idx}@#@" not in tokenized_text: continue
-          if entity not in entity_2_id and label in label_cnts:
-            entity_id = entity_2_id[entity] = 1 + (max_label_cnts[label] - label_cnts[label])
-            label_cnts[label] = label_cnts[label] - 1
-          filtered_ents.append((entity, label,  text.count(f"@#@{idx}@#@")))
-          if label in ner_to_generalize:   
-            if label == 'ORG':
-              tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Organization' + ('' if entity_id is None else f" {entity_id}"))
-            elif label == 'PERSON':
-              tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Person'+ ('' if entity_id is None else f" {entity_id}"))
-            elif label == 'FAC':
-              tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Facility'+ ('' if entity_id is None else f" {entity_id}"))
-            elif label in ('GPE', 'LOC'):
-              tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Location'+ ('' if entity_id is None else f" {entity_id}"))
-            elif label in ('DATE', ):
-              tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Date'+ ('' if entity_id is None else f" {entity_id}"))
-            elif label in ('LAW', ):
-              tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Law'+ ('' if entity_id is None else f" {entity_id}"))  
-            elif label in ('EVENT', ):
-              tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Event'+ ('' if entity_id is None else f" {entity_id}"))            
-            elif label in ('MONEY', ):
-              tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", 'The Amount'+ ('' if entity_id is None else f" {entity_id}"))
-            else:
-              tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", entity.replace(" ", "_"))
-          else:
-            tokenized_text = tokenized_text.replace(f"@#@{idx}@#@", entity.replace(" ", "_"))    
-
-      for _ in range(3):
-        tokenized_text = tokenized_text.replace("The Person and The Person", "The Person").replace("The Person The Person", "The Person").replace("The Person, The Person", "The Person")
-        tokenized_text = tokenized_text.replace("The Facility and The Facility", "The Facility").replace("The Facility The Facility", "The Facility").replace("The Facility, The Facility", "The Facility")
-        tokenized_text = tokenized_text.replace("The Organization and The Organization", "The Organization").replace("The Organization The Organization", "The Organization").replace("The Organization, The Organization", "The Organization")
-        tokenized_text = tokenized_text.replace("The Location and The Location", "The Location").replace("The Location The Location", "The Location").replace("The Location, The Location", "The Location")
-        tokenized_text = tokenized_text.replace("The Date and The Date", "The Date").replace("The Date The Date", "The Date").replace("The Date, The Date", "The Date")
-        tokenized_text = tokenized_text.replace("The Law and The Law", "The Law").replace("The Law The Law", "The Law").replace("The Law, The Law", "The Law")
-        tokenized_text = tokenized_text.replace("The Event and The Event", "The Event").replace("The Event The Event", "The Event").replace("The Event, The Event", "The Event")
-        tokenized_text = tokenized_text.replace("The Amount and The Amount", "The Amount").replace("The Amount The Amount", "The Amount").replace("The Amount, The Amount", "The Amount")
-
-      return tokenized_text, filtered_ents
-
-
-
-  # code more informative labels for the span clusters
-  def _create_informative_parent_label_from_tfidf(self, clusters, span2idx, span2data, span2cluster_label, span_label2user_label=None, \
-                                            label2term_frequency=None, document_frequency=None, domain_stopwords_set=stopwords_set, max_levels=4):
-      if label2term_frequency is None: label2term_frequency = {}
-      if document_frequency is None: document_frequency = {}
-      if span_label2user_label is None: span_label2user_label = {}
-      #we gather info for term_frequency-inverse_document_frequency with respect to each token in each clusters
-      for label, values in clusters.items(): 
-        if label[0] == 0 and label not in span_label2user_label:
-          for item in values:
-            if span in span2idx:
-              data = span2data[span]
-              text = data['tokenized_text']
-              #we don't want the artificial labels to skew the tfidf calculations
-              #assumes we don't have more than 10 of the same label
-              text = text.replace('The Organization','').replace('The_Organization','')
-              text = text.replace('The Person','').replace('The_Person','')
-              text = text.replace('The Facility','').replace('The_Facility','')
-              text = text.replace('The Location','').replace('The_Location','')          
-              text = text.replace('The Date','').replace('The_Date','')
-              text = text.replace('The Law','').replace('The_Law','')
-              text = text.replace('The Amount','').replace('The_Amount','')
-              text = text.replace('The Event','').replace('The_Event','')
-
-              #we add back the entities we had replaced with the artificial labels into the term_frequency-inverse_document_frequency calculations
-              ents =  list(itertools.chain(*[[a[0].replace(" ", "_")]*a[-1] for a in span['ents']]))
-              if span['offset'] == 0:
-                if "||" in text:
-                  prefix, text = text.split("||",1)
-                  prefix = prefix.split(":")[-1].split(";")[-1].strip()
-                  text = prefix.split() + text.replace("(", " ( ").replace(")", " ) ").split() + ents
-                else:
-                   text = text.replace("(", " ( ").replace(")", " ) ").split() + ents
-              else:
-                text = text.split("||",1)[-1].strip().split() + ents
-              len_text = len(text)
-              text = [a for a in text if len(a) > 1 and ("_" not in a or (a.count("_")+1 != len([b for b in a.lower().split("_") if  b in domain_stopwords_set])))  and a.lower() not in domain_stopwords_set and a[0].lower() in "abcdefghijklmnopqrstuvwxyz"]
-              cnts = Counter(text)
-              aHash = label2term_frequency[label] =  label2term_frequency.get(label, {})
-              for token, cnt in cnts.items():
-                aHash[token] = cnt/len_text
-              for token in cnts.keys():
-                document_frequency[token] = document_frequency.get(token,0) + 1
-
-      #Now, acually create the new label from the tfidf of the tokens in this cluster
-      #TODO, see how we might save away the tfidf or get the tfidf from the bm25 indexer. 
-      for label, term_frequency in label2term_frequency.items():
-          tfidf = copy.copy(term_frequency)    
-          for token in list(tfidf.keys()):
-            tfidf[token]  = tfidf[token] * min(1.5, tokenizer.token2weight.get(token, 1)) * math.log(1.0/(1+document_frequency[token]))
-          top_tokens2 = [a[0].lower().strip("~!@#$%^&*()<>,.:;")  for a in Counter(tfidf).most_common(min(len(tfidf), 40))]
-          top_tokens2 = [a for a in top_tokens2 if a not in domain_stopwords_set and ("_" not in a or (a.count("_")+1 != len([b for b in a.split("_") if  b in domain_stopwords_set])))]
-          top_tokens = []
-          for t in top_tokens2:
-            if t not in top_tokens:
-              top_tokens.append(t)
-          if top_tokens:
-            if len(top_tokens) > 5: top_tokens = top_tokens[:5]
-            new_label = ", ".join(top_tokens) 
-            span_label2user_label[label] = new_label
-
-      #create parent labels
-      for old_label, new_label in span_label2user_label.items():
-        for parent_old_label in [(level, old_label[1]) for level in range(1, max_levels)]:
-          if parent_old_label clusters:
-            span_label2user_label[parent_old_label]= ("¶"*parent_old_label[0])+new_label
-
-      return span_label2user_label, label2term_frequency, document_frequency
-
-
-  #transform a doc into a span batch, breaking up doc into spans
-  #all spans/leaf nodes of a cluster are stored as a triple of (name, lineno, offset)
-  #extract both bm25_field and embed_search_field and inject intout output data yielded from this method
-  def process(self, data_iterator, curr_file_size, tokenizer, text_span_size=1000, ner_to_generalize=(), use_synonym_replacement=False):
-    for line in data_iterator:
-        #TOD: decide how injest and emit the data (as jsonl/dict objects")
-        embed_search_content =  get_content_from_line(line, self.embed_search_field)
-        bm25_content =  get_content_from_line(line, self.bm25_field)
-        ents = list(itertools.chain(*[[(e.text, e.label_)] if '||' not in e.text else [(e.text.split("||")[0].strip(), e.label_), (e.text.split("||")[-1].strip(), e.label_)] for e in spacy_nlp(line).ents]))
-        ents = [e for e in ents if e[0]]
-        ents = [[a[0], a[1], b] for a, b in Counter(ents).items()]
-        for prefix, extract in self.prefix_extractors:
-            extracted_text = extract(self, {'text':line, 'position':position, 'ents':ents}) 
-            if extracted_text:
-              line = extracted_text
-              if curr: 
-                curr = curr.replace(". .", ". ").replace("..", ".").replace(":.", ".")
-                hash_id = hash(curr)
-                if not dedup or (hash_id not in seen):
-                  seen[hash_id] = 1
-                  curr_ents = list(itertools.chain(*[[(e.text, e.label_)] if '||' not in e.text else [(e.text.split("||")[0].strip(), e.label_), (e.text.split("||")[-1].strip(), e.label_)] for e in spacy_nlp(curr).ents]))
-                  curr_ents = list(set([e for e in curr_ents if e[0]]))
-                  curr_ents.sort(key=lambda a: len(a[0]), reverse=True)
-                  
-        batch2 = []
-        
-        for idx, ent in enumerate(curr_ents):
-          text = text.replace(ent[0], f' @#@{idx}@#@ ')
-        # we do placeholder replacement tokenizing to make ngram tokens underlined, so that we don't split a span in the middle of an ner token or ngram.
-        text  = tokenizer.tokenize(text, use_synonym_replacement=False) 
-        len_text = len(text)
-        prefix = ""
-        if "||" in text:
-          prefix, _ = text.split("||",1)
-          prefix = prefix.strip()
-        offset = 0
-        while offset < len_text:
-          max_rng  = min(len_text, offset+text_span_size+1)
-          if text[max_rng-1] != ' ':
-            #TODO: extend for non english periods and other punctuations
-            if '. ' in text[max_rng:]:
-              max_rng = max_rng + text[max_rng:].index('. ')+1
-            elif ' ' in text[max_rng:]:
-              max_rng = max_rng + text[max_rng:].index(' ')
-            else:
-              max_rng = len_text
-          if prefix and offset > 0:
-            text2 = prefix +" || ... " + text[offset:max_rng].strip().replace("_", " ").replace("  ", " ").replace("  ", " ")
-          else:
-            text2 = text[offset:max_rng].strip().replace("_", " ").replace("  ", " ").replace("  ", " ")
-          tokenized_text, ents2 = _generalize_text_and_filter_ents(self.tokenizer, tokenized_text2, ents, ner_to_generalize, use_synonym_replacement=use_synonym_replacement) 
-          if prefix and offset > 0:
-            _, text2 = text2.split(" || ... ", 1)
-          span = copy.deepcopy(doc)
-          span['position'] += offset/curr_file_size
-          span['offset'] = offset
-          span['text'] = text2
-          span['tokenized_text'] = tokenized_text 
-          span['ents'] = ents2
-          yield span
-          offset = max_rng
-
-
-  
-  def _create_span_features(self, batch, span_level_feature_extractors, running_features_per_label, running_features_size):
-    feature_labels = []
-    features = []
-    relative_levels = []
-    for feature_label, lower_band, upper_band, extractor in span_level_feature_extractors:
-      need_to_high = True
-      need_to_low = True
-      need_to_medium = True
-      prior_change = -1
-      feature_labels.append(feature_label)
-      features.append([])
-      relative_levels.append([])
-      features_per_label = features[-1]
-      relative_level_per_label = relative_levels[-1]
-      running_features = running_features_per_label[feature_label] = running_features_per_label.get(feature_label, [])
-      if lower_band is not None:
-        if len(running_features) < running_features_size:
-          for span in batch:
-            p = extractor(self, span)
-            running_features.append(p)
-            if len(running_features) >= running_features_size:
-                break
-        stdv = statistics.stdev(running_features)
-        mn = statistics.mean (running_features)
-        relative_label = self.RELATIVE_LOW
-      for idx, span in enumerate(batch):
-        p = extractor(self, span)
-        features_per_label.append(p)
-        if lower_band is not None:
-          running_features.append(p)
-          if len(running_features) >= running_features_size:    
-            stdv = statistics.stdev(running_features)
-            mn = statistics.mean (running_features)
-          if len(running_features) > running_features_size:
-            running_features.pop()    
-          if abs(p-mn) >= stdv*upper_band and need_to_high:
-            relative_label = self.RELATIVE_HIGH
-            prior_change = idx
-            need_to_high = False
-            need_to_low = True
-            need_to_medium = True
-          elif  abs(p-mn) < stdv*upper_band and abs(p-mn) > stdv*lower_band  and need_to_medium:
-            relative_label = self.RELATIVE_MEDIUM
-            prior_change = idx
-            need_to_high = True
-            need_to_low = True
-            need_to_medium = False
-          elif abs(p-mn) <= stdv*lower_band and need_to_low:
-            relative_label = self.RELATIVE_LOW
-            prior_change = idx
-            need_to_high = False
-            need_to_low = True
-            need_to_medium = False
-          running_features.append(p)
-          relative_level_per_label.append(relative_label) 
-          
-    for idx, span in enumerate(batch):
-      span['cluster_label']= None
-      span['cluster_label_before']= None
-      span['cluster_label_after']= None
-      for feature_label, features_per_label, relative_level_per_label in  zip(feature_labels, features, relative_levels):
-        span[feature_label] = features_per_label[idx]
-        if relative_level_per_label: span[feature_label+"_level"] = relative_level_per_label[idx]
-      ent_cnts = Counter(v[1].lower()+"_cnt" for v in span['ents'])
-      for feature_label, cnt in ent_cnts.items():
-        span[feature_label] = cnt
-    return batch
-  
-  #TODO: add inverse cluster size as a feature.
-  #      cosine distance to nearest neighbor cluster head
-
-  # similar to _create_token_embeds_and_synonyms, except for spans     
-  #(1) compute features and embeddings in one batch for tokenized text.
-  #(2) create clusters in an incremental fashion from batch
-  #all leaf nodes are spans
-  #spanf2idx is a mapping from the span to the actual underlying storage idx (e.g., a jsonl file or database)
-  #span2cluster_label is like the synonym data-structure for tokens.
-
-  def _create_span_embeds_and_span2cluster_label(self):
-    pass
-  
-      
-# This class uses the RivberbedPreprocessor to generate spans and index the spans. It also provides APIs for searching the spans.
-#we can use the ontology for query expansion as part of the bm25 search. 
-class RiverbedSearcherIndexer:
-
-  def __init__(self, project_name, processor, span2idx, batch, retained_batch, span_lfs,  span2cluster_label, \
-                start_idx = 0, embed_search_field="text", bm25_field="text", text_span_size=1000, embedder="minilm", do_ontology=True, running_features_per_label={}, \
-                ner_to_generalize=(), span_level_feature_extractors=default_span_level_feature_extractors, \
-                running_features_size=100, label2term_frequency=None, document_frequency=None, domain_stopwords_set=stopwords_set,\
-                use_synonym_replacement=False, ):
-    super().__init__()
-    self.idx = start_idx
-    self.embed_search_field = embed_search_field
-    self.bm25_field = bm25_field
-    self.searcher = Searcher()
-
-
-  def tokenize(self, *args, **kwargs):
-    return self.tokenizer.tokenize(*args, **kwargs)
-
-  # the main method for processing documents and their spans. 
-  def index(self, content_store_objs):
-    global clip_model, minilm_model, labse_model
-    model = self.model
-    tokenizer = self.tokenizer
-    searcher = self.searcher.switch_search_context(f"{project_name}.jsonl")
-    os.system(f"mkdir -p {project_name}.jsonl_idx")
-    span2idx = self.span2idx = OrderedDict() if not hasattr(self, 'span2idx') else self.span2idx
-    span_clusters = self.span_clusters = {} if not hasattr(self, 'span_clusters') else self.span_clusters
-    label2term_frequency = self.label2term_frequency = {} if not hasattr(self, 'label2term_frequency') else self.label2term_frequency
-    document_frequency = self.document_frequency = {} if not hasattr(self, 'document_frequency') else self.document_frequency
-    span2cluster_label = self.span2cluster_label = {} if not hasattr(self, 'span2cluster_label') else self.span2cluster_label
-    if (not hasattr(model, 'kenlm_model') or model.kenlm_model is not None) and auto_create_tokenizer_and_model:
-      tokenizer, model = self.tokenizer, self.model = RiverbedModel.create_tokenizer_and_model(project_name, files, )
-    kenlm_model = self.model.kenlm_model 
-    use_model(embedder)
-    running_features_per_label = {}
-    name = files.pop()
-    f = open(name) 
-    domain_stopwords_set = set(list(stopwords_set) + list(stopwords.keys()))
-
-
-    if seen is None: seen = {}
-    
-    for name, curr_file_size, content_store_obj in content_store_objs.items():
-      # we will collapse adjacent lines that are short. 
-      prior_line = ""
-      batch = []
-      retained_batch = []
-      curr = ""
-      cluster_embeddings = None
-      curr_date = ""
-      curr_position = 0
-      next_position = 0
-      curr_file_size = os.path.getsize(name)
-      position = 0
-      line = ""
-      lineno = -1
-      curr_lineno = 0
-      seen={}
-      for line in content_store_obj:
-        line = line.strip() #TODO: read the data from the field
-        position = next_position/curr_file_size
-        next_position = next_position + len(line)+1
-        line = line.strip().replace("  ", " ")
-        if not line: continue
-        if len(line) < min_len_for_prefix and len(line) > 0:
-          prior_line = prior_line + " " + line
-          continue
-        line = prior_line+" " + line
-        prior_line = ""
-        line = line.replace("  ", " ").replace("\t", " ").strip("_ ")
-
-        #turn the file position into a percentage
-        if len(line) < max_len_for_prefix:
-                  for key_words, tokenized_text in zip(self.processor.process_bm25_field(curr_file_size, self.tokenizer), 
-                                            self.processor.process_embed_search_field(curr_file_size, {'text': curr,}, \ 
-                                                                                      text_span_size=text_span_size, \
-                                                                                      ner_to_generalize=ner_to_generalize, \
-                                                                                      use_synonym_replacement=use_synonym_replacement)):
-              
-                    item['name'] =name
-                    item['lineno'] = curr_lineno
-                    item['position'] = curr_position
-                    
-                    batch.append(item)
-                curr = ""
-                curr_lineno = lineno
-                curr_position = position
-              break
-        if curr: 
-          curr = curr +" " + line
-        else: 
-          curr = line
-        curr = curr.replace("  ", " ")
-
-        # process the batches
-        if len(batch) >= features_batch_size:
-          batch_id_prefix += 1
-          retained_batch, span2idx, span2cluster_label, label2term_frequency, document_frequency = self._create_span_embeds_and_span2cluster_label(project_name, curr_file_size, jsonl_file_idx, span2idx, batch, \
-                                                      retained_batch, jsonl_file,  f"{batch_id_prefix}_", span_lfs,  span2cluster_label, text_span_size, \
-                                                      kmeans_batch_size=kmeans_batch_size, epoch = epoch, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids, \
-                                                      max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents, do_ontology=True, embedder=embedder, \
-                                                      running_features_per_label=running_features_per_label, ner_to_generalize=ner_to_generalize, span_level_feature_extractors=span_level_feature_extractors, \
-                                                      running_features_size=running_features_size, label2term_frequency=label2term_frequency, document_frequency=document_frequency, domain_stopwords_set=domain_stopwords_set, \
-                                                      verbose_snrokel=verbose_snrokel,  span_per_cluster=span_per_cluster, use_synonym_replacement=use_synonym_replacement, )  
-          batch = []
-      
-      # do one last line and finish processing if there's anything left
-      if curr: 
-          curr = curr.replace(". .", ". ").replace("..", ".").replace(":.", ".")
-          hash_id = hash(curr)
-          if not dedup or (hash_id not in seen):
-              curr_ents = list(itertools.chain(*[[(e.text, e.label_)] if '||' not in e.text else [(e.text.split("||")[0].strip(), e.label_), (e.text.split("||")[-1].strip(), e.label_)] for e in spacy_nlp(curr).ents]))
-              curr_ents = list(set([e for e in curr_ents if e[0]]))
-              curr_ents.sort(key=lambda a: len(a[0]), reverse=True)
-              for item in self._create_spans_batch(curr_file_size, {'text': curr, 'ents': curr_ents, }, text_span_size=text_span_size, ner_to_generalize=ner_to_generalize, use_synonym_replacement=use_synonym_replacement)
-                item['name'] =name
-                item['lineno'] = curr_lineno
-                item['position'] = curr_position
-                batch.append(item)
-          
-      #do the last bactch    
-      if batch: 
-          batch_id_prefix += 1
-          retained_batch, span2idx, span2cluster_label, label2term_frequency, document_frequency = self._create_span_embeds_and_span2cluster_label(project_name, curr_file_size, jsonl_file_idx, spanf2idx, batch, \
-                                                      retained_batch, jsonl_file,  f"{batch_id_prefix}_", span_lfs,  span2cluster_label, text_span_size, \
-                                                      kmeans_batch_size=kmeans_batch_size, epoch = epoch, embed_batch_size=embed_batch_size, min_prev_ids=min_prev_ids,  \
-                                                      max_ontology_depth=max_ontology_depth, max_top_parents=max_top_parents, do_ontology=True, embedder=embedder,\
-                                                      running_features_per_label=running_features_per_label, ner_to_generalize=ner_to_generalize, span_level_feature_extractors=span_level_feature_extractors, \
-                                                      running_features_size=running_features_size, label2term_frequency=label2term_frequency, document_frequency=document_frequency, domain_stopwords_set=domain_stopwords_set, \
-                                                      verbose_snrokel=verbose_snrokel)  
-          batch = []
-          
-      
-      
-          
-    span2idx, span_clusters, label2term_frequency, document_frequency, span2cluster_label = self.span2idx, self.span_clusters, self.label2term_frequency, self.document_frequency, self.span2cluster_label                    
-    self.searcher = searcher.switch_search_context(project_name, data_iterator=data_iterator, search_field="tokenized_text", bm25_field="text", embedder=embedder, \
-                             auto_embed_text=True, auto_create_bm25_idx=True, auto_create_embeddings_idx=True)
-    
-    #TODO: cleanup label2term_frequency, document_frequency
-    return self
-
-  def gzip_jsonl_file(self):
-    os.system(f"gzip {project_name}/spans.jsonl")
-    GzipFileByLine(f"{project_name}/spans.jsonl")
-    
-  def save_pretrained(self, project_name):
-      os.system(f"mkdir -p {project_name}")
-      torch.save(self, open(f"{project_name}/{project_name}.pickle", "wb"))
-    
-  @staticmethod
-  def from_pretrained(project_name):
-      self = torch.load(open(f"{project_name}/{project_name}.pickle", "rb"))
-      return self
-
-#given the results of the indexer and processor, perform analysis on the data seralized to jsonl.gz file and one or more searches of the indexed data.     
-class RiverbedAnalyzer:
-  def __init__(self, project_name, searcher_indexer, processor):
-    self.project_name, self.searcher_indexer, self.processor = project_name, searcher_indexer, processor
-    
   def search_and_label(self, positive_query_set, negative_query_set):
     pass
   
@@ -1283,16 +1333,12 @@ class RiverbedAnalyzer:
   def label_all_in_project(self, model, label_file_name, label_field, filter_below_confidence_score=0.0):
     pass
 
-#this forms part of the view portion of the MVC
-#used for exploring and viewing different parts of data and results from the analyzer. 
-#display results and pandas data frames in command line, notebook or as a flask API service. 
-class RiverbedVisualizer:
-  def __init__(self, project_name, analyzer, searcher_indexer, processor):
-    self.project_name, self.analyzer, self.searcher_indexer, self.processor = project_name, analyzer, searcher_indexer, processor
-  
-  def draw(self):
-    pass
-  
-  def df(self, slice):
-    pass
-  
+
+  def save_pretrained(self, model_name):
+      os.system(f"mkdir -p {model_name}")
+      torch.save(self, open(f"{model_name}/{model_name}.pickle", "wb"))
+    
+  @staticmethod
+  def from_pretrained(model_name):
+      self = torch.load(open(f"{model_name}/{model_name}.pickle", "rb"))
+      return self
