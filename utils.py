@@ -243,32 +243,33 @@ def embed_text(dat_iter, mmap_file, start_idx=None, downsampler=None, skip_idxs=
       dat_iter2 = tqdm.tqdm(dat_iter)
     else:
       dat_iter2 = dat_iter
-    idx = start_idx-1
-    for l in dat_iter2:
-        if type(l) is tuple:
-          idx, l = l
-        else:
-          idx += 1
-        mmap_len = max(mmap_len, idx+1)
-        l = l.strip()
-        if l: 
-          batch.append(l)
-          idxs.append(idx)
-        if not l or len(batch) >= chunk_size:  
-          if batch:
-            dat = _get_embeddings(batch, downsampler, embedder, universal_embed_mode, prototypes, \
-                                  temperature_downsampler, universal_downsampler, temperature_universal_downsampler).cpu().numpy()
-            cluster_embeddings = np_memmap(mmap_file, shape=[mmap_len, embed_dim], dat=dat, idxs=idxs, dtype=dtype)  
-            batch = []
-            idxs = []
-          if not l:
-            skip_idxs.append(idx) 
-    if batch:
-      dat = _get_embeddings(batch, downsampler, embedder, universal_embed_mode, prototypes, \
-                                  temperature_downsampler, universal_downsampler, temperature_universal_downsampler).cpu().numpy()
-      cluster_embeddings = np_memmap(mmap_file, shape=[mmap_len, embed_dim], dat=dat, idxs=idxs, dtype=dtype)  
-      batch = []
-      idxs = []
+    with torch.no_grad():
+      idx = start_idx-1
+      for l in dat_iter2:
+          if type(l) is tuple:
+            idx, l = l
+          else:
+            idx += 1
+          mmap_len = max(mmap_len, idx+1)
+          l = l.strip()
+          if l: 
+            batch.append(l)
+            idxs.append(idx)
+          if not l or len(batch) >= chunk_size:  
+            if batch:
+              dat = _get_embeddings(batch, downsampler, embedder, universal_embed_mode, prototypes, \
+                                    temperature_downsampler, universal_downsampler, temperature_universal_downsampler).cpu().numpy()
+              cluster_embeddings = np_memmap(mmap_file, shape=[mmap_len, embed_dim], dat=dat, idxs=idxs, dtype=dtype)  
+              batch = []
+              idxs = []
+            if not l:
+              skip_idxs.append(idx) 
+      if batch:
+        dat = _get_embeddings(batch, downsampler, embedder, universal_embed_mode, prototypes, \
+                                    temperature_downsampler, universal_downsampler, temperature_universal_downsampler).cpu().numpy()
+        cluster_embeddings = np_memmap(mmap_file, shape=[mmap_len, embed_dim], dat=dat, idxs=idxs, dtype=dtype)  
+        batch = []
+        idxs = []
     return mmap_len, skip_idxs
     
 #cluster pruning based approximate nearest neightbor search. See https://nlp.stanford.edu/IR-book/html/htmledition/cluster-pruning-1.html
