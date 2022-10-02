@@ -711,17 +711,11 @@ class RiverbedModel(nn.Module):
     for score, idx in zip(result.values(), result.indices()):
       text_array2.append([score*(1/(self.get_perplexity(self.tokenize(text_array[idx]), text_array[idx]])
     for sent in text_array2:
-      torch.mean(self.span_search.get_embedding_by_idx([a[0] for a in self.span_search(sent, limit=5)]))
+      prev_embeddings = torch.mean(self.span_search.get_embedding_by_idx([a[0] for a in self.span_search(sent, limit=5)]))
       
       
-    out = clip_image_to_multitext_score(clip_model, clip_processor, image, text_array, decompose_image=True)
-    out1 = [(a.item(), b) for a, b in zip(out['scores'], text_array)] # we can use the box2element score here instead.
-    out1.sort(key=lambda a: a[0], reverse=True)
-    out1 = out1[:num_return_sequences]
-    current_generated_sentences = ['<pad> '+ o[1] for o in out1]
-    #print (out1)
-  return [o[1] for o in out1]
 
+  return 
   @staticmethod
   def _pp(log_score, length):
     return float((10.0 ** (-log_score / length)))
