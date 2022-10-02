@@ -64,7 +64,7 @@ def get_stopwords():
   if stopwords_set is None: init_models()
   return stopwords_set
 
-def init_models():    
+def init_models(embedder):    
   global doc2query_tokenizer, doc2query_model, doc2query_encoder, codebert_tokenizer, codebert_model, labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
   if minilm_model is None:
 
@@ -92,6 +92,7 @@ def init_models():
 
     spacy_nlp = spacy.load('en_core_web_md')
     stopwords_set = set(nltk_stopwords.words('english') + ['...', 'could', 'should', 'shall', 'can', 'might', 'may', 'include', 'including'])
+  use_model(embedder)
   return  doc2query_tokenizer, doc2query_model, doc2query_encoder, codebert_tokenizer, codebert_model, labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
 
 def use_model(embedder):
