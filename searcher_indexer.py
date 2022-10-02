@@ -252,7 +252,7 @@ class SearcherIndexer(nn.Module):
       """
     global device
     super().__init__()
-    init_models()
+    init_models(embedder)
     if indexer is None: indexer = BasicIndexer(embed_search_field=embed_search_field, bm25_field=bm25_field)
     self.embedder, self.indexer = embedder, indexer
     if idx_dir is None and filename is not None:
@@ -375,7 +375,7 @@ class SearcherIndexer(nn.Module):
                             reuse_clusters=False, min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000, use_tqdm=True
                           ):
     global device
-    init_models()    
+    init_models(embedder)    
     if hasattr(self,f'downsampler_{self.embed_search_field}_{self.embedder}_{self.embed_dim}'): getattr(self,f'downsampler_{self.embed_search_field}_{self.embedder}_{self.embed_dim}').cpu()
     if hasattr(self, 'downsampler') and self.downsampler is not None: self.downsampler.cpu()
     content_data_store = self.content_data_store
