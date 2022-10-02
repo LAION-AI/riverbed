@@ -102,7 +102,7 @@ class IndexerMixin:
 #TODO. modify the embed_text function to store away a tuple idx -> embedding idx. The tuple idx corresponds to a unique id generated 
 #by the indexer, e.g., (lineno, offset) or (file name, lineno, offset), etc. 
 class BasicIndexer(IndexerMixin):
-  def __init__(self, lineno=-1, start_idx = 0, multi_files=False, embed_search_field="text", bm25_field=None):
+  def __init__(self, lineno=-1, start_idx = 0, multi_files=False, do_doc2query=False, embed_search_field="text", bm25_field=None):
     ret = init_models()
     self.doc2query_tokenizer, self.doc2query_model = ret[0], ret[1]
     self.reset_embed_search_idx(start_idx)
@@ -111,6 +111,7 @@ class BasicIndexer(IndexerMixin):
     self.bm25_field = bm25_field
     self.lineno = {'*': [-1]}
     self.multi_files = multi_files
+    self.do_doc2query = do_doc2query
     
   def reset_embed_search_idx(self, start_idx):
      self.embed_search_idx = start_idx
@@ -125,12 +126,14 @@ class BasicIndexer(IndexerMixin):
       return ['lineno', 'offset']
 
   # One to many generator. gets in a lines/dict iterator and outputs subsequent dict generator. 
-  def process(self, lines_iterator, filename=None, lineno_arr=None, start_idx=None, *args, **kwargs):
+  def process(self, lines_iterator, filename=None, lineno_arr=None, start_idx=None, chunk_size=500, num_queries=20, *args, **kwargs):
     if start_idx is not None:
       self.reset_embed_search_idx(start_idx)
       self.reset_bm25_idx(start_idx)
     if lineno_arr is None:
       lineno_arr = self.lineno.get(filename, self.lineno['*'])
+    batch = []
+    batch_size = 0
     for line in lines_iterator:
       if self.embed_search_field is not None and self.bm25_field is not None:
         line1, line2 =  get_content_from_line(line, self.embed_search_field, self.bm25_field)
@@ -164,13 +167,58 @@ class BasicIndexer(IndexerMixin):
           offset = line1.index(text, offset)
         else:
           offset = line2.index(text, key_words)
-        # TODO: generate queries, synonym expansion
         if filename is not None:
-          yield {'idx': self.embed_search_idx, 'filename': filename, 'lineno': lineno_arr[0], 'offset': offset, 'text': text, 'keywords': key_words}
+          batcha.append({'idx': self.embed_search_idx, 'filename': filename, 'lineno': lineno_arr[0], 'offset': offset, 'embedding_text': text, 'keywords': key_words})
         else:
-          yield {'idx': self.embed_search_idx, 'lineno': lineno_arr[0], 'offset': offset, 'text': text, 'keywords': key_words}          
+          batch.append({'idx': self.embed_search_idx, 'lineno': lineno_arr[0], 'offset': offset, 'embedding_text': text, 'keywords': key_words})          
         self.embed_search_idx += 1
         self.bm25_idx += 1
+        batch_size += 1
+        if batch_size > chunk_size:
+          #TODO: synonym expansion
+          if not self.do_doc2query:
+            for dat in batch:
+              yield dat
+          else:
+          input_ids = tokenizer.encode([a['embedding_text'] for a in batch], max_length=512, truncation=True, return_tensors='pt')
+          with torch.no_grad():
+            outputs = model.generate(
+              input_ids=input_ids,
+              max_length=64,
+              do_sample=True,
+              top_p=0.85,
+              num_return_sequences=20)
+            outputs = [tokenizer.decode(outputs[i], skip_special_tokens=True) for i in range(len(outputs))]
+          for dat, rng in zip(batch, range(0, len(outputs), 20)):
+            queries = outputs[rng:rng+20]
+            dat['queries'] = queries
+            dat['keywords'] += " ".join(queries)
+            yield dat
+          batch = []
+          batch_size = 0
+      
+      if batch:
+          if not self.do_doc2query:
+            for dat in batch:
+              yield dat
+          else:
+          input_ids = tokenizer.encode([a['embedding_text'] for a in batch], max_length=512, truncation=True, return_tensors='pt')
+          with torch.no_grad():
+            outputs = model.generate(
+              input_ids=input_ids,
+              max_length=64,
+              do_sample=True,
+              top_p=0.85,
+              num_return_sequences=20)
+            outputs = [tokenizer.decode(output, skip_special_tokens=True) for output in outputs]
+          for dat, rng in zip(batch, range(0, len(outputs), 20)):
+            queries = outputs[rng:rng+20]
+            dat['queries'] = queries
+            dat['queries'] += " ".join(queries)
+            yield dat  
+          
+            
+  
   
 #TODO. Change this to inherit from a transformers.PretrainedModel.
 class SearcherIndexer(nn.Module):
