@@ -33,7 +33,7 @@ from collections import Counter
 import random
 import tqdm
 from transformers import AutoModelForMaskedLM, AutoTokenizer, AutoModel, BertTokenizerFast, CLIPProcessor, CLIPModel, \
-                        BertModel, T5Tokenizer, T5ForConditionalGeneration, T5Encoder
+                        BertModel, T5Tokenizer, T5ForConditionalGeneration, T5EncoderModel
 from nltk.corpus import stopwords as nltk_stopwords
 from torch import nn
 import spacy
@@ -75,14 +75,14 @@ def init_models():
     # we will always keep the doc2query model in gpu
     if device == 'cuda':
       doc2query_model = T5ForConditionalGeneration.from_pretrained('doc2query/all-t5-base-v1').half().eval().to(device)
-      doc2query_encoder = T5Encoder.from_pretrained('doc2query/all-t5-base-v1').half().eval()
+      doc2query_encoder = T5EncoderModel.from_pretrained('doc2query/all-t5-base-v1').half().eval()
       #share the parameter so we don't waste memory
       doc2query_encoder.shared = doc2query_model.shared
       doc2query_encoder.encoder = doc2query_model.encoder
       doc2query_encoder = doc2query_encoder.to(device)
     else:
       doc2query_model = T5ForConditionalGeneration.from_pretrained('doc2query/all-t5-base-v1').eval()
-      doc2query_encoder = T5Encoder.from_pretrained('doc2query/all-t5-base-v1').half().eval()
+      doc2query_encoder = T5EncoderModel.from_pretrained('doc2query/all-t5-base-v1').half().eval()
       #share the parameter so we don't waste memory
       doc2query_encoder.shared = doc2query_model.shared
       doc2query_encoder.encoder = doc2query_model.encoder
