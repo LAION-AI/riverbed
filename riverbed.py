@@ -172,7 +172,6 @@ class RiverbedIndexer(IndexerMixin):
     self.idx = start_idx
     self.embed_search_field = embed_search_field
     self.bm25_field = bm25_field
-    self.searcher = Searcher()
 
     
   def _intro_with_date(self, span):
@@ -631,16 +630,17 @@ class RiverbedIndexer(IndexerMixin):
     return self
 
   def gzip_jsonl_file(self):
-    os.system(f"gzip {project_name}/spans.jsonl")
+    if not os.path.exists(f"{project_name}/spans.jsonl"):
+      os.system(f"gzip {project_name}/spans.jsonl")
     GzipFileByLine(f"{project_name}/spans.jsonl")
     
-  def save_pretrained(self, project_name):
-      os.system(f"mkdir -p {project_name}")
-      torch.save(self, open(f"{project_name}/{project_name}.pickle", "wb"))
+  def save_pretrained(self, tokenizer_name):
+      os.system(f"mkdir -p {tokenizer_name}")
+      pickle.dump(self, open(f"{tokenizer_name}/{tokenizer_name}.pickle", "wb"))
     
   @staticmethod
-  def from_pretrained(project_name):
-      self = torch.load(open(f"{project_name}/{project_name}.pickle", "rb"))
+  def from_pretrained(tokenizer_name):
+      self = pickle.load(open(f"{tokenizer_name}/{tokenizer_name}.pickle", "rb"))
       return self
 
 #################################################################################
@@ -666,18 +666,19 @@ class RiverbedVisualizer:
 #embeddings (might need to put generation in a different model)
 class RiverbedAnalyzerModel(nn.Module):
 
-  def __init__(self, project_name, searcher_indexer, processor):
+  def __init__(self, project_name, searcher_indexer, span_indexer):
    super().__init__()
    global labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set 
    self.project_name, self.searcher_indexer, self.processor = project_name, searcher_indexer, processor
    labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set = init_models()
-   self.word_searcher = Searcher()
-   self.span_searcher = Searcher()
+   self.word_searcher = SearcherIndexer(idx_dir=project_name+"/word_searcher", embedder=embedder)
+   self.span_searcher = SearcherIndexer(idx_dir=project_name+"/span_searcher", embedder=embedder, indexer=span_indexer)
    self.tokenizer = None
    self.synonyms = None
    self.clusters = None
    self.mmap_file = ""
    self.kenlm_model = None
+   self.indexer = span_indexer
   
   def search(self, *args, **kwargs):
     if 'do_word_phrase' in kwargs and kwargs.get('do_word_phrase'):
@@ -1329,12 +1330,27 @@ class RiverbedAnalyzerModel(nn.Module):
   def label_all_data_in_project(self, model, label_file_name, label_field, filter_below_confidence_score=0.0):
     pass
 
-
-  def save_pretrained(self, model_name):
-      os.system(f"mkdir -p {model_name}")
-      torch.save(self, open(f"{model_name}/{model_name}.pickle", "wb"))
     
+  def save_pretrained(self, project_name=None):
+      os.system(f"mkdir -p {project_name}")
+      self.span_indexer.gzip_jsonl_file()
+      if project_name is not None and self.project_name != project_name:
+        os.system(f"cp -rf {self.project_name} {project_name}")  
+      word_searcher = self.word_searcher
+      self.word_searcher = None
+      span_searcher = self.span_searcher
+      self.span_searcher = None     
+      torch.save(self, open(f"{project_name}/riverbed_analyzer.pickle", "wb"))
+      word_searcher.save_pretrained(idx_dir=project_name+"/word_searcher")
+      span_searcher.save_pretrained(idx_dir=project_name+"/span_searcher")                                    
+      self.word_searcher = word_searcher
+      self.span_searcher = span_searcher
+                                    
   @staticmethod
-  def from_pretrained(model_name):
-      self = torch.load(open(f"{model_name}/{model_name}.pickle", "rb"))
+  def from_pretrained(project_name):
+      init_models()
+      self = torch.load(open(f"{project_name}/riverbed_analyzer.pickle", "rb"))
+      self.word_searcher = SearchIndexer.from_pretrained(idx_dir=project_name+"/word_searcher")
+      self.span_searcher = SearchIndexer.from_pretrained(idx_dir=project_name+"/span_searcher")   
       return self
+                     
