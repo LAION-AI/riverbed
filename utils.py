@@ -32,7 +32,8 @@ from sklearn.cluster import MiniBatchKMeans
 from collections import Counter
 import random
 import tqdm
-from transformers import AutoModelForMaskedLM, AutoTokenizer, AutoModel, BertTokenizerFast, CLIPProcessor, CLIPModel, BertModel
+from transformers import AutoModelForMaskedLM, AutoTokenizer, AutoModel, BertTokenizerFast, CLIPProcessor, CLIPModel, \
+                        BertModel, T5Tokenizer, T5ForConditionalGeneration, T5Encoder
 from nltk.corpus import stopwords as nltk_stopwords
 from torch import nn
 import spacy
@@ -49,34 +50,50 @@ try:
   if minilm_model is not None: 
     pass
 except:
-   codebert_tokenizer = codebert_model = labse_tokenizer= labse_model=  clip_processor = minilm_tokenizer= clip_model= minilm_model= spacy_nlp= stopwords_set = None
+   doc2query_tokenizer = doc2query_model = doc2query_encoder = codebert_tokenizer = codebert_model = labse_tokenizer= labse_model=  clip_processor = minilm_tokenizer= clip_model= minilm_model= spacy_nlp= stopwords_set = None
+
+def get_spacy():
+  global spacy_nlp
+  if spacy_nlp is None: init_models()
+  return spacy_nlp
+
+def get_stopwords():
+  global stopwords_set
+  if stopwords_set is None: init_models()
+  return stopwords_set
 
 def init_models():    
-  global codebert_tokenizer, codebert_model, labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
+  global doc2query_tokenizer, doc2query_model, doc2query_encoder, codebert_tokenizer, codebert_model, labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
   if minilm_model is None:
 
     codebert_tokenizer = AutoTokenizer.from_pretrained("microsoft/graphcodebert-base")
     clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")   
     minilm_tokenizer = AutoTokenizer.from_pretrained('sentence-transformers/all-MiniLM-L6-v2')
     labse_tokenizer = BertTokenizerFast.from_pretrained("sentence-transformers/LaBSE")
+    doc2query_tokenizer = T5Tokenizer.from_pretrained('doc2query/all-t5-base-v1')
 
+    # we will always keep the doc2query model in gpu
     if device == 'cuda':
-      #codebert_model = AutoModel.from_pretrained("microsoft/graphcodebert-base").half().eval()
-      #clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").half().eval()
-      minilm_model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2').half().eval()
-      #labse_model = BertModel.from_pretrained("sentence-transformers/LaBSE").half().eval()
+      doc2query_model = T5ForConditionalGeneration.from_pretrained('doc2query/all-t5-base-v1').half().eval().to(device)
+      doc2query_encoder = T5Encoder.from_pretrained('doc2query/all-t5-base-v1').half().eval()
+      #share the parameter so we don't waste memory
+      doc2query_encoder.shared = doc2query_model.shared
+      doc2query_encoder.encoder = doc2query_model.encoder
+      doc2query_encoder = doc2query_encoder.to(device)
     else:
-      #codebert_model = AutoModel.from_pretrained("microsoft/graphcodebert-base").eval()
-      #clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").eval()
-      minilm_model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2').eval()
-      #labse_model = BertModel.from_pretrained("sentence-transformers/LaBSE").eval()
+      doc2query_model = T5ForConditionalGeneration.from_pretrained('doc2query/all-t5-base-v1').eval()
+      doc2query_encoder = T5Encoder.from_pretrained('doc2query/all-t5-base-v1').half().eval()
+      #share the parameter so we don't waste memory
+      doc2query_encoder.shared = doc2query_model.shared
+      doc2query_encoder.encoder = doc2query_model.encoder
+      doc2query_encoder = doc2query_encoder
 
     spacy_nlp = spacy.load('en_core_web_md')
     stopwords_set = set(nltk_stopwords.words('english') + ['...', 'could', 'should', 'shall', 'can', 'might', 'may', 'include', 'including'])
-  return  labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
+  return  doc2query_tokenizer, doc2query_model, doc2query_encoder, codebert_tokenizer, codebert_model, labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
 
 def use_model(embedder):
-  global codebert_tokenizer, codebert_model, labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
+  global doc2query_tokenizer, doc2query_model, doc2query_encoder, codebert_tokenizer, codebert_model, labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
   if embedder == "clip":
     if minilm_model is not None: minilm_model =  minilm_model.cpu()
     if labse_model is not None: labse_model =  labse_model.cpu()
@@ -117,9 +134,16 @@ def use_model(embedder):
       else:
         labse_model = BertModel.from_pretrained("sentence-transformers/LaBSE").eval()
     labse_model = labse_model.to(device)
+  elif embedder == "doc2query":
+    # we will always keep the doc2query model in gpu
+    if clip_model is not None: clip_model =  clip_model.cpu()
+    if codebert_model is not None: codebert_model =  labse_model.cpu()
+    if minilm_model is not None: minilm_model =  minilm_model.cpu()
+    if labse_model is not None: labse_model =  labse_model.cpu()
         
+
 def apply_model(embedder, sent):  
-  global codebert_tokenizer, codebert_model, labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
+  global doc2query_tokenizer, doc2query_model, doc2query_encoder, codebert_tokenizer, codebert_model, labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
   def get_one_embed(sent, embedder):
     if embedder == "clip":
         toks = clip_processor(sent, padding=True, truncation=True, return_tensors="pt").to(device)
@@ -134,7 +158,11 @@ def apply_model(embedder, sent):
         dat = mean_pooling(dat, toks.attention_mask)
     elif embedder == "labse":
         toks = labse_tokenizer(sent, padding=True, truncation=True, return_tensors="pt", max_length=512).to(device)
-        dat = labse_model(**toks).pooler_output   
+        dat = labse_model(**toks).pooler_output 
+    elif embedder == "dco2query":
+        toks = doc2query_tokenizer(sent, padding=True, truncation=True, return_tensors="pt").to(device)
+        dat = doc2query_encoder(**toks)
+        dat = mean_pooling(dat, toks.attention_mask)  
     return dat
   ###
   if type(sent) is str:
@@ -176,7 +204,8 @@ def get_model_embed_dim(embedder):
     return codebert_model.config.hidden_size  
   elif embedder == "labse":
     return labse_model.config.hidden_size   
-
+  elif embedder == "doc2query":
+    return doc2query_model.config.hidden_size 
 
 def _dateutil_parse_ext(text):
     try: 
