@@ -168,7 +168,7 @@ class Searcher(nn.Module):
                span2cluster_label=None, idxs=None, max_level=4, max_cluster_size=200, \
                min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000, \
                universal_embed_mode = None, prototype_sentences=None,  prototypes=None, universal_downsampler =None, min_num_prorotypes=50000, \
-               universal_downsampler_temperature=2.0,  downsampler_temperature=2.0,use_tqdm=True, preprocessor=None
+               temperature_universal_downsampler=2.0,  temperature_downsampler=2.0,use_tqdm=True, preprocessor=None
               ):
     #TODO, add a embedding_preprocessor. Given a batch of sentences, and an embedding, create additional embeddings corresponding to the batch. 
     """
@@ -261,8 +261,8 @@ class Searcher(nn.Module):
       model_embed_dim = get_model_embed_dim(embedder)
       downsampler = nn.Linear(model_embed_dim, embed_dim, bias=False).eval() 
     if bm25_field is None: bm25_field = embed_search_field
-    self.universal_embed_mode,  self.universal_downsampler_temperature, self.downsampler_temperature, self.mmap_file, self.mmap_len, self.embed_dim, self.dtype, self.clusters, self.parent2idx,  self.parents, self.top_parents, self.top_parent_idxs, self.embed_search_field, self.bm25_field, self.downsampler  = \
-             universal_embed_mode, universal_downsampler_temperature, downsampler_temperature,  mmap_file, mmap_len, embed_dim, dtype, clusters, parent2idx, parents, top_parents, top_parent_idxs, embed_search_field, bm25_field, downsampler
+    self.universal_embed_mode,  self.temperature_universal_downsampler, self.temperature_downsampler, self.mmap_file, self.mmap_len, self.embed_dim, self.dtype, self.clusters, self.parent2idx,  self.parents, self.top_parents, self.top_parent_idxs, self.embed_search_field, self.bm25_field, self.downsampler  = \
+             universal_embed_mode, temperature_universal_downsampler, temperature_downsampler,  mmap_file, mmap_len, embed_dim, dtype, clusters, parent2idx, parents, top_parents, top_parent_idxs, embed_search_field, bm25_field, downsampler
     self.prototype_sentences,  self.prototypes, self.universal_downsampler = prototype_sentences,  prototypes, universal_downsampler
     if self.downsampler is not None: 
       if self.dtype == np.float16:
@@ -432,8 +432,8 @@ class Searcher(nn.Module):
   def get_embeddings(self, sent_or_batch):
     return get_embeddings(sent_or_batch, downsampler=self.downsampler, dtype=self.dtype, embedder=self.embedder, \
                           universal_embed_mode=self.universal_embed_mode, prototypes=self.prototypes, \
-                          universal_downsampler=self.universal_downsampler,  downsampler_temperature = self.downsampler_temperature, \
-                          universal_downsampler_temperature=self.universal_downsampler_temperature)
+                          universal_downsampler=self.universal_downsampler,  temperature_downsampler = self.temperature_downsampler, \
+                          temperature_universal_downsampler=self.temperature_universal_downsampler)
               
   #embed all of self.content_data_store or (idx, content) for idx in idxs for the row/content from content_data_store
   def embed_text(self, start_idx=None, chunk_size=500, idxs=None, use_tqdm=True, auto_create_bm25_idx=False, **kwargs):
@@ -466,7 +466,7 @@ class Searcher(nn.Module):
     self.mmap_len, skip_idxs =  embed_text(data_iterator, self.mmap_file, start_idx=start_idx, downsampler=self.downsampler, \
                           mmap_len=self.mmap_len, embed_dim=self.embed_dim, embedder=self.embedder, chunk_size=chunk_size, use_tqdm=use_tqdm, \
                           universal_embed_mode=self.universal_embed_mode, prototypes=self.prototypes, universal_downsampler=self.universal_downsampler, \
-                          downsampler_temperature = self.downsampler_temperature, universal_downsampler_temperature=self.universal_downsampler_temperature)
+                          temperature_downsampler = self.temperature_downsampler, temperature_universal_downsampler=self.temperature_universal_downsampler)
     setattr(self,f'downsampler_{self.embed_search_field}_{self.embedder}_{self.embed_dim}', self.downsampler)
     self.skip_idxs = set(list(self.skip_idxs)+skip_idxs)
       
