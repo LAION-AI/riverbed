@@ -429,11 +429,11 @@ class Searcher(nn.Module):
     return self
   
   #get the sentence embedding for the sent or batch of sentences
-  def get_embeddings(self, sent_or_batch):
+  def get_embeddings(self, sent_or_batch, temperature_downsampler=None, temperature_universal_downsampler=None):
     return get_embeddings(sent_or_batch, downsampler=self.downsampler, dtype=self.dtype, embedder=self.embedder, \
                           universal_embed_mode=self.universal_embed_mode, prototypes=self.prototypes, \
-                          universal_downsampler=self.universal_downsampler,  temperature_downsampler = self.temperature_downsampler, \
-                          temperature_universal_downsampler=self.temperature_universal_downsampler)
+                          universal_downsampler=self.universal_downsampler,  temperature_downsampler = temperature_downsampler if temperature_downsampler is not None else self.temperature_downsampler, \
+                          temperature_universal_downsampler=temperature_universal_downsampler if temperature_universal_downsampler is not None else self.temperature_universal_downsampler)
               
   #embed all of self.content_data_store or (idx, content) for idx in idxs for the row/content from content_data_store
   def embed_text(self, start_idx=None, chunk_size=500, idxs=None, use_tqdm=True, auto_create_bm25_idx=False, **kwargs):
@@ -563,7 +563,7 @@ class Searcher(nn.Module):
   #if the underlying data is jsonl, then the result of the data will also be returned in the dict.
   #WARNING: we overwrite the 'id', 'score', and 'text' field, so we might want to use a different field name like f'{field_prefix}_score'
   #key_terms. TODO: See https://whoosh.readthedocs.io/en/latest/keywords.html
-  def search(self, query=None, embedding=None, do_bm25_only=False, k=5, chunk_size=100, limit=None):
+  def search(self, query=None, embedding=None, do_bm25_only=False, k=5, chunk_size=100, limit=None, temperature_downsampler=None, temperature_universal_downsampler=None):
     def _get_data(idx):
       l  = self.content_data_store[idx]
       if type(l) is not str:
@@ -581,7 +581,7 @@ class Searcher(nn.Module):
       query = None
     assert embedding is None or self.parents is not None
     if embedding is None and query is not None and hasattr(self, 'downsampler') and self.downsampler is not None:
-      embedding = self.get_embeddings(query)
+      embedding = self.get_embeddings(query, temperature_downsampler=temperature_downsampler, temperature_universal_downsampler=temperature_universal_downsampler)
       if not hasattr(self, 'whoosh_ix') or self.whoosh_ix is None:
         query = None
     embedding_search_results = embeddings_search(embedding, mmap_file= self.mmap_file, mmap_len=self.mmap_len, embed_dim=self.embed_dim,  dtype=self.dtype, \
