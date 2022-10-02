@@ -168,7 +168,7 @@ class Searcher(nn.Module):
                span2cluster_label=None, idxs=None, max_level=4, max_cluster_size=200, \
                min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000, \
                universal_embed_mode = None, prototype_sentences=None,  prototypes=None, universal_downsampler =None, min_num_prorotypes=50000, \
-               temperature_universal_downsampler=2.0,  temperature_downsampler=2.0,use_tqdm=True, preprocessor=None
+               temperature_universal_downsampler=1.0,  temperature_downsampler=1.0,use_tqdm=True, preprocessor=None
               ):
     #TODO, add a embedding_preprocessor. Given a batch of sentences, and an embedding, create additional embeddings corresponding to the batch. 
     """
