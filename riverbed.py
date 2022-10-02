@@ -124,13 +124,16 @@ class RiverbedTokenizer:
 
 #################################################################################
 # SPAN AND DOCUMENT PROCESSOR
-# An  ingester-model-view-controller framework for span and document processing. 
+# An  model-view-controller framework for span and document processing. 
 
 # this class is for creating and featuring spans from multiple documents, which are fragments of one or more sentences (not necessarily a paragraph).
 # each span is a dict/json object. A span can specific to semantic search or bm25, and can include be indexed (span_idx) by (file name, line no, offset). The spans are also clustered. Finally the spans are serialzied 
 # into a jsonl.gz file.
-# assumes the sentences inside a document are NOT shuffeled, but documents can be shuffled. 
-class RiverbedProcessor(MixingProcessor):
+# assumes the sentences inside a document are NOT shuffeled, but documents can be shuffled. 4
+# This class is used  to generate spans and index the spans. It also provides APIs for searching the spans.
+#we can use the ontology for query expansion as part of the bm25 search. 
+
+class RiverbedIndexer(IndexerMixin):
   RELATIVE_LOW = 0
   RELATIVE_MEDIUM = 1
   RELATIVE_HIGH= 2
@@ -159,6 +162,19 @@ class RiverbedProcessor(MixingProcessor):
       ]
   
   
+   
+  def __init__(self, project_name, processor, span2idx, batch, retained_batch, span_lfs,  span2cluster_label, \
+                start_idx = 0, embed_search_field="text", bm25_field="text", text_span_size=1000, embedder="minilm", do_ontology=True, running_features_per_label={}, \
+                ner_to_generalize=(), span_level_feature_extractors=default_span_level_feature_extractors, \
+                running_features_size=100, label2term_frequency=None, document_frequency=None, domain_stopwords_set=stopwords_set,\
+                use_synonym_replacement=False, ):
+    super().__init__()
+    self.idx = start_idx
+    self.embed_search_field = embed_search_field
+    self.bm25_field = bm25_field
+    self.searcher = Searcher()
+
+    
   def _intro_with_date(self, span):
       text, position, ents = span['text'], span['position'], span['ents']
       if position < 0.05 and text.strip() and (len(text) < 50 and text[0] not in "0123456789" and text[0] == text[0].upper() and text.split()[-1][0] == text.split()[-1][0].upper()):
@@ -484,28 +500,13 @@ class RiverbedProcessor(MixingProcessor):
 
   def _create_span_embeds_and_span2cluster_label(self):
     pass
-  
-      
-# This class uses the RivberbedPreprocessor to generate spans and index the spans. It also provides APIs for searching the spans.
-#we can use the ontology for query expansion as part of the bm25 search. 
-class RiverbedSearcherIndexer:
-
-  def __init__(self, project_name, processor, span2idx, batch, retained_batch, span_lfs,  span2cluster_label, \
-                start_idx = 0, embed_search_field="text", bm25_field="text", text_span_size=1000, embedder="minilm", do_ontology=True, running_features_per_label={}, \
-                ner_to_generalize=(), span_level_feature_extractors=default_span_level_feature_extractors, \
-                running_features_size=100, label2term_frequency=None, document_frequency=None, domain_stopwords_set=stopwords_set,\
-                use_synonym_replacement=False, ):
-    super().__init__()
-    self.idx = start_idx
-    self.embed_search_field = embed_search_field
-    self.bm25_field = bm25_field
-    self.searcher = Searcher()
-
+ 
 
   def tokenize(self, *args, **kwargs):
     return self.tokenizer.tokenize(*args, **kwargs)
 
   # the main method for processing documents and their spans. 
+  #THIS CODE NEEDS TO BE REWRITTEN TO USE THE NEW FRAMEWORK: should call self.searcher(indexer=self)
   def index(self, content_store_objs):
     global clip_model, minilm_model, labse_model
     model = self.model
@@ -659,11 +660,11 @@ class RiverbedVisualizer:
   
 
 #################################################################################
-#MODEL CODE
-#this class is used to analyze the words including compound words in a corpus.
+#ANALYZER MODEL CODE
+#this class is used to label data, create prediction models,and analyze the words including compound words in a corpus.
 #it can be used to generate text controlled by the kenlm perplixty and retrieved 
-#embeddings
-class RiverbedModel(nn.Module):
+#embeddings (might need to put generation in a different model)
+class RiverbedAnalyzerModel(nn.Module):
 
   def __init__(self, project_name, searcher_indexer, processor):
    super().__init__()
@@ -694,7 +695,8 @@ class RiverbedModel(nn.Module):
                               top_k=10, **kwargs):
   p = next(clip_model.parameters())
   current_generated_sentences = ['<pad>'] * num_return_sequences
-  for mlength in range(num_return_sequences, max(max_length, len_words*num_words_per_step), num_words_per_step):
+  end_length = max(max_length, len_words*num_words_per_step)
+  for mlength in range(num_return_sequences, end_length, num_words_per_step):
     input = gen_tokenizer([words]*num_return_sequences, padding=True,  return_tensors="pt").to(p.device)
     
     #input['decoder_input_ids'] = commongen_tokenizer(current_generated_sentences, padding=True, return_tensors="pt", add_special_tokens=False).input_ids.to(p.device)
@@ -710,12 +712,12 @@ class RiverbedModel(nn.Module):
     text_array2 = []
     for score, idx in zip(result.values(), result.indices()):
       text_array2.append([score*(1/(self.get_perplexity(self.tokenize(text_array[idx]), text_array[idx]])
-    for sent in text_array2:
-      prev_embeddings = torch.mean(self.span_search.get_embedding_by_idx([a[0] for a in self.span_search(sent, limit=5)]))
+    if mlength < end_length:
+        for sent in text_array2:
+           prev_embeddings = torch.mean(self.span_search.get_embedding_by_idx([a[0] for a in self.span_search(sent, limit=5)]))
       
-      
-
-  return 
+  return
+                                    
   @staticmethod
   def _pp(log_score, length):
     return float((10.0 ** (-log_score / length)))
@@ -1324,7 +1326,7 @@ class RiverbedModel(nn.Module):
   
   #label all entries in the jsonl spans and emits a labeled_file_name.jsonl.gz file. Fills in the prediction in the label_field.
   #will not label the iterm if the confidence score is below filter_below_confidence_score
-  def label_all_in_project(self, model, label_file_name, label_field, filter_below_confidence_score=0.0):
+  def label_all_data_in_project(self, model, label_file_name, label_field, filter_below_confidence_score=0.0):
     pass
 
 
