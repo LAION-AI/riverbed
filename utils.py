@@ -159,7 +159,7 @@ def apply_model(embedder, sent):
     elif embedder == "labse":
         toks = labse_tokenizer(sent, padding=True, truncation=True, return_tensors="pt", max_length=512).to(device)
         dat = labse_model(**toks).pooler_output 
-    elif embedder == "dco2query":
+    elif embedder == "doc2query":
         toks = doc2query_tokenizer(sent, padding=True, truncation=True, return_tensors="pt").to(device)
         dat = doc2query_encoder(**toks)
         dat = mean_pooling(dat, toks.attention_mask)  
@@ -195,7 +195,7 @@ def apply_model(embedder, sent):
     return torch.vstack(all_dat)    
 
 def get_model_embed_dim(embedder):
-  global labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
+  global doc2query_tokenizer, doc2query_model, doc2query_encoder, codebert_tokenizer, codebert_model, labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
   if embedder == "clip":
     return clip_model.config.text_config.hidden_size
   elif embedder == "minilm":
