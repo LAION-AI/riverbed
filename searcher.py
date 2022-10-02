@@ -46,22 +46,31 @@ if torch.cuda.is_available():
   device = 'cuda'
 else:
   device = 'cpu'
-  
-try:
-  if minilm_model is not None: 
-    pass
-except:
-   labse_tokenizer= labse_model=  clip_processor = minilm_tokenizer= clip_model= minilm_model= spacy_nlp= stopwords_set = None
 
-
-def get_content_from_line(l, search_field="text"):
+def get_content_from_line(l, search_field="text", search_field2=None):
+  if type(l) is dict:
+    content2 = None
+    content =l.get(search_field)
+    if search_field2 is not None:
+      content2 = l.get(search_field2)
+    if content2 is not None:
+      return content, content2
+    return content
+  else:
+    content2 = None
     l =l.decode().replace("\\n", "\n").replace("\\t", "\t").strip()
-    if not l: return ''
+    if not l: return None
     if l[0] == "{" and l[-1] == "}":
       content = l.split(search_field+'": "')[1]
-      content = content.split('", "')[0].replace("_", " ")
+      content = (content.split('", "')[0] if '", "' in content else content.split('"}"')[0]).replace("_", " ")
+      if search_field2 is not None:
+        content2 = l.split(search_field2+'": "')[1]
+        content2 = (content2.split('", "')[0] if '", "' in content2 else content2.split('"}"')[0]).replace("_", " ")
+        
     else:
       content = l.replace("_", " ")
+    if content2 is not None:
+      return content, content2
     return content
     
 class PreprocessorMixin:
@@ -74,7 +83,7 @@ class PreprocessorMixin:
   def reset_bm25_idx(self, start_idx):
     raise NotImplementedError
   
-  #perform both bm25 and embed_search processing/transmation of the text, and yield data.
+  #perform both bm25 and embed_search processing/translation of the text and keywords, and yields the data.
   def process(self, lines_iterator, *args, **kwargs):
     raise NotImplementedError
     
@@ -93,12 +102,15 @@ class PreprocessorMixin:
 #TODO. modify the embed_text function to store away a tuple idx -> embedding idx. The tuple idx corresponds to a unique id generated 
 #by the preprocessor, e.g., (lineno, offset) or (file name, lineno, offset), etc. 
 class BasicLinePeprocessor(PreprocessorMixin):
-  def __init__(self, start_idx = 0, embed_search_field="text", bm25_field="text", searcher=None):
+  def __init__(self, lineno=-1, start_idx = 0, multi_files=False, embed_search_field="text", bm25_field=None):
+    ret = init_models()
+    self.doc2query_tokenizer, self.doc2query_model = ret[0], ret[1]
     self.reset_embed_search_idx(start_idx)
     self.reset_bm25_idx(start_idx)
     self.embed_search_field = embed_search_field
     self.bm25_field = bm25_field
-    self.searcher = searcher
+    self.lineno = {'*': [-1]}
+    self.multi_files = multi_files
     
   def reset_embed_search_idx(self, start_idx):
      self.embed_search_idx = start_idx
@@ -106,57 +118,60 @@ class BasicLinePeprocessor(PreprocessorMixin):
   def reset_bm25_idx(self, start_idx):
      self.bm25_idx = start_idx
   
-  # gets in a lines iterator and outputs subsequent dict generator
-  def process(self, lines_iterator, *args, **kwargs):
-    for line in lines_iterator:
-      line1, line2 =  get_content_from_line(line, self.embed_search_field, self.bm25_field)
-      if not l: 
-        yield None
-        continue
-      try:
-        line = line.decode()
-      except:
-        pass
-      offset = 0
-      for text, key_words in zip(line1.split("\\n"), line2.split("\\n")):
-        offset = line.index(text, offset)
-        yield {'idx': self.embed_search_idx, 'offset': offset, 'text': text, 'key_words': key_words}
-      self.embed_search_idx += 1
-  
-  # gets in a lines iterator and outputs subsequent dict generator
-  def process_embed_search_field(self, lines_iterator, *args, **kwargs):
-    for line in lines_iterator:
-      l =  get_content_from_line(line, self.embed_search_field)
-      if not l: 
-        yield None
-        continue
-      try:
-        line = line.decode()
-      except:
-        pass
-      offset = 0
-      for l2 in l.split("\\n"):
-        offset = line.index(l2, offset)
-        yield {'idx': self.embed_search_idx, 'offset': offset, 'text': l2}
-      self.embed_search_idx += 1
-      
-  # gets in a lines iterator and outputs subsequent dict generator
-  def process_bm25_field(self, lines_iterator, *args, **kwargs):
-    for line in lines_iterator:
-      l =  get_content_from_line(line, self.bm25_field)
-      if not l: 
-        yield None
-        continue
-      try:
-        line = line.decode()
-      except:
-        pass
-      offset = 0
-      for l2 in l.split("\\n"):
-        offset = line.index(l2, offset)
-        yield {'idx': self.bm25_idx, 'offset': offset, 'text': l2}
-      self.bm25_idx += 1
+  def get_index_fields(self): 
+    if self.multi_files: 
+      return ['filename', 'lineno', 'offset']
+    else:
+      return ['lineno', 'offset']
 
+  # One to many generator. gets in a lines/dict iterator and outputs subsequent dict generator. 
+  def process(self, lines_iterator, filename=None, lineno_arr=None, start_idx=None, *args, **kwargs):
+    if start_idx is not None:
+      self.reset_embed_search_idx(start_idx)
+      self.reset_bm25_idx(start_idx)
+    if lineno_arr is None:
+      lineno_arr = self.lineno.get(filename, self.lineno['*'])
+    for line in lines_iterator:
+      if self.embed_search_field is not None and self.bm25_field is not None:
+        line1, line2 =  get_content_from_line(line, self.embed_search_field, self.bm25_field)
+      elif self.embed_search_field is not None:
+        line1, line2 =  get_content_from_line(line, self.embed_search_field), None
+      else:
+        line1, line2 =  None, get_content_from_line(line, self.bm25_field)
+
+      lineno_arr[0] = lineno_arr[0]+1
+      if line1 is not None and line2 is not None and  not line1.strip() and not line2.strip(): 
+        continue
+      elif line1 is not None and  not line1.strip(): 
+        continue
+      else:
+        continue
+      offset = 0
+      if line1 is not None and line2 is not None:
+        line1arr, line2arr = line1.split("\\n"), line2.split("\\n")
+      elif line1 is not None:
+        line1arr = line1.split("\\n")
+        line2arr = [""]*len(line1arr)
+      else:
+        line2arr = line2.split("\\n")
+        line1arr = [""]*len(line2arr)
+      #assert len(line1arr) == len(line2arr)
+      
+      for text, key_words in zip(line1arr, line2arr):
+        if not text.strip() and not key_words.strip(): 
+          continue
+        if line1: 
+          offset = line1.index(text, offset)
+        else:
+          offset = line2.index(text, key_words)
+        # TODO: generate queries, synonym expansion
+        if filename is not None:
+          yield {'idx': self.embed_search_idx, 'filename': filename, 'lineno': lineno_arr[0], 'offset': offset, 'text': text, 'keywords': key_words}
+        else:
+          yield {'idx': self.embed_search_idx, 'lineno': lineno_arr[0], 'offset': offset, 'text': text, 'keywords': key_words}          
+        self.embed_search_idx += 1
+        self.bm25_idx += 1
+  
 #TODO. Change this to inherit from a transformers.PretrainedModel.
 class Searcher(nn.Module):
   
@@ -236,8 +251,8 @@ class Searcher(nn.Module):
 
       """
     global device
-    global  labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
     super().__init__()
+    init_models()
     if preprocessor is None: preprocessor = BasicLinePeprocessor(embed_search_field=embed_search_field, bm25_field=bm25_field)
     self.embedder, self.preprocessor = embedder, preprocessor
     if idx_dir is None and filename is not None:
@@ -256,7 +271,6 @@ class Searcher(nn.Module):
         else:
           content_data_store =  FileByLineIdx(fobj=open(filename, "rb"))  
     self.content_data_store = content_data_store 
-    labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set = init_models()
     if downsampler is None:
       model_embed_dim = get_model_embed_dim(embedder)
       downsampler = nn.Linear(model_embed_dim, embed_dim, bias=False).eval() 
@@ -361,7 +375,7 @@ class Searcher(nn.Module):
                             reuse_clusters=False, min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000, use_tqdm=True
                           ):
     global device
-    global  labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
+    init_models()    
     if hasattr(self,f'downsampler_{self.embed_search_field}_{self.embedder}_{self.embed_dim}'): getattr(self,f'downsampler_{self.embed_search_field}_{self.embedder}_{self.embed_dim}').cpu()
     if hasattr(self, 'downsampler') and self.downsampler is not None: self.downsampler.cpu()
     content_data_store = self.content_data_store
@@ -376,7 +390,6 @@ class Searcher(nn.Module):
         auto_embed_text=not os.path.exists(self.mmap_file) # the universal embeddings are created once. 
       else:
         mmap_file = f"{self.idx_dir}/search_index_{self.embed_search_field}_{embedder}_{self.embed_dim}.mmap"
-    labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set = init_models()
     if downsampler is None:
       if hasattr(self,f'downsampler_{self.embed_search_field}_{embedder}_{self.embed_dim}'):
         downsampler = getattr(self,f'downsampler_{self.embed_search_field}_{embedder}_{self.embed_dim}')
