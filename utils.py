@@ -61,15 +61,15 @@ def init_models():
     labse_tokenizer = BertTokenizerFast.from_pretrained("sentence-transformers/LaBSE")
 
     if device == 'cuda':
-      codebert_model = AutoModel.from_pretrained("microsoft/graphcodebert-base").half().eval()
-      clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").half().eval()
+      #codebert_model = AutoModel.from_pretrained("microsoft/graphcodebert-base").half().eval()
+      #clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").half().eval()
       minilm_model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2').half().eval()
-      labse_model = BertModel.from_pretrained("sentence-transformers/LaBSE").half().eval()
+      #labse_model = BertModel.from_pretrained("sentence-transformers/LaBSE").half().eval()
     else:
-      codebert_model = AutoModel.from_pretrained("microsoft/graphcodebert-base").eval()
-      clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").eval()
+      #codebert_model = AutoModel.from_pretrained("microsoft/graphcodebert-base").eval()
+      #clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").eval()
       minilm_model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2').eval()
-      lbase_model = BertModel.from_pretrained("sentence-transformers/LaBSE").eval()
+      #labse_model = BertModel.from_pretrained("sentence-transformers/LaBSE").eval()
 
     spacy_nlp = spacy.load('en_core_web_md')
     stopwords_set = set(nltk_stopwords.words('english') + ['...', 'could', 'should', 'shall', 'can', 'might', 'may', 'include', 'including'])
@@ -78,23 +78,46 @@ def init_models():
 def use_model(embedder):
   global codebert_tokenizer, codebert_model, labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
   if embedder == "clip":
-      clip_model = clip_model.to(device)
-      minilm_model =  minilm_model.cpu()
-      labse_model =  labse_model.cpu()
+    if minilm_model is not None: minilm_model =  minilm_model.cpu()
+    if labse_model is not None: labse_model =  labse_model.cpu()
+    if codebert_model is not None: codebert_model =  codebert_model.cpu()
+    if clip_model is None:
+      if device == 'cuda':
+        clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").half().eval()
+      else:
+        clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").eval()
+    clip_model = clip_model.to(device)
   elif embedder == "minilm":
-      clip_model = clip_model.cpu()
-      minilm_model =  minilm_model.to(device)
-      labse_model =  labse_model.cpu()
-  elif embedder == "labse":
-      clip_model = clip_model.cpu()
-      minilm_model =  minilm_model.cpu()
-      labse_model =  labse_model.to(device)
+    if clip_model is not None: clip_model =  clip_model.cpu()
+    if labse_model is not None: labse_model =  labse_model.cpu()
+    if codebert_model is not None: codebert_model =  codebert_model.cpu()
+    if minilm_model is None:
+      if device == 'cuda':
+        minilm_model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2').half().eval()
+      else:
+        minilm_model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2').eval()
+    minilm_model = minilm_model.to(device)
   elif embedder == "codebert":
-      clip_model = clip_model.cpu()
-      minilm_model =  minilm_model.cpu()
-      codebert_model =  codebert_model.to(device)      
-      labse_model =  labse_model.cpu()      
-      
+    if clip_model is not None: clip_model =  clip_model.cpu()
+    if labse_model is not None: labse_model =  labse_model.cpu()
+    if minilm_model is not None: minilm_model =  minilm_model.cpu()
+    if codebert_model is None:
+      if device == 'cuda':
+        codebert_model = AutoModel.from_pretrained('microsoft/graphcodebert-base').half().eval()
+      else:
+        codebert_model = AutoModel.from_pretrained('microsoft/graphcodebert-base').eval()
+    codebert_model = codebert_model.to(device)
+  elif embedder == "labse":
+    if clip_model is not None: clip_model =  clip_model.cpu()
+    if codebert_model is not None: codebert_model =  labse_model.cpu()
+    if minilm_model is not None: minilm_model =  minilm_model.cpu()
+    if labse_model is None:
+      if device == 'cuda':
+        labse_model = BertModel.from_pretrained("sentence-transformers/LaBSE").half().eval()
+      else:
+        labse_model = BertModel.from_pretrained("sentence-transformers/LaBSE").eval()
+    labse_model = labse_model.to(device)
+        
 def apply_model(embedder, sent):  
   global codebert_tokenizer, codebert_model, labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
   def get_one_embed(sent, embedder):
