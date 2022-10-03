@@ -164,6 +164,8 @@ def apply_model(embedder, sent):
         dat = labse_model(**toks).pooler_output 
     elif embedder == "doc2query":
         toks = doc2query_tokenizer(sent, padding=True, truncation=True, return_tensors="pt", max_length=512).to(device)
+        if toks.input_ids.shape[1] > 400: 
+          print (max([len(s) for s in sent]), toks.input_ids.shape)
         dat = doc2query_encoder(**toks)
         dat = mean_pooling(dat, toks.attention_mask)  
     return dat
@@ -171,24 +173,24 @@ def apply_model(embedder, sent):
   if type(sent) is str:
     return get_one_embed(sent, embedder)
   else:
-    #poor man length batched breaking by length 2000
+    #poor man length batched breaking by length 1000
     #print (len(sent))
     batch = []
     all_dat = []
-    doing_2000 = False
+    doing_1000 = False
     for s in sent:
-      if not doing_2000 and len(s) >= 2000:
+      if not doing_1000 and len(s) >= 1000:
         if batch:
           dat = get_one_embed(batch, embedder)
           all_dat.append(dat)
         batch = [s]
-        doing_2000 = True
-      elif doing_2000 and len(s) < 2000:
+        doing_1000 = True
+      elif doing_1000 and len(s) < 1000:
         if batch:
           dat = get_one_embed(batch, embedder)
           all_dat.append(dat)
         batch = [s]
-        doing_2000 = False
+        doing_1000 = False
       else:
         batch.append(s)
     if batch:
