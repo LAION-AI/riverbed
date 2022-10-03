@@ -58,7 +58,11 @@ def get_content_from_line(l, search_field="text", search_field2=None):
     return content
   else:
     content2 = None
-    l =l.decode().replace("\\n", "\n").replace("\\t", "\t").strip()
+    try:
+      l =l.decode()
+    except:
+      pass
+    l = l.replace("\\n", "\n").replace("\\t", "\t").strip()
     if not l: return None
     if l[0] == "{" and l[-1] == "}":
       content = l.split(search_field+'": "')[1]
@@ -103,8 +107,6 @@ class IndexerMixin:
 #by the indexer, e.g., (lineno, offset) or (file name, lineno, offset), etc. 
 class BasicIndexer(IndexerMixin):
   def __init__(self, lineno=-1, start_idx = 0, multi_files=False, do_doc2query=False, embed_search_field="text", bm25_field=None):
-    ret = init_models()
-    self.doc2query_tokenizer, self.doc2query_model = ret[0], ret[1]
     self.reset_embed_search_idx(start_idx)
     self.reset_bm25_idx(start_idx)
     self.embed_search_field = embed_search_field
@@ -112,6 +114,7 @@ class BasicIndexer(IndexerMixin):
     self.lineno = {'*': [-1]}
     self.multi_files = multi_files
     self.do_doc2query = do_doc2query
+    self.num_queries = 20
     
   def reset_embed_search_idx(self, start_idx):
      self.embed_search_idx = start_idx
@@ -127,6 +130,9 @@ class BasicIndexer(IndexerMixin):
 
   # One to many generator. gets in a lines/dict iterator and outputs subsequent dict generator. 
   def process(self, lines_iterator, filename=None, lineno_arr=None, start_idx=None, chunk_size=500, num_queries=20, *args, **kwargs):
+    global device
+    if self.do_doc2query:
+      doc2query_tokenizer, doc2query_model = get_doc2query_tokenizer_and_model()
     if start_idx is not None:
       self.reset_embed_search_idx(start_idx)
       self.reset_bm25_idx(start_idx)
@@ -141,13 +147,12 @@ class BasicIndexer(IndexerMixin):
         line1, line2 =  get_content_from_line(line, self.embed_search_field), None
       else:
         line1, line2 =  None, get_content_from_line(line, self.bm25_field)
-
       lineno_arr[0] = lineno_arr[0]+1
-      if line1 is not None and line2 is not None and  not line1.strip() and not line2.strip(): 
+      if line1 is not None and line2 is not None and not line1.strip() and not line2.strip(): 
         continue
       elif line1 is not None and  not line1.strip(): 
         continue
-      else:
+      elif line2 is not None and  not line2.strip(): 
         continue
       offset = 0
       if line1 is not None and line2 is not None:
@@ -168,7 +173,7 @@ class BasicIndexer(IndexerMixin):
         else:
           offset = line2.index(text, key_words)
         if filename is not None:
-          batcha.append({'idx': self.embed_search_idx, 'filename': filename, 'lineno': lineno_arr[0], 'offset': offset, 'embedding_text': text, 'keywords': key_words})
+          batch.append({'idx': self.embed_search_idx, 'filename': filename, 'lineno': lineno_arr[0], 'offset': offset, 'embedding_text': text, 'keywords': key_words})
         else:
           batch.append({'idx': self.embed_search_idx, 'lineno': lineno_arr[0], 'offset': offset, 'embedding_text': text, 'keywords': key_words})          
         self.embed_search_idx += 1
@@ -180,17 +185,18 @@ class BasicIndexer(IndexerMixin):
             for dat in batch:
               yield dat
           else:
-            input_ids = tokenizer.encode([a['embedding_text'] for a in batch], max_length=512, truncation=True, return_tensors='pt')
+            #print ([a['embedding_text'] for a in batch])
+            input_ids = doc2query_tokenizer([a['embedding_text'] for a in batch], max_length=512, truncation=True, return_tensors='pt').to(device)
             with torch.no_grad():
-              outputs = model.generate(
-                input_ids=input_ids,
+              outputs = doc2query_model.generate(
+                **input_ids,
                 max_length=64,
                 do_sample=True,
-                top_p=0.85,
-                num_return_sequences=20)
-              outputs = [tokenizer.decode(outputs[i], skip_special_tokens=True) for i in range(len(outputs))]
+                top_p=0.95,
+                num_return_sequences=self.num_queries)
+              outputs = [doc2query_tokenizer.decode(outputs[i], skip_special_tokens=True) for i in range(len(outputs))]
             for dat, rng in zip(batch, range(0, len(outputs), 20)):
-              queries = outputs[rng:rng+20]
+              queries = outputs[rng:rng+self.num_queries]
               dat['queries'] = queries
               dat['keywords'] += " ".join(queries)
               yield dat
@@ -202,19 +208,20 @@ class BasicIndexer(IndexerMixin):
             for dat in batch:
               yield dat
           else:
-            input_ids = tokenizer.encode([a['embedding_text'] for a in batch], max_length=512, truncation=True, return_tensors='pt')
+            #print ([a['embedding_text'] for a in batch])
+            input_ids = doc2query_tokenizer([a['embedding_text'] for a in batch], max_length=512, truncation=True, return_tensors='pt').to(device)
             with torch.no_grad():
-              outputs = model.generate(
-                input_ids=input_ids,
+              outputs = doc2query_model.generate(
+                **input_ids,
                 max_length=64,
                 do_sample=True,
-                top_p=0.85,
-                num_return_sequences=20)
-              outputs = [tokenizer.decode(output, skip_special_tokens=True) for output in outputs]
-            for dat, rng in zip(batch, range(0, len(outputs), 20)):
+                top_p=0.95,
+                num_return_sequences=self.num_queries)
+              outputs = [doc2query_tokenizer.decode(output, skip_special_tokens=True) for output in outputs]
+            for dat, rng in zip(batch, range(0, len(outputs), self.num_queries)):
               queries = outputs[rng:rng+20]
               dat['queries'] = queries
-              dat['queries'] += " ".join(queries)
+              dat['keywords'] += " ".join(queries)
               yield dat  
           
             
