@@ -175,20 +175,20 @@ def apply_model(embedder, sent):
     #print (len(sent))
     batch = []
     all_dat = []
-    doing_1000 = False
+    doing_800 = False
     for s in sent:
-      if not doing_1000 and len(s) >= 1000:
+      if not doing_800 and len(s) >= 800:
         if batch:
           dat = get_one_embed(batch, embedder)
           all_dat.append(dat)
         batch = [s]
-        doing_1000 = True
-      elif doing_1000 and len(s) < 1000:
+        doing_800 = True
+      elif doing_800 and len(s) < 800:
         if batch:
           dat = get_one_embed(batch, embedder)
           all_dat.append(dat)
         batch = [s]
-        doing_1000 = False
+        doing_800 = False
       else:
         batch.append(s)
     if batch:
