@@ -231,7 +231,7 @@ class SearcherIndexer(nn.Module):
                span2cluster_label=None, idxs=None, max_level=4, max_cluster_size=200, \
                min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000, \
                universal_embed_mode = None, prototype_sentences=None,  prototypes=None, universal_downsampler =None, min_num_prorotypes=50000, \
-               temperature_universal_downsampler=1.0,  temperature_downsampler=1.0,use_tqdm=True, indexer=None
+               temperature_universal_downsampler=1.0,  temperature_downsampler=1.0, use_tqdm=True, indexer=None
               ):
     #TODO, add a embedding_indexer. Given a batch of sentences, and an embedding, create additional embeddings corresponding to the batch. 
     """
@@ -305,8 +305,8 @@ class SearcherIndexer(nn.Module):
     self.embedder, self.indexer = embedder, indexer
     if idx_dir is None and filename is not None:
       idx_dir = f"{filename}_idx"
-    elif idx_dir is None: 
-      idx_dir = "./"
+    elif idx_dir is None: idx_dir = "./"
+      
     self.idx_dir = idx_dir
     if not os.path.exists(self.idx_dir):
       os.makedirs(self.idx_dir)   
@@ -341,7 +341,7 @@ class SearcherIndexer(nn.Module):
     if universal_embed_mode not in (None, "assigned"):
       auto_embed_text = True
     if auto_embed_text and self.content_data_store is not None:
-      self.embed_text(chunk_size=chunk_size, use_tqdm=use_tqdm)
+      self.embed_text(chunk_size=chunk_size, temperature_universal_downsampler=temperature_universal_downsampler,  temperature_downsampler=temperature_downsampler, use_tqdm=use_tqdm)
     if universal_embed_mode not in (None, "assigned") and clusters is None:
       auto_create_embeddings_idx = True
     if os.path.exists(self.mmap_file) and (idxs is not None or auto_create_embeddings_idx):
@@ -370,7 +370,7 @@ class SearcherIndexer(nn.Module):
       elif len(prototype_senences) < min_num_prorotypes:
          assert universal_embed_mode != "assigned"
          prototype_sentences.extend([get_content_from_line(self.content_data_store[i], embed_search_field) for i in random.sample(list(range(len(self.content_data_store)), min_num_prorotypes-len(prorotype_senences)))])
-      prototypes = self.get_embeddings(prototype_sentences)
+      prototypes = self.get_embeddings(prototype_sentences, temperature_universal_downsampler=temperature_universal_downsampler,  temperature_downsampler=temperature_downsampler, )
       universal_downsampler = nn.Linear(len(prototype_sentences), embed_dim, bias=False)
       self.prototype_sentences,  self.prototypes, self.universal_downsampler = prototype_sentences,  prototypes, universal_downsampler
       if self.universal_downsampler is not None: 
@@ -426,6 +426,7 @@ class SearcherIndexer(nn.Module):
                             span2cluster_label=None, idxs=None, max_level=4, max_cluster_size=200, chunk_size=500,  \
                             parent2idx=None, parents=None, top_parents=None, top_parent_idxs=None, skip_idxs=None, \
                             auto_embed_text=False,auto_create_embeddings_idx=False, auto_create_bm25_idx=False,  \
+                            temperature_universal_downsampler=None,  temperature_downsampler=None, \
                             reuse_clusters=False, min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000, use_tqdm=True
                           ):
     global device
@@ -459,7 +460,7 @@ class SearcherIndexer(nn.Module):
     if skip_idxs is None: skip_idxs = []
     self.skip_idxs = set(list(self.skip_idxs if hasattr(self, 'skip_idxs') and self.skip_idxs else []) + list(skip_idxs))
     if auto_embed_text and self.content_data_store is not None:
-      self.embed_text(chunk_size=chunk_size, use_tqdm=use_tqdm)
+      self.embed_text(chunk_size=chunk_size, temperature_universal_downsampler=temperature_universal_downsampler,  temperature_downsampler=temperature_downsampler, use_tqdm=use_tqdm)
     if os.path.exists(self.mmap_file) and (idxs is not None or auto_create_embeddings_idx):
       self.recreate_clusters_idx(clusters=self.clusters, span2cluster_label=span2cluster_label, idxs=idxs, max_level=max_level, max_cluster_size=max_cluster_size, \
                                min_overlap_merge_cluster=min_overlap_merge_cluster, prefered_leaf_node_size=prefered_leaf_node_size, kmeans_batch_size=kmeans_batch_size)
@@ -480,7 +481,7 @@ class SearcherIndexer(nn.Module):
     
     #experimental universal embedding code
     if self.universal_embed_mode is not None and self.prototype_sentences:
-      self.prototypes = self.get_embeddings(self.prototype_sentences)
+      self.prototypes = self.get_embeddings(self.prototype_sentences, temperature_universal_downsampler=temperature_universal_downsampler,  temperature_downsampler=temperature_downsampler, )
     if self.prototypes is not None: 
       if self.dtype == np.float16:
         self.prototypes = self.prototypes.half().to(device)
@@ -506,7 +507,7 @@ class SearcherIndexer(nn.Module):
                           temperature_universal_downsampler=temperature_universal_downsampler if temperature_universal_downsampler is not None else self.temperature_universal_downsampler)
               
   #embed all of self.content_data_store or (idx, content) for idx in idxs for the row/content from content_data_store
-  def embed_text(self, start_idx=None, chunk_size=500, idxs=None, use_tqdm=True, auto_create_bm25_idx=False, **kwargs):
+  def embed_text(self, start_idx=None, chunk_size=500, idxs=None, use_tqdm=True, auto_create_bm25_idx=False,  temperature_downsampler=None, temperature_universal_downsampler=None, **kwargs):
     assert self.content_data_store is not None
     if start_idx is None: start_idx = 0
     embed_search_field = self.embed_search_field 
@@ -536,7 +537,8 @@ class SearcherIndexer(nn.Module):
     self.mmap_len, skip_idxs =  embed_text(data_iterator, self.mmap_file, start_idx=start_idx, downsampler=self.downsampler, \
                           mmap_len=self.mmap_len, embed_dim=self.embed_dim, embedder=self.embedder, chunk_size=chunk_size, use_tqdm=use_tqdm, \
                           universal_embed_mode=self.universal_embed_mode, prototypes=self.prototypes, universal_downsampler=self.universal_downsampler, \
-                          temperature_downsampler = self.temperature_downsampler, temperature_universal_downsampler=self.temperature_universal_downsampler)
+                          temperature_downsampler = temperature_downsampler if temperature_downsampler is not None else self.temperature_downsampler, \
+                          temperature_universal_downsampler=temperature_universal_downsampler if temperature_universal_downsampler is not None else self.temperature_universal_downsampler)
     setattr(self,f'downsampler_{self.embed_search_field}_{self.embedder}_{self.embed_dim}', self.downsampler)
     self.skip_idxs = set(list(self.skip_idxs)+skip_idxs)
       
