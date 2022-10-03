@@ -345,13 +345,9 @@ def embed_text(dat_iter, mmap_file, start_idx=None, downsampler=None, skip_idxs=
     
 #cluster pruning based approximate nearest neightbor search. See https://nlp.stanford.edu/IR-book/html/htmledition/cluster-pruning-1.html
 #assumes the embeddings are stored in the mmap_file and the clustered index has been created.
-def embeddings_search(target, mmap_file, top_parents,  top_parent_idxs, parent2idx, parents, clusters, mmap_len=0, temperature1=None, temperature2 = None, embed_dim=25, dtype=np.float16, chunk_size=10000, k=5):
-  if temperature1 is not None:
-    target = _apply_temperature(target, temperature1)
+def embeddings_search(target, mmap_file, top_parents,  top_parent_idxs, parent2idx, parents, clusters, mmap_len=0,  embed_dim=25, dtype=np.float16, chunk_size=10000, k=5):
   curr_parents = top_parents
-  embeddings = parents[top_parent_idxs] 
-  if temperature2 is not None:
-    embeddings = _apply_temperature(embeddings, temperature2)  
+  embeddings = parents[top_parent_idxs]  
   max_level = top_parents[0][0]
   #print (max_level, top_parents)
 
@@ -369,8 +365,6 @@ def embeddings_search(target, mmap_file, top_parents,  top_parent_idxs, parent2i
          n_chunks += 1
          if n_chunks > chunk_size:
             embeddings = torch.from_numpy(np_memmap(mmap_file, shape=[mmap_len, embed_dim], dtype=dtype)[idxs]).to(device)
-            if temperature2 is not None:
-              embeddings = _apply_temperature(embeddings, temperature2)
             results = cosine_similarity(target, embeddings)
             results = results.sort(descending=True)
             for idx, score in zip(results.indices.tolist(), results.values.tolist()):
@@ -380,8 +374,6 @@ def embeddings_search(target, mmap_file, top_parents,  top_parent_idxs, parent2i
             n_chunk = 0
       if idxs:
          embeddings = torch.from_numpy(np_memmap(mmap_file, shape=[mmap_len, embed_dim], dtype=dtype)[idxs]).to(device)
-         if temperature2 is not None:
-            embeddings = _apply_temperature(embeddings, temperature2) 
          results = cosine_similarity(target, embeddings)
          results = results.sort(descending=True)
          for idx, score in zip(results.indices.tolist(), results.values.tolist()):
@@ -391,17 +383,15 @@ def embeddings_search(target, mmap_file, top_parents,  top_parent_idxs, parent2i
     else:
       curr_parents = children
       embeddings = parents[[parent2idx[parent] for parent in curr_parents]]
-      if temperature2 is not None:
-        embeddings = _apply_temperature(embeddings, temperature2)  
 
 
 #internal function used to cluster one batch of embeddings
 #spans are either int tuples of (level, embedding_idx) or just the embedding_idx. 
-def _cluster_one_batch(true_k,  spans, embedding_idxs, clusters, span2cluster_label, level, cluster_embeddings, min_overlap_merge_cluster, temperature=None,):
+def _cluster_one_batch(true_k,  spans, embedding_idxs, clusters, span2cluster_label, level, cluster_embeddings, min_overlap_merge_cluster, cluster_temperature=None,):
     with torch.no_grad():
        embeddings = torch.from_numpy(cluster_embeddings[embedding_idxs])
-       if temperature is not None:
-         embeddings = _apply_temperature(embeddings, temperature)
+       if cluster_temperature is not None:
+         embeddings = _apply_temperature(embeddings, cluster_temperature)
        if device == 'cuda':
        
          km = KMeans(n_clusters=true_k, mode='cosine')
@@ -449,7 +439,7 @@ def _cluster_one_batch(true_k,  spans, embedding_idxs, clusters, span2cluster_la
 # when we use the term 'idx', we normally refer to the index in an embedding file.
 def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, mmap_len=0, embed_dim=25, dtype=np.float16, skip_idxs=None, idxs=None, max_level=4, \
                                 max_cluster_size=200, min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000, \
-                                temperature=None, recluster_start_iter=0.85, max_decluster_iter=0.95, use_tqdm=True):
+                                cluster_temperature=None, recluster_start_iter=0.85, max_decluster_iter=0.95, use_tqdm=True):
   """
   :arg clusters:      the dict mapping parent span to list of child span
   :arg span2cluster_label: the inverse of the above.
@@ -580,7 +570,7 @@ def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, mmap_le
           true_k = int(len(embedding_idxs)/prefered_leaf_node_size)
         else:
           true_k = int(len(embedding_idxs)/max_cluster_size)
-        _cluster_one_batch(true_k,  spans, embedding_idxs, clusters, span2cluster_label, level, cluster_embeddings, min_overlap_merge_cluster, temperature=temperature)
+        _cluster_one_batch(true_k,  spans, embedding_idxs, clusters, span2cluster_label, level, cluster_embeddings, min_overlap_merge_cluster, cluster_temperature=cluster_temperature)
         # re-cluster any small clusters or break up large clusters   
         if times >= recluster_at:  
             need_recompute_clusters = False   
@@ -600,7 +590,7 @@ def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, mmap_le
                   true_k = int(len(embedding_idxs)/prefered_leaf_node_size)
                 else:
                   true_k = int(len(embedding_idxs)/max_cluster_size)
-                _cluster_one_batch(true_k,  spans, embedding_idxs, clusters, span2cluster_label, level, cluster_embeddings,  min_overlap_merge_cluster, temperature=temperature)
+                _cluster_one_batch(true_k,  spans, embedding_idxs, clusters, span2cluster_label, level, cluster_embeddings,  min_overlap_merge_cluster, cluster_temperature=cluster_temperature)
         
             if need_recompute_clusters:
               clusters.clear()
