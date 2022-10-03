@@ -265,27 +265,26 @@ def _apply_temperature(dat,temperature):
 # to compare apples to apples, we should apply the same temperature for prototype comparison
 # for search, we can vary the temperature to get the best results.
 def _get_embeddings(sent, downsampler, embedder="minilm", universal_embed_mode=None, prototypes=None, \
-                    temperature_downsampler=None, universal_downsampler=None, temperature_universal_downsampler=None):
+                    temperature=None, universal_downsampler=None):
   dat = apply_model(embedder, sent)
   dat = torch.nn.functional.normalize(dat, dim=1)
   dat = downsampler(dat)
   if universal_embed_mode:
       dat = cosine_similarity(dat, prototypes)
-      if temperature_universal_downsampler is not None:
-        dat = _apply_temperature(dat,temperature_universal_downsampler)
+      dat = torch.nn.functional.normalize(dat, dim=1)
       dat = universal_downsampler(dat)
-  if temperature_downsampler is not None:
-    dat = _apply_temperature(dat,temperature_downsampler)
+  if temperature is not None:
+    dat = _apply_temperature(dat,temperature)
   return dat
 
 #get the embeddings using the appropriate downsampling
-def get_embeddings(sent, downsampler, dtype=np.float16, embedder="minilm", universal_embed_mode=None, prototypes=None, temperature_downsampler=2.0, universal_downsampler=None, temperature_universal_downsampler=2.0):
+def get_embeddings(sent, downsampler, dtype=np.float16, embedder="minilm", universal_embed_mode=None, prototypes=None, temperature=None, universal_downsampler=None):
   global labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
   init_models()
   use_model(embedder)
   with torch.no_grad():
-    dat = _get_embeddings(sent, downsampler, embedder, universal_embed_mode, prototypes, temperature_downsampler, \
-                          universal_downsampler, temperature_universal_downsampler)
+    dat = _get_embeddings(sent, downsampler, embedder, universal_embed_mode, prototypes, temperature, \
+                          universal_downsampler)
     if dtype == np.float16: 
       dat = dat.half()
     else:
@@ -298,7 +297,7 @@ def get_embeddings(sent, downsampler, dtype=np.float16, embedder="minilm", unive
 #skip_idxs are the lines/embeddings that are empty and should not be clustered search indexed.
 def embed_text(dat_iter, mmap_file, start_idx=None, downsampler=None, skip_idxs=None,  dtype=np.float16, mmap_len=0, embed_dim=25,  \
                embedder="minilm", chunk_size=500,  universal_embed_mode=None, prototypes=None, \
-               temperature_downsampler=None, universal_downsampler=None, temperature_universal_downsampler=None, use_tqdm=True):
+               temperature=None, universal_downsampler=None, use_tqdm=True):
     global device, labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
     assert not universal_embed_mode or (prototypes is not None and universal_downsampler is not None)   
     assert downsampler is not None
@@ -330,7 +329,7 @@ def embed_text(dat_iter, mmap_file, start_idx=None, downsampler=None, skip_idxs=
           if not l or len(batch) >= chunk_size:  
             if batch:
               dat = _get_embeddings(batch, downsampler, embedder, universal_embed_mode, prototypes, \
-                                    temperature_downsampler, universal_downsampler, temperature_universal_downsampler).cpu().numpy()
+                                    temperature, universal_downsampler).cpu().numpy()
               cluster_embeddings = np_memmap(mmap_file, shape=[mmap_len, embed_dim], dat=dat, idxs=idxs, dtype=dtype)  
               batch = []
               idxs = []
@@ -338,7 +337,7 @@ def embed_text(dat_iter, mmap_file, start_idx=None, downsampler=None, skip_idxs=
               skip_idxs.append(idx) 
       if batch:
         dat = _get_embeddings(batch, downsampler, embedder, universal_embed_mode, prototypes, \
-                                    temperature_downsampler, universal_downsampler, temperature_universal_downsampler).cpu().numpy()
+                                    temperature, universal_downsampler).cpu().numpy()
         cluster_embeddings = np_memmap(mmap_file, shape=[mmap_len, embed_dim], dat=dat, idxs=idxs, dtype=dtype)  
         batch = []
         idxs = []
