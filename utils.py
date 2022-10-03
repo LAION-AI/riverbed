@@ -417,7 +417,8 @@ def _cluster_one_batch(true_k,  spans, embedding_idxs, clusters, span2cluster_la
 # clusters maps cluster_label => list of spans  
 # when we use the term 'idx', we normally refer to the index in an embedding file.
 def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, mmap_len=0, embed_dim=25, dtype=np.float16, skip_idxs=None, idxs=None, max_level=4, \
-                                max_cluster_size=200, min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000, use_tqdm=True):
+                                max_cluster_size=200, min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000, \
+                                recluster_start_iter=0.85, max_decluster_iter=0.95, use_tqdm=True):
   """
   :arg clusters:      the dict mapping parent span to list of child span
   :arg span2cluster_label: the inverse of the above.
@@ -503,7 +504,7 @@ def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, mmap_le
     # we are going to do a minimum of 6 times in case there are not already clustered items
     # from previous iterations. 
     num_times = max(6,math.ceil(len_spans/int(.7*kmeans_batch_size)))
-    recluster_at = max(0,num_times*0.65)
+    recluster_at = max(0,num_times*recluster_start_iter)
     rng = 0
     if use_tqdm:
       num_times2 = tqdm.tqdm(range(num_times))
@@ -553,7 +554,7 @@ def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, mmap_le
         if times >= recluster_at:  
             need_recompute_clusters = False   
             for parent, spans in list(clusters.items()): 
-              if  times < num_times-2 and \
+              if  times < max(0, num_times*max_decluster_iter) and \
                 ((level == 0 and len(spans) < prefered_leaf_node_size*.5) or
                  (level != 0 and len(spans) < max_cluster_size*.5)):
                 need_recompute_clusters = True
