@@ -64,6 +64,13 @@ def get_stopwords():
   if stopwords_set is None: init_models()
   return stopwords_set
 
+def get_doc2query_tokenizer_and_model():
+  global doc2query_tokenizer, doc2query_model
+  if doc2query_model is None:
+    init_models()
+  return doc2query_tokenizer, doc2query_model
+
+
 def init_models(embedder=None):    
   global doc2query_tokenizer, doc2query_model, doc2query_encoder, codebert_tokenizer, codebert_model, labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
   if minilm_model is None:
