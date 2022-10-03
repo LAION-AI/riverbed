@@ -164,8 +164,6 @@ def apply_model(embedder, sent):
         dat = labse_model(**toks).pooler_output 
     elif embedder == "doc2query":
         toks = doc2query_tokenizer(sent, padding=True, truncation=True, return_tensors="pt", max_length=512).to(device)
-        if toks.input_ids.shape[1] > 400: 
-          print (max([len(s) for s in sent]), toks.input_ids.shape)
         dat = doc2query_encoder(**toks)
         dat = mean_pooling(dat, toks.attention_mask)  
     return dat
