@@ -134,32 +134,6 @@ class RiverbedTokenizer:
 #we can use the ontology for query expansion as part of the bm25 search. 
 
 class RiverbedIndexer(IndexerMixin):
-  RELATIVE_LOW = 0
-  RELATIVE_MEDIUM = 1
-  RELATIVE_HIGH= 2
-  
-  # for feature extraction on a single span and potentially between spans in a series. 
-  # tuples of (feature_label, lower_band, upper_band, extractor). assumes prefix extraction has occured.
-  # returns data which can be used to store in the feature_label for a span. if upper_band and lower_band are set, then an additional label X_level stores
-  # the relative level label as well.
-  #
-  #TODO: other potential features include similarity of embedding from its cluster centroid
-  #compound words %
-  #stopwords %
-  #term_frequency-inverse_document_frequency weight
-  
-  default_span_level_feature_extractors = [
-      ('perplexity', .5, 1.5, lambda self, span: 0.0 if self.riverbed_model is None else self.riverbed_model.get_perplexity(span['tokenized_text'])),
-      ('prefix', None, None, lambda self, span: "" if " || " not in span['text'] else  span['text'].split(" || ", 1)[0].strip()),
-      ('date', None, None, lambda self, span: "" if " || " not in span['text'] else span['text'].split(" || ")[0].split(":")[-1].split("date of")[-1].strip("; ")), 
-  ]
-
-  # for extracting a prefix for a segment of text. a segment can contain multiple spans.
-  default_prefix_extractors = [
-      ('intro_with_date', _intro_with_date), \
-      ('section_with_date', _section_with_date), \
-      ('conclusion_with_date', _conclusion_with_date) \
-      ]
   
   
    
@@ -173,7 +147,15 @@ class RiverbedIndexer(IndexerMixin):
     self.embed_search_field = embed_search_field
     self.bm25_field = bm25_field
 
-    
+  
+  # for extracting a prefix for a segment of text. a segment can contain multiple spans.
+  # the prefixes are used to create more informative embeddings for a span.
+  default_prefix_extractors = [
+      ('intro_with_date', _intro_with_date), \
+      ('section_with_date', _section_with_date), \
+      ('conclusion_with_date', _conclusion_with_date) \
+      ]
+      
   def _intro_with_date(self, span):
       text, position, ents = span['text'], span['position'], span['ents']
       if position < 0.05 and text.strip() and (len(text) < 50 and text[0] not in "0123456789" and text[0] == text[0].upper() and text.split()[-1][0] == text.split()[-1][0].upper()):
@@ -284,77 +266,6 @@ class RiverbedIndexer(IndexerMixin):
       return tokenized_text, filtered_ents
 
 
-
-  # code more informative labels for the span clusters
-  def _create_informative_parent_label_from_tfidf(self, clusters, span2idx, span2data, span2cluster_label, span_label2user_label=None, \
-                                            label2term_frequency=None, document_frequency=None, domain_stopwords_set=stopwords_set, max_levels=4):
-      if label2term_frequency is None: label2term_frequency = {}
-      if document_frequency is None: document_frequency = {}
-      if span_label2user_label is None: span_label2user_label = {}
-      #we gather info for term_frequency-inverse_document_frequency with respect to each token in each clusters
-      for label, values in clusters.items(): 
-        if label[0] == 0 and label not in span_label2user_label:
-          for item in values:
-            if span in span2idx:
-              data = span2data[span]
-              text = data['tokenized_text']
-              #we don't want the artificial labels to skew the tfidf calculations
-              #assumes we don't have more than 10 of the same label
-              text = text.replace('The Organization','').replace('The_Organization','')
-              text = text.replace('The Person','').replace('The_Person','')
-              text = text.replace('The Facility','').replace('The_Facility','')
-              text = text.replace('The Location','').replace('The_Location','')          
-              text = text.replace('The Date','').replace('The_Date','')
-              text = text.replace('The Law','').replace('The_Law','')
-              text = text.replace('The Amount','').replace('The_Amount','')
-              text = text.replace('The Event','').replace('The_Event','')
-
-              #we add back the entities we had replaced with the artificial labels into the term_frequency-inverse_document_frequency calculations
-              ents =  list(itertools.chain(*[[a[0].replace(" ", "_")]*a[-1] for a in span['ents']]))
-              if span['offset'] == 0:
-                if "||" in text:
-                  prefix, text = text.split("||",1)
-                  prefix = prefix.split(":")[-1].split(";")[-1].strip()
-                  text = prefix.split() + text.replace("(", " ( ").replace(")", " ) ").split() + ents
-                else:
-                   text = text.replace("(", " ( ").replace(")", " ) ").split() + ents
-              else:
-                text = text.split("||",1)[-1].strip().split() + ents
-              len_text = len(text)
-              text = [a for a in text if len(a) > 1 and ("_" not in a or (a.count("_")+1 != len([b for b in a.lower().split("_") if  b in domain_stopwords_set])))  and a.lower() not in domain_stopwords_set and a[0].lower() in "abcdefghijklmnopqrstuvwxyz"]
-              cnts = Counter(text)
-              aHash = label2term_frequency[label] =  label2term_frequency.get(label, {})
-              for token, cnt in cnts.items():
-                aHash[token] = cnt/len_text
-              for token in cnts.keys():
-                document_frequency[token] = document_frequency.get(token,0) + 1
-
-      #Now, acually create the new label from the tfidf of the tokens in this cluster
-      #TODO, see how we might save away the tfidf or get the tfidf from the bm25 indexer. 
-      for label, term_frequency in label2term_frequency.items():
-          tfidf = copy.copy(term_frequency)    
-          for token in list(tfidf.keys()):
-            tfidf[token]  = tfidf[token] * min(1.5, tokenizer.token2weight.get(token, 1)) * math.log(1.0/(1+document_frequency[token]))
-          top_tokens2 = [a[0].lower().strip("~!@#$%^&*()<>,.:;")  for a in Counter(tfidf).most_common(min(len(tfidf), 40))]
-          top_tokens2 = [a for a in top_tokens2 if a not in domain_stopwords_set and ("_" not in a or (a.count("_")+1 != len([b for b in a.split("_") if  b in domain_stopwords_set])))]
-          top_tokens = []
-          for t in top_tokens2:
-            if t not in top_tokens:
-              top_tokens.append(t)
-          if top_tokens:
-            if len(top_tokens) > 5: top_tokens = top_tokens[:5]
-            new_label = ", ".join(top_tokens) 
-            span_label2user_label[label] = new_label
-
-      #create parent labels
-      for old_label, new_label in span_label2user_label.items():
-        for parent_old_label in [(level, old_label[1]) for level in range(1, max_levels)]:
-          if parent_old_label clusters:
-            span_label2user_label[parent_old_label]= ("¶"*parent_old_label[0])+new_label
-
-      return span_label2user_label, label2term_frequency, document_frequency
-
-
   #transform a doc into a span batch, breaking up doc into spans
   #all spans/leaf nodes of a cluster are stored as a triple of (name, lineno, offset)
   #extract both bm25_field and embed_search_field and inject intout output data yielded from this method
@@ -417,78 +328,6 @@ class RiverbedIndexer(IndexerMixin):
           yield span
           offset = max_rng
 
-
-  
-  def _create_span_features(self, batch, span_level_feature_extractors, running_features_per_label, running_features_size):
-    feature_labels = []
-    features = []
-    relative_levels = []
-    for feature_label, lower_band, upper_band, extractor in span_level_feature_extractors:
-      need_to_high = True
-      need_to_low = True
-      need_to_medium = True
-      prior_change = -1
-      feature_labels.append(feature_label)
-      features.append([])
-      relative_levels.append([])
-      features_per_label = features[-1]
-      relative_level_per_label = relative_levels[-1]
-      running_features = running_features_per_label[feature_label] = running_features_per_label.get(feature_label, [])
-      if lower_band is not None:
-        if len(running_features) < running_features_size:
-          for span in batch:
-            p = extractor(self, span)
-            running_features.append(p)
-            if len(running_features) >= running_features_size:
-                break
-        stdv = statistics.stdev(running_features)
-        mn = statistics.mean (running_features)
-        relative_label = self.RELATIVE_LOW
-      for idx, span in enumerate(batch):
-        p = extractor(self, span)
-        features_per_label.append(p)
-        if lower_band is not None:
-          running_features.append(p)
-          if len(running_features) >= running_features_size:    
-            stdv = statistics.stdev(running_features)
-            mn = statistics.mean (running_features)
-          if len(running_features) > running_features_size:
-            running_features.pop()    
-          if abs(p-mn) >= stdv*upper_band and need_to_high:
-            relative_label = self.RELATIVE_HIGH
-            prior_change = idx
-            need_to_high = False
-            need_to_low = True
-            need_to_medium = True
-          elif  abs(p-mn) < stdv*upper_band and abs(p-mn) > stdv*lower_band  and need_to_medium:
-            relative_label = self.RELATIVE_MEDIUM
-            prior_change = idx
-            need_to_high = True
-            need_to_low = True
-            need_to_medium = False
-          elif abs(p-mn) <= stdv*lower_band and need_to_low:
-            relative_label = self.RELATIVE_LOW
-            prior_change = idx
-            need_to_high = False
-            need_to_low = True
-            need_to_medium = False
-          running_features.append(p)
-          relative_level_per_label.append(relative_label) 
-          
-    for idx, span in enumerate(batch):
-      span['cluster_label']= None
-      span['cluster_label_before']= None
-      span['cluster_label_after']= None
-      for feature_label, features_per_label, relative_level_per_label in  zip(feature_labels, features, relative_levels):
-        span[feature_label] = features_per_label[idx]
-        if relative_level_per_label: span[feature_label+"_level"] = relative_level_per_label[idx]
-      ent_cnts = Counter(v[1].lower()+"_cnt" for v in span['ents'])
-      for feature_label, cnt in ent_cnts.items():
-        span[feature_label] = cnt
-    return batch
-  
-  #TODO: add inverse cluster size as a feature.
-  #      cosine distance to nearest neighbor cluster head
 
   # similar to _create_token_embeds_and_synonyms, except for spans     
   #(1) compute features and embeddings in one batch for tokenized text.
@@ -643,28 +482,14 @@ class RiverbedIndexer(IndexerMixin):
       self = pickle.load(open(f"{tokenizer_name}/{tokenizer_name}.pickle", "rb"))
       return self
 
-#################################################################################
-#VISUALIZER CODE
-#this forms part of the view portion of the MVC
-#used for exploring and viewing different parts of data and results from the analyzer. 
-#display results and pandas data frames in command line, notebook or as a flask API service. 
-class RiverbedVisualizer:
-  def __init__(self, project_name, analyzer, searcher_indexer, processor):
-    self.project_name, self.analyzer, self.searcher_indexer, self.processor = project_name, analyzer, searcher_indexer, processor
-  
-  def draw(self):
-    pass
-  
-  def df(self, slice):
-    pass
-  
 
 #################################################################################
 #ANALYZER MODEL CODE
 #this class is used to label data, create prediction models,and analyze the words including compound words in a corpus.
 #it can be used to generate text controlled by the kenlm perplixty and retrieved 
 #embeddings (might need to put generation in a different model)
-class RiverbedAnalyzerModel(nn.Module):
+
+class RiverbedBasicAnalyzerModel(nn.Module):
 
   def __init__(self, project_name, searcher_indexer, span_indexer):
    super().__init__()
@@ -1310,8 +1135,181 @@ class RiverbedAnalyzerModel(nn.Module):
       return tokenizer, self
 
 
-  #ANALYZER CODE
+                                    
+#################################################################################
+# SPAN ANALYZER
+# Adds new features and trains labeling models
+class RiverbedSpanAnalyzerModel(nn.Module):
 
+  
+ def __init__(self, basic_analyzer, project_name, searcher_indexer, span_indexer):
+   super().__init__()
+   global labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set 
+   self.basic_analyzer, self.project_name, self.searcher_indexer, self.processor = basic_analyzer, project_name, searcher_indexer, processor
+   labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set = init_models()
+   self.span_searcher = SearcherIndexer(idx_dir=project_name+"/span_searcher", embedder=embedder, indexer=span_indexer)
+   self.indexer = span_indexer
+                                    
+  RELATIVE_LOW = 0
+  RELATIVE_MEDIUM = 1
+  RELATIVE_HIGH= 2
+  
+  # for feature extraction on a single span and potentially between spans in a series. 
+  # tuples of (feature_label, lower_band, upper_band, extractor). assumes prefix extraction has occured.
+  # returns data which can be used to store in the feature_label for a span. if upper_band and lower_band are set, then an additional label X_level stores
+  # the relative level label as well.
+  #
+  #TODO: other potential features include similarity of embedding from its cluster centroid
+  #compound words %
+  #stopwords %
+  #term_frequency-inverse_document_frequency weight
+  
+  default_span_level_feature_extractors = [
+      ('perplexity', .5, 1.5, lambda self, span: 0.0 if self.riverbed_model is None else self.riverbed_model.get_perplexity(span['tokenized_text'])),
+      ('prefix', None, None, lambda self, span: "" if " || " not in span['text'] else  span['text'].split(" || ", 1)[0].strip()),
+      ('date', None, None, lambda self, span: "" if " || " not in span['text'] else span['text'].split(" || ")[0].split(":")[-1].split("date of")[-1].strip("; ")), 
+  ]
+  
+  def _create_span_features(self, batch, span_level_feature_extractors, running_features_per_label, running_features_size):
+    feature_labels = []
+    features = []
+    relative_levels = []
+    for feature_label, lower_band, upper_band, extractor in span_level_feature_extractors:
+      need_to_high = True
+      need_to_low = True
+      need_to_medium = True
+      prior_change = -1
+      feature_labels.append(feature_label)
+      features.append([])
+      relative_levels.append([])
+      features_per_label = features[-1]
+      relative_level_per_label = relative_levels[-1]
+      running_features = running_features_per_label[feature_label] = running_features_per_label.get(feature_label, [])
+      if lower_band is not None:
+        if len(running_features) < running_features_size:
+          for span in batch:
+            p = extractor(self, span)
+            running_features.append(p)
+            if len(running_features) >= running_features_size:
+                break
+        stdv = statistics.stdev(running_features)
+        mn = statistics.mean (running_features)
+        relative_label = self.RELATIVE_LOW
+      for idx, span in enumerate(batch):
+        p = extractor(self, span)
+        features_per_label.append(p)
+        if lower_band is not None:
+          running_features.append(p)
+          if len(running_features) >= running_features_size:    
+            stdv = statistics.stdev(running_features)
+            mn = statistics.mean (running_features)
+          if len(running_features) > running_features_size:
+            running_features.pop()    
+          if abs(p-mn) >= stdv*upper_band and need_to_high:
+            relative_label = self.RELATIVE_HIGH
+            prior_change = idx
+            need_to_high = False
+            need_to_low = True
+            need_to_medium = True
+          elif  abs(p-mn) < stdv*upper_band and abs(p-mn) > stdv*lower_band  and need_to_medium:
+            relative_label = self.RELATIVE_MEDIUM
+            prior_change = idx
+            need_to_high = True
+            need_to_low = True
+            need_to_medium = False
+          elif abs(p-mn) <= stdv*lower_band and need_to_low:
+            relative_label = self.RELATIVE_LOW
+            prior_change = idx
+            need_to_high = False
+            need_to_low = True
+            need_to_medium = False
+          running_features.append(p)
+          relative_level_per_label.append(relative_label) 
+          
+    for idx, span in enumerate(batch):
+      span['cluster_label']= None
+      span['cluster_label_before']= None
+      span['cluster_label_after']= None
+      for feature_label, features_per_label, relative_level_per_label in  zip(feature_labels, features, relative_levels):
+        span[feature_label] = features_per_label[idx]
+        if relative_level_per_label: span[feature_label+"_level"] = relative_level_per_label[idx]
+      ent_cnts = Counter(v[1].lower()+"_cnt" for v in span['ents'])
+      for feature_label, cnt in ent_cnts.items():
+        span[feature_label] = cnt
+    return batch
+  
+  #TODO: add inverse cluster size as a feature.
+  #      cosine distance to nearest neighbor cluster head
+
+  # code more informative labels for the span clusters
+  def _create_informative_parent_label_from_tfidf(self, clusters, span2idx, span2data, span2cluster_label, span_label2user_label=None, \
+                                            label2term_frequency=None, document_frequency=None, domain_stopwords_set=stopwords_set, max_levels=4):
+      if label2term_frequency is None: label2term_frequency = {}
+      if document_frequency is None: document_frequency = {}
+      if span_label2user_label is None: span_label2user_label = {}
+      #we gather info for term_frequency-inverse_document_frequency with respect to each token in each clusters
+      for label, values in clusters.items(): 
+        if label[0] == 0 and label not in span_label2user_label:
+          for item in values:
+            if span in span2idx:
+              data = span2data[span]
+              text = data['tokenized_text']
+              #we don't want the artificial labels to skew the tfidf calculations
+              #assumes we don't have more than 10 of the same label
+              text = text.replace('The Organization','').replace('The_Organization','')
+              text = text.replace('The Person','').replace('The_Person','')
+              text = text.replace('The Facility','').replace('The_Facility','')
+              text = text.replace('The Location','').replace('The_Location','')          
+              text = text.replace('The Date','').replace('The_Date','')
+              text = text.replace('The Law','').replace('The_Law','')
+              text = text.replace('The Amount','').replace('The_Amount','')
+              text = text.replace('The Event','').replace('The_Event','')
+
+              #we add back the entities we had replaced with the artificial labels into the term_frequency-inverse_document_frequency calculations
+              ents =  list(itertools.chain(*[[a[0].replace(" ", "_")]*a[-1] for a in span['ents']]))
+              if span['offset'] == 0:
+                if "||" in text:
+                  prefix, text = text.split("||",1)
+                  prefix = prefix.split(":")[-1].split(";")[-1].strip()
+                  text = prefix.split() + text.replace("(", " ( ").replace(")", " ) ").split() + ents
+                else:
+                   text = text.replace("(", " ( ").replace(")", " ) ").split() + ents
+              else:
+                text = text.split("||",1)[-1].strip().split() + ents
+              len_text = len(text)
+              text = [a for a in text if len(a) > 1 and ("_" not in a or (a.count("_")+1 != len([b for b in a.lower().split("_") if  b in domain_stopwords_set])))  and a.lower() not in domain_stopwords_set and a[0].lower() in "abcdefghijklmnopqrstuvwxyz"]
+              cnts = Counter(text)
+              aHash = label2term_frequency[label] =  label2term_frequency.get(label, {})
+              for token, cnt in cnts.items():
+                aHash[token] = cnt/len_text
+              for token in cnts.keys():
+                document_frequency[token] = document_frequency.get(token,0) + 1
+
+      #Now, acually create the new label from the tfidf of the tokens in this cluster
+      #TODO, see how we might save away the tfidf or get the tfidf from the bm25 indexer. 
+      for label, term_frequency in label2term_frequency.items():
+          tfidf = copy.copy(term_frequency)    
+          for token in list(tfidf.keys()):
+            tfidf[token]  = tfidf[token] * min(1.5, tokenizer.token2weight.get(token, 1)) * math.log(1.0/(1+document_frequency[token]))
+          top_tokens2 = [a[0].lower().strip("~!@#$%^&*()<>,.:;")  for a in Counter(tfidf).most_common(min(len(tfidf), 40))]
+          top_tokens2 = [a for a in top_tokens2 if a not in domain_stopwords_set and ("_" not in a or (a.count("_")+1 != len([b for b in a.split("_") if  b in domain_stopwords_set])))]
+          top_tokens = []
+          for t in top_tokens2:
+            if t not in top_tokens:
+              top_tokens.append(t)
+          if top_tokens:
+            if len(top_tokens) > 5: top_tokens = top_tokens[:5]
+            new_label = ", ".join(top_tokens) 
+            span_label2user_label[label] = new_label
+
+      #create parent labels
+      for old_label, new_label in span_label2user_label.items():
+        for parent_old_label in [(level, old_label[1]) for level in range(1, max_levels)]:
+          if parent_old_label clusters:
+            span_label2user_label[parent_old_label]= ("¶"*parent_old_label[0])+new_label
+
+      return span_label2user_label, label2term_frequency, document_frequency
+                                    
   def search_and_label(self, positive_query_set, negative_query_set):
     pass
   
@@ -1354,3 +1352,18 @@ class RiverbedAnalyzerModel(nn.Module):
       self.span_searcher = SearchIndexer.from_pretrained(idx_dir=project_name+"/span_searcher")   
       return self
                      
+#################################################################################
+#VISUALIZER CODE
+#this forms part of the view portion of the MVC
+#used for exploring and viewing different parts of data and results from the analyzer. 
+#display results and pandas data frames in command line, notebook or as a flask API service. 
+class RiverbedVisualizer:
+  def __init__(self, project_name, analyzer, searcher_indexer, processor):
+    self.project_name, self.analyzer, self.searcher_indexer, self.processor = project_name, analyzer, searcher_indexer, processor
+  
+  def draw(self):
+    pass
+  
+  def df(self, slice):
+    pass
+  
