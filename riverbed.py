@@ -123,12 +123,10 @@ class RiverbedTokenizer:
 
 
 #################################################################################
-# SPAN AND DOCUMENT PROCESSOR
-# An  model-view-controller framework for span and document processing. 
-
-# this class is for creating and featuring spans from multiple documents, which are fragments of one or more sentences (not necessarily a paragraph).
-# each span is a dict/json object. A span can specific to semantic search or bm25, and can include be indexed (span_idx) by (file name, line no, offset). The spans are also clustered. Finally the spans are serialzied 
-# into a jsonl.gz file.
+# SPAN AND DOCUMENT INDEXER
+# this class is for indexing multiple documents, into spans which are fragments of one or more sentences (not necessarily a paragraph).
+# each span is a dict/json object. A span can specific to semantic search or bm25, and can include be indexed (span_idx) by (file name, line no, offset). 
+# The spans are also clustered. Finally the spans are serialzied into a jsonl.gz file.
 # assumes the sentences inside a document are NOT shuffeled, but documents can be shuffled. 4
 # This class is used  to generate spans and index the spans. It also provides APIs for searching the spans.
 #we can use the ontology for query expansion as part of the bm25 search. 
