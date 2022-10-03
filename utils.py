@@ -257,7 +257,8 @@ def mean_pooling(model_output, attention_mask):
       return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
 
 def _apply_temperature(dat,temperature):
-  return nn.functional.softmax(dat / temperature, dim=1)
+  dtype = dat.dtype
+  return nn.functional.softmax(dat.float() / temperature, dim=1).to(dtype)
 
 #helper function
 # for embedding into memory, we don't use a temperature
@@ -395,11 +396,11 @@ def _cluster_one_batch(true_k,  spans, embedding_idxs, clusters, span2cluster_la
        if device == 'cuda':
        
          km = KMeans(n_clusters=true_k, mode='cosine')
-         km_labels = km.fit_predict(embeddings).to(device=device, dtype=torch.float32))
+         km_labels = km.fit_predict(embeddings.to(device=device, dtype=torch.float32))
          km_labels = [l.item() for l in km_labels.cpu()]
        else:
          km = MiniBatchKMeans(n_clusters=true_k, init='k-means++', n_init=1,
-                                           init_size=max(true_k*3,1000), batch_size=1024).fit(embeddings)
+                                           init_size=max(true_k*3,1000), batch_size=1024).fit(embeddings.to_numpy())
          km_labels = km.labels_  
       
     #put into a temporary cluster
