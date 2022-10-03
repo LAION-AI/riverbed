@@ -305,8 +305,8 @@ class SearcherIndexer(nn.Module):
     self.embedder, self.indexer = embedder, indexer
     if idx_dir is None and filename is not None:
       idx_dir = f"{filename}_idx"
-    elif idx_dir is None: idx_dir = "./"
-      
+    elif idx_dir is None: 
+      idx_dir = "./"
     self.idx_dir = idx_dir
     if not os.path.exists(self.idx_dir):
       os.makedirs(self.idx_dir)   
@@ -345,7 +345,7 @@ class SearcherIndexer(nn.Module):
     if universal_embed_mode not in (None, "assigned") and clusters is None:
       auto_create_embeddings_idx = True
     if os.path.exists(self.mmap_file) and (idxs is not None or auto_create_embeddings_idx):
-      self.recreate_embeddings_idx(clusters=self.clusters, span2cluster_label=span2cluster_label, idxs=idxs, max_level=max_level, max_cluster_size=max_cluster_size, \
+      self.recreate_clusters_idx(clusters=self.clusters, span2cluster_label=span2cluster_label, idxs=idxs, max_level=max_level, max_cluster_size=max_cluster_size, \
                                min_overlap_merge_cluster=min_overlap_merge_cluster, prefered_leaf_node_size=prefered_leaf_node_size, kmeans_batch_size=kmeans_batch_size)
     elif self.clusters:
       self.recreate_parents_data()
@@ -405,6 +405,12 @@ class SearcherIndexer(nn.Module):
       elif self.embedder == "minilm":
         dat = minilm_model(*args, **kwargs)
         dat = mean_pooling(dat, kwargs['attention_mask'])
+      elif self.embedder == "doc2query":
+        dat = doc2query_encoder(*args, **kwargs)
+        dat = mean_pooling(dat, kwargs['attention_mask'])
+      elif self.embedder == "codebert":
+        dat = codebert_model(*args, **kwargs)
+        dat = mean_pooling(dat, kwargs['attention_mask'])
       elif self.embedder == "labse":
         dat = labse_model(*args, **kwargs).pooler_output   
     dat = torch.nn.functional.normalize(dat, dim=1)
@@ -432,10 +438,11 @@ class SearcherIndexer(nn.Module):
     elif reuse_clusters: 
       assert clusters is None
       clusters = self.clusters
+      auto_create_embeddings_idx=False
     if mmap_file is None:
       if  self.universal_embed_mode:
         mmap_file = f"{self.idx_dir}/search_index_{self.embed_search_field}_universal_{self.embed_dim}.mmap"
-        auto_embed_text=not os.path.exists(self.mmap_file) # the universal embeddings are created once. 
+        auto_embed_text=not os.path.exists(self.mmap_file) # the universal embeddings are created once so don't recluster 
       else:
         mmap_file = f"{self.idx_dir}/search_index_{self.embed_search_field}_{embedder}_{self.embed_dim}.mmap"
     if downsampler is None:
@@ -454,16 +461,12 @@ class SearcherIndexer(nn.Module):
     if auto_embed_text and self.content_data_store is not None:
       self.embed_text(chunk_size=chunk_size, use_tqdm=use_tqdm)
     if os.path.exists(self.mmap_file) and (idxs is not None or auto_create_embeddings_idx):
-      self.recreate_embeddings_idx(clusters=self.clusters, span2cluster_label=span2cluster_label, idxs=idxs, max_level=max_level, max_cluster_size=max_cluster_size, \
+      self.recreate_clusters_idx(clusters=self.clusters, span2cluster_label=span2cluster_label, idxs=idxs, max_level=max_level, max_cluster_size=max_cluster_size, \
                                min_overlap_merge_cluster=min_overlap_merge_cluster, prefered_leaf_node_size=prefered_leaf_node_size, kmeans_batch_size=kmeans_batch_size)
     elif self.clusters: 
       self.recreate_parents_data()
     if auto_create_bm25_idx and self.content_data_store:
-       self.recreate_bm25_idx(auto_create_bm25_idx=auto_create_bm25_idx, idxs=idxs, use_tqdm=use_tqdm)
-        
-    #experimental universal embedding code
-    if self.universal_embed_mode is not None and self.prototype_sentences:
-      self.prototypes = self.get_embeddings(self.prototype_sentences)
+       self.recreate_bm25_idx(auto_create_bm25_idx=auto_create_bm25_idx, idxs=idxs, use_tqdm=use_tqdm)    
     if self.downsampler is not None: 
       if self.dtype == np.float16:
         self.downsampler.eval().to(device)
@@ -474,6 +477,10 @@ class SearcherIndexer(nn.Module):
         self.parents = self.parents.half().to(device)
       else:
         self.parents = self.parents.to(device)
+    
+    #experimental universal embedding code
+    if self.universal_embed_mode is not None and self.prototype_sentences:
+      self.prototypes = self.get_embeddings(self.prototype_sentences)
     if self.prototypes is not None: 
       if self.dtype == np.float16:
         self.prototypes = self.prototypes.half().to(device)
@@ -481,6 +488,8 @@ class SearcherIndexer(nn.Module):
         self.prototypes = self.prototypes.to(device)
     setattr(self,f'downsampler_{self.embed_search_field}_{embedder}_{self.embed_dim}', self.downsampler)
     setattr(self,f'clusters_{self.embed_search_field}_{self.embedder}_{self.embed_dim}', self.clusters)
+
+    # register the tensor variables in the pytorch method
     parents = self.parents
     del self.parents
     self.register_buffer('parents', parents)
@@ -545,7 +554,7 @@ class SearcherIndexer(nn.Module):
     self.parent2idx = dict([(a,idx) for idx, a in enumerate(all_parents)])
     self.parents = torch.from_numpy(np_memmap(self.mmap_file, shape=[self.mmap_len, self.embed_dim], dtype=self.dtype)[[a[1] for a in all_parents]]).to(device)
              
-  def recreate_embeddings_idx(self,  clusters=None, span2cluster_label=None, idxs=None, max_level=4, max_cluster_size=200, \
+  def recreate_clusters_idx(self,  clusters=None, span2cluster_label=None, idxs=None, max_level=4, max_cluster_size=200, \
                                min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000,):
     global device
     #print (clusters, idxs)
