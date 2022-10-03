@@ -332,6 +332,10 @@ class SearcherIndexer(nn.Module):
     if bm25_field is None: bm25_field = embed_search_field
     self.universal_embed_mode,  self.cluster_temperature, self.mmap_file, self.mmap_len, self.embed_dim, self.dtype, self.clusters, self.parent2idx,  self.parents, self.top_parents, self.top_parent_idxs, self.embed_search_field, self.bm25_field, self.downsampler  = \
              universal_embed_mode,cluster_temperature,  mmap_file, mmap_len, embed_dim, dtype, clusters, parent2idx, parents, top_parents, top_parent_idxs, embed_search_field, bm25_field, downsampler
+    if self.mmap_len <= 0 and os.path.exists(self.mmap_file):
+      mmap_len = self.mmap_len =  get_np_mmap_length(self.mmap_file, [self.mmap_len, self.embed_dim], dtype=self.dtype, )
+
+    
     self.prototype_sentences,  self.prototypes, self.universal_downsampler = prototype_sentences,  prototypes, universal_downsampler
     if self.downsampler is not None: 
       if self.dtype == np.float16:
@@ -461,8 +465,12 @@ class SearcherIndexer(nn.Module):
     if clusters is None:
       if hasattr(self,f'clusters_{self.embed_search_field}_{embedder}_{self.embed_dim}'):
         clusters = getattr(self,f'clusters_{self.embed_search_field}_{embedder}_{self.embed_dim}')
+    
     self.cluster_temperature, self.embedder, self.mmap_file, self.clusters, self.parent2idx,  self.parents, self.top_parents, self.top_parent_idxs,  self.downsampler  = \
              cluster_temperature, embedder, mmap_file, clusters, parent2idx, parents, top_parents, top_parent_idxs, downsampler
+    if self.mmap_len <= 0 and os.path.exists(self.mmap_file):
+      mmap_len = self.mmap_len =  get_np_mmap_length(self.mmap_file, [self.mmap_len, self.embed_dim], dtype=self.dtype, )
+
     if skip_idxs is None: skip_idxs = []
     self.skip_idxs = set(list(self.skip_idxs if hasattr(self, 'skip_idxs') and self.skip_idxs else []) + list(skip_idxs))
     if auto_embed_text and self.content_data_store is not None:
@@ -568,7 +576,7 @@ class SearcherIndexer(nn.Module):
     if clusters is None or idxs is not None:
       if clusters is None and idxs is not None: clusters = self.clusters
       clusters, _ = self.cluster(clusters=clusters, span2cluster_label=span2cluster_label, idxs=idxs, max_level=max_level, max_cluster_size=max_cluster_size, \
-                                 cluster_temperature=cluster_temperature if cluster_temperature is None else self.temperature, \
+                                 cluster_temperature=cluster_temperature if cluster_temperature is None else self.cluster_temperature, \
                                  min_overlap_merge_cluster=min_overlap_merge_cluster, prefered_leaf_node_size=prefered_leaf_node_size, kmeans_batch_size=kmeans_batch_size)
     #print (clusters)
     self.clusters = clusters
