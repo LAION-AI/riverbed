@@ -149,6 +149,69 @@ class RiverbedFeatureExtractorModel(nn.Module):
   #TODO: redefine forward as the span_searcher forwards.
  #TODO: redefine generate to take into kenlm perplxity and search
  
+
+  # for extracting a prefix for a segment of text. a segment can contain multiple spans.
+  # the prefixes are used to create more informative embeddings for a span.
+  default_prefix_extractors = [
+      ('intro_with_date', _intro_with_date), \
+      ('section_with_date', _section_with_date), \
+      ('conclusion_with_date', _conclusion_with_date) \
+      ]
+      
+  def _intro_with_date(self, span):
+      text, position, ents = span['text'], span['position'], span['ents']
+      if position < 0.05 and text.strip() and (len(text) < 50 and text[0] not in "0123456789" and text[0] == text[0].upper() and text.split()[-1][0] == text.split()[-1][0].upper()):
+        date = [e[0] for e in ents if e[1] == 'DATE']
+        if date: 
+          date = date[0]
+          date = self.dateutil_parse_ext(date)
+        if  date: 
+          return 'intro: date of '+ date +"; "+text + " || "
+        else:
+          return 'intro: ' +text + " || "
+
+  def _section_with_date(self, span):
+      text, position, ents = span['text'], span['position'], span['ents']
+      if  position >= 0.05 and position < 0.95 and text.strip() and (len(text) < 50 and text[0] not in "0123456789" and text[0] == text[0].upper() and text.split()[-1][0] == text.split()[-1][0].upper()):
+        date = [e[0] for e in ents if e[1] == 'DATE']
+        if date: 
+          date = date[0]
+          date = self.dateutil_parse_ext(date)
+        if  date: 
+          return 'section: date of '+ date +"; "+text + " || "
+        else:
+          return  'section: ' +text + " || "
+      return None
+
+  def _conclusion_with_date(self, span):
+      text, position, ents = span['text'], span['position'], span['ents']
+      if  position >= 0.95 and text.strip() and (len(text) < 50 and text[0] not in "0123456789" and text[0] == text[0].upper() and text.split()[-1][0] == text.split()[-1][0].upper()):
+        date = [e[0] for e in ents if e[1] == 'DATE']
+        if date: 
+          date = date[0]
+          date = self.dateutil_parse_ext(date)
+        if  date: 
+          return 'conclusion: date of '+ date +"; "+text + " || "
+        else:
+          return 'conclusion: ' +text + " || "
+      return None
+
+
+  def extract(self, data, embed_search_field):
+        line = data[embed_search_field]
+        curr_ents = list(itertools.chain(*[[(e.text, e.label_)] if '||' not in e.text else [(e.text.split("||")[0].strip(), e.label_), (e.text.split("||")[-1].strip(), e.label_)] for e in spacy_nlp(line).ents]))
+        curr_ents = list(set([e for e in curr_ents if e[0]]))
+        curr_ents.sort(key=lambda a: len(a[0]), reverse=True)
+        cnt_ents = [[a[0], a[1], b] for a, b in Counter(curr_ents).items()]
+        for prefix, extract in self.prefix_extractors:
+            extracted_text = extract(self, {'text':line,  'ents':cnt_ents}) 
+            if extracted_text:
+              line = extracted_text
+        line = line.replace(". .", ". ").replace("..", ".").replace(":.", ".")
+        line  = tokenizer.tokenize(line, use_synonym_replacement=False)         
+        return {field: line, 'ents': curr_ents}
+        
+        
  #generate text based on 
  def generate(self, gen_model, gen_tokenizer, target=None, *args,
                              prompt="", encoder_input=None, num_input_words=5, num_words_per_step=4, num_return_sequences=4, max_length=20, top_p=0.95,
@@ -813,53 +876,6 @@ class RiverbedIndexer(IndexerMixin):
     self.bm25_field = bm25_field
 
   
-  # for extracting a prefix for a segment of text. a segment can contain multiple spans.
-  # the prefixes are used to create more informative embeddings for a span.
-  default_prefix_extractors = [
-      ('intro_with_date', _intro_with_date), \
-      ('section_with_date', _section_with_date), \
-      ('conclusion_with_date', _conclusion_with_date) \
-      ]
-      
-  def _intro_with_date(self, span):
-      text, position, ents = span['text'], span['position'], span['ents']
-      if position < 0.05 and text.strip() and (len(text) < 50 and text[0] not in "0123456789" and text[0] == text[0].upper() and text.split()[-1][0] == text.split()[-1][0].upper()):
-        date = [e[0] for e in ents if e[1] == 'DATE']
-        if date: 
-          date = date[0]
-          date = self.dateutil_parse_ext(date)
-        if  date: 
-          return 'intro: date of '+ date +"; "+text + " || "
-        else:
-          return 'intro: ' +text + " || "
-
-  def _section_with_date(self, span):
-      text, position, ents = span['text'], span['position'], span['ents']
-      if  position >= 0.05 and position < 0.95 and text.strip() and (len(text) < 50 and text[0] not in "0123456789" and text[0] == text[0].upper() and text.split()[-1][0] == text.split()[-1][0].upper()):
-        date = [e[0] for e in ents if e[1] == 'DATE']
-        if date: 
-          date = date[0]
-          date = self.dateutil_parse_ext(date)
-        if  date: 
-          return 'section: date of '+ date +"; "+text + " || "
-        else:
-          return  'section: ' +text + " || "
-      return None
-
-  def _conclusion_with_date(self, span):
-      text, position, ents = span['text'], span['position'], span['ents']
-      if  position >= 0.95 and text.strip() and (len(text) < 50 and text[0] not in "0123456789" and text[0] == text[0].upper() and text.split()[-1][0] == text.split()[-1][0].upper()):
-        date = [e[0] for e in ents if e[1] == 'DATE']
-        if date: 
-          date = date[0]
-          date = self.dateutil_parse_ext(date)
-        if  date: 
-          return 'conclusion: date of '+ date +"; "+text + " || "
-        else:
-          return 'conclusion: ' +text + " || "
-      return None
-
-
   # the similarity models sometimes put too much weight on proper names, etc. but we might want to cluster by general concepts
   # such as change of control, regulatory actions, etc. The proper names themselves can be collapsed to one canonical form (The Person). 
   # Similarly, we want similar concepts (e.g., compound words) to cluster to one canonical form.
@@ -984,22 +1000,6 @@ class RiverbedIndexer(IndexerMixin):
         yield data
 
 
-  def extract(self, data, embed_search_field):
-        line = data[embed_search_field]
-        curr_ents = list(itertools.chain(*[[(e.text, e.label_)] if '||' not in e.text else [(e.text.split("||")[0].strip(), e.label_), (e.text.split("||")[-1].strip(), e.label_)] for e in spacy_nlp(line).ents]))
-        curr_ents = list(set([e for e in curr_ents if e[0]]))
-        curr_ents.sort(key=lambda a: len(a[0]), reverse=True)
-        cnt_ents = [[a[0], a[1], b] for a, b in Counter(curr_ents).items()]
-        for prefix, extract in self.prefix_extractors:
-            extracted_text = extract(self, {'text':line,  'ents':cnt_ents}) 
-            if extracted_text:
-              line = extracted_text
-        line = line.replace(". .", ". ").replace("..", ".").replace(":.", ".")
-        line  = tokenizer.tokenize(line, use_synonym_replacement=False) 
-        1
-
-        
-        return {field: line, 'ents': curr_ents}
   #transform a doc into a span batch, breaking up doc into spans
   #all spans/leaf nodes of a cluster are stored as a triple of (name, lineno, offset)
   #extract both bm25_field and embed_search_field and inject intout output data yielded from this method
