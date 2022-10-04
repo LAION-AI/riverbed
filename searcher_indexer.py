@@ -671,7 +671,7 @@ class SearcherIndexer(nn.Module):
       target = self.get_embeddings(query, temperature=search_temperature)
       if not hasattr(self, 'whoosh_ix') or self.whoosh_ix is None:
         query = None
-    embedding_search_results = embeddings_search(embedding, mmap_file= self.mmap_file, mmap_len=self.mmap_len, embed_dim=self.embed_dim,  dtype=self.dtype, \
+    embedding_search_results = embeddings_search(target, mmap_file= self.mmap_file, mmap_len=self.mmap_len, embed_dim=self.embed_dim,  dtype=self.dtype, \
                                   parents=self.parents, clusters=self.clusters, top_parent_idxs=self.top_parent_idxs,  \
                                   top_parents=self.top_parents, parent2idx=self.parent2idx, k=k)
     if limit is None: 
