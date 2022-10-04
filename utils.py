@@ -73,7 +73,7 @@ def get_doc2query_tokenizer_and_model():
 
 def init_models(embedder=None):    
   global doc2query_tokenizer, doc2query_model, doc2query_encoder, codebert_tokenizer, codebert_model, labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
-  if minilm_model is None:
+  if doc2query_model is None:
 
     codebert_tokenizer = AutoTokenizer.from_pretrained("microsoft/graphcodebert-base")
     clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")   
@@ -266,6 +266,7 @@ def mean_pooling(model_output, attention_mask):
       return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
 
 def _apply_temperature(dat,temperature):
+  print ('apply temp', temperature)
   dtype = dat.dtype
   return nn.functional.softmax(dat.float() / temperature, dim=1).to(dtype)
 
@@ -279,14 +280,14 @@ def _get_embeddings(sent, downsampler, embedder="minilm", universal_embed_mode=N
   dat = apply_model(embedder, sent)
   #print (dat.dtype)
   dat = torch.nn.functional.normalize(dat, dim=1)
-  #print (dat.dtype)
+  if temperature is not None:
+    dat = _apply_temperature(dat,temperature)
   dat = downsampler(dat)
   if universal_embed_mode:
       dat = cosine_similarity(dat, prototypes)
       dat = torch.nn.functional.normalize(dat, dim=1)
       dat = universal_downsampler(dat)
-  if temperature is not None:
-    dat = _apply_temperature(dat,temperature)
+
   return dat
 
 #get the embeddings using the appropriate downsampling
@@ -357,9 +358,13 @@ def embed_text(dat_iter, mmap_file, start_idx=None, downsampler=None, skip_idxs=
     
 #cluster pruning based approximate nearest neightbor search. See https://nlp.stanford.edu/IR-book/html/htmledition/cluster-pruning-1.html
 #assumes the embeddings are stored in the mmap_file and the clustered index has been created.
-def embeddings_search(target, mmap_file, top_parents,  top_parent_idxs, parent2idx, parents, clusters, mmap_len=0,  embed_dim=25, dtype=np.float16, chunk_size=10000, k=5):
+def embeddings_search(target, mmap_file, top_parents,  top_parent_idxs, parent2idx, parents, clusters, mmap_len=0,  embed_dim=25, dtype=np.float16, search_temperature=None, chunk_size=10000, k=5):
+  if search_temperature is not None:
+    target = _apply_temperature(target, search_temperature)
   curr_parents = top_parents
-  embeddings = parents[top_parent_idxs]  
+  embeddings = parents[top_parent_idxs]
+  if search_temperature is not None:
+    embeddings = _apply_temperature(embeddings, search_temperature)
   max_level = top_parents[0][0]
   #print (max_level, top_parents)
 
@@ -377,6 +382,8 @@ def embeddings_search(target, mmap_file, top_parents,  top_parent_idxs, parent2i
          n_chunks += 1
          if n_chunks > chunk_size:
             embeddings = torch.from_numpy(np_memmap(mmap_file, shape=[mmap_len, embed_dim], dtype=dtype)[idxs]).to(device)
+            if search_temperature is not None:
+              embeddings = _apply_temperature(embeddings, search_temperature)
             results = cosine_similarity(target, embeddings)
             results = results.sort(descending=True)
             for idx, score in zip(results.indices.tolist(), results.values.tolist()):
@@ -386,6 +393,8 @@ def embeddings_search(target, mmap_file, top_parents,  top_parent_idxs, parent2i
             n_chunk = 0
       if idxs:
          embeddings = torch.from_numpy(np_memmap(mmap_file, shape=[mmap_len, embed_dim], dtype=dtype)[idxs]).to(device)
+         if search_temperature is not None:
+              embeddings = _apply_temperature(embeddings, search_temperature)
          results = cosine_similarity(target, embeddings)
          results = results.sort(descending=True)
          for idx, score in zip(results.indices.tolist(), results.values.tolist()):
@@ -395,7 +404,9 @@ def embeddings_search(target, mmap_file, top_parents,  top_parent_idxs, parent2i
     else:
       curr_parents = children
       embeddings = parents[[parent2idx[parent] for parent in curr_parents]]
-
+      if search_temperature is not None:
+        embeddings = _apply_temperature(embeddings, search_temperature)
+            
 
 #internal function used to cluster one batch of embeddings
 #spans are either int tuples of (level, embedding_idx) or just the embedding_idx. 
