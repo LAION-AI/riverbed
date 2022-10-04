@@ -277,9 +277,9 @@ def _apply_temperature(dat,temperature):
 def _get_embeddings(sent, downsampler, embedder="minilm", universal_embed_mode=None, prototypes=None, \
                     temperature=None, universal_downsampler=None):
   dat = apply_model(embedder, sent)
-  print (dat.dtype)
+  #print (dat.dtype)
   dat = torch.nn.functional.normalize(dat, dim=1)
-  print (dat.dtype)
+  #print (dat.dtype)
   dat = downsampler(dat)
   if universal_embed_mode:
       dat = cosine_similarity(dat, prototypes)
