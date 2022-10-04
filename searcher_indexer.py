@@ -339,9 +339,9 @@ class SearcherIndexer(nn.Module):
     self.prototype_sentences,  self.prototypes, self.universal_downsampler = prototype_sentences,  prototypes, universal_downsampler
     if self.downsampler is not None: 
       if self.dtype == np.float16:
-        self.downsampler.eval().to(device)
+        self.downsampler = self.downsampler.half().eval().to(device)
       else:
-        self.downsampler.half().eval().to(device)
+        self.downsampler = self.downsampler.eval().to(device)
     if self.parents is not None: 
       if self.dtype == np.float16:
         self.parents = self.parents.half().to(device)
@@ -386,9 +386,9 @@ class SearcherIndexer(nn.Module):
       self.prototype_sentences,  self.prototypes, self.universal_downsampler = prototype_sentences,  prototypes, universal_downsampler
       if self.universal_downsampler is not None: 
         if self.dtype == np.float16:
-          self.universal_downsampler.eval().to(device)
+          self.universal_downsampler = self.universal_downsampler.half().eval().to(device)
         else:
-          self.universal_downsampler.half().eval().to(device)
+          self.universal_downsampler= self.universal_downsampler.eval().to(device)
       if self.prototypes is not None: 
         if self.dtype == np.float16:
           self.prototypes = self.prototypes.half().to(device)
@@ -484,9 +484,9 @@ class SearcherIndexer(nn.Module):
        self.recreate_bm25_idx(auto_create_bm25_idx=auto_create_bm25_idx, idxs=idxs, use_tqdm=use_tqdm)    
     if self.downsampler is not None: 
       if self.dtype == np.float16:
-        self.downsampler.eval().to(device)
+        self.downsampler = self.downsampler.half().eval().to(device)
       else:
-        self.downsampler.half().eval().to(device)
+        self.downsampler = self.downsampler.eval().to(device)
     if self.parents is not None: 
       if self.dtype == np.float16:
         self.parents = self.parents.half().to(device)
@@ -515,10 +515,10 @@ class SearcherIndexer(nn.Module):
   
   #get the sentence embedding for the sent or batch of sentences
   #NOTE: We do not use the temperature here because we will compute the embeddings with temperature on the fly during clustering or searching
-  def get_embeddings(self, sent_or_batch, universal_embed_mode=""):
+  def get_embeddings(self, sent_or_batch, temperature=None, universal_embed_mode=""):
     return get_embeddings(sent_or_batch, downsampler=self.downsampler, dtype=self.dtype, embedder=self.embedder, \
                           universal_embed_mode=self.universal_embed_mode if universal_embed_mode == "" else universal_embed_mode, prototypes=self.prototypes, \
-                          universal_downsampler=self.universal_downsampler,)
+                          universal_downsampler=self.universal_downsampler,temperature=temperature)
               
   #embed all of self.content_data_store or (idx, content) for idx in idxs for the row/content from content_data_store
   #NOTE: We do not use the temperature here because we will compute the embeddings with temperature on the fly during clustering or searching
