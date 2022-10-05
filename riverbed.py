@@ -229,26 +229,8 @@ class RiverbedFeatureExtractorModel(nn.Module):
   #      cosine distance to nearest neighbor cluster head
 
 
-    def extract_one_span(self, data, embed_search_field, extractors=default_extractors):
-        line = data[embed_search_field]
-        curr_ents = list(itertools.chain(*[[(e.text, e.label_)] if '||' not in e.text else [(e.text.split("||")[0].strip(), e.label_), (e.text.split("||")[-1].strip(), e.label_)] for e in spacy_nlp(line).ents]))
-        curr_ents = list(set([e for e in curr_ents if e[0]]))
-        curr_ents.sort(key=lambda a: len(a[0]), reverse=True)
-        cnt_ents = [[a[0], a[1], b] for a, b in Counter(curr_ents).items()]
-        for prefix, extract in self.prefix_extractors:
-            extracted_text = extract(self, {'text':line,  'ents':cnt_ents}) 
-            if extracted_text:
-              line = extracted_text
-        line = line.replace(". .", ". ").replace("..", ".").replace(":.", ".")
-        line  = self.tokenizer.tokenize(line, use_synonym_replacement=False)    
-        data =  {embed_search_field: line, 'ents': curr_ents}
-        ent_cnts = Counter(v[1].lower()+"_cnt" for v in data['ents'])
-        for feature_label, cnt in ent_cnts.items():
-          data[feature_label] = cnt
-        return data
-  
                  
-  def extract(self, batch, running_features_per_label, running_features_size, feature_extractors, feature_extractors=default_extractors):
+  def extract(self, batch, running_features_per_label, running_features_size, feature_extractors=default_extractors):
     feature_labels = []
     features = []
     relative_levels = []
@@ -307,11 +289,6 @@ class RiverbedFeatureExtractorModel(nn.Module):
               need_to_low = True
               need_to_medium = False
             data[outfield+"_level"] = relative_label 
-          
-    for idx, data in enumerate(batch):
-      for feature_label, features_per_label, relative_level_per_label in  zip(feature_labels, features, relative_levels):
-        data[feature_label] = features_per_label[idx]
-        if relative_level_per_label: data[feature_label+"_level"] = relative_level_per_label[idx]
 
     return batch
 
