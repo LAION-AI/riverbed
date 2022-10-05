@@ -238,7 +238,7 @@ class SearcherIndexer(nn.Module):
                span2cluster_label=None, idxs=None, max_level=4, max_cluster_size=200, \
                min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000, \
                universal_embed_mode = None, prototype_sentences=None,  prototypes=None, universal_downsampler =None, min_num_prorotypes=50000, \
-               cluster_temperature=None, use_tqdm=True, indexer=None
+               use_tqdm=True, indexer=None
               ):
     #TODO, add a embedding_indexer. Given a batch of sentences, and an embedding, create additional embeddings corresponding to the batch. 
     """
@@ -330,8 +330,8 @@ class SearcherIndexer(nn.Module):
       model_embed_dim = get_model_embed_dim(embedder)
       downsampler = nn.Linear(model_embed_dim, embed_dim, bias=False).eval() 
     if bm25_field is None: bm25_field = embed_search_field
-    self.universal_embed_mode,  self.cluster_temperature, self.mmap_file, self.mmap_len, self.embed_dim, self.dtype, self.clusters, self.parent2idx,  self.parents, self.top_parents, self.top_parent_idxs, self.embed_search_field, self.bm25_field, self.downsampler  = \
-             universal_embed_mode,cluster_temperature,  mmap_file, mmap_len, embed_dim, dtype, clusters, parent2idx, parents, top_parents, top_parent_idxs, embed_search_field, bm25_field, downsampler
+    self.universal_embed_mode,  self.mmap_file, self.mmap_len, self.embed_dim, self.dtype, self.clusters, self.parent2idx,  self.parents, self.top_parents, self.top_parent_idxs, self.embed_search_field, self.bm25_field, self.downsampler  = \
+             universal_embed_mode,  mmap_file, mmap_len, embed_dim, dtype, clusters, parent2idx, parents, top_parents, top_parent_idxs, embed_search_field, bm25_field, downsampler
     if self.mmap_len <= 0 and os.path.exists(self.mmap_file):
       mmap_len = self.mmap_len =  get_np_mmap_length(self.mmap_file, [self.mmap_len, self.embed_dim], dtype=self.dtype, )
 
@@ -356,7 +356,7 @@ class SearcherIndexer(nn.Module):
     if universal_embed_mode not in (None, "assigned") and clusters is None:
       auto_create_embeddings_idx = True
     if os.path.exists(self.mmap_file) and (idxs is not None or auto_create_embeddings_idx):
-      self.recreate_clusters_idx(clusters=self.clusters, span2cluster_label=span2cluster_label, cluster_temperature=self.cluster_temperature, idxs=idxs, max_level=max_level, max_cluster_size=max_cluster_size, \
+      self.recreate_clusters_idx(clusters=self.clusters, span2cluster_label=span2cluster_label, idxs=idxs, max_level=max_level, max_cluster_size=max_cluster_size, \
                                min_overlap_merge_cluster=min_overlap_merge_cluster, prefered_leaf_node_size=prefered_leaf_node_size, kmeans_batch_size=kmeans_batch_size)
     elif self.clusters:
       self.recreate_parents_data()
@@ -436,7 +436,7 @@ class SearcherIndexer(nn.Module):
   def switch_search_context(self, downsampler = None, mmap_file=None, embedder="minilm", clusters=None, \
                             span2cluster_label=None, idxs=None, max_level=4, max_cluster_size=200, chunk_size=500,  \
                             parent2idx=None, parents=None, top_parents=None, top_parent_idxs=None, skip_idxs=None, \
-                            auto_embed_text=False,auto_create_embeddings_idx=False, auto_create_bm25_idx=False, cluster_temperature=None, \
+                            auto_embed_text=False,auto_create_embeddings_idx=False, auto_create_bm25_idx=False,  \
                             reuse_clusters=False, min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000, use_tqdm=True
                           ):
     global device
@@ -466,8 +466,8 @@ class SearcherIndexer(nn.Module):
       if hasattr(self,f'clusters_{self.embed_search_field}_{embedder}_{self.embed_dim}'):
         clusters = getattr(self,f'clusters_{self.embed_search_field}_{embedder}_{self.embed_dim}')
     
-    self.cluster_temperature, self.embedder, self.mmap_file, self.clusters, self.parent2idx,  self.parents, self.top_parents, self.top_parent_idxs,  self.downsampler  = \
-             cluster_temperature, embedder, mmap_file, clusters, parent2idx, parents, top_parents, top_parent_idxs, downsampler
+    self.embedder, self.mmap_file, self.clusters, self.parent2idx,  self.parents, self.top_parents, self.top_parent_idxs,  self.downsampler  = \
+             embedder, mmap_file, clusters, parent2idx, parents, top_parents, top_parent_idxs, downsampler
     if self.mmap_len <= 0 and os.path.exists(self.mmap_file):
       mmap_len = self.mmap_len =  get_np_mmap_length(self.mmap_file, [self.mmap_len, self.embed_dim], dtype=self.dtype, )
 
@@ -476,7 +476,7 @@ class SearcherIndexer(nn.Module):
     if auto_embed_text and self.content_data_store is not None:
       self.embed_text(chunk_size=chunk_size,  use_tqdm=use_tqdm)
     if os.path.exists(self.mmap_file) and (idxs is not None or auto_create_embeddings_idx):
-      self.recreate_clusters_idx(clusters=self.clusters, span2cluster_label=span2cluster_label, cluster_temperature=self.cluster_temperature, idxs=idxs, max_level=max_level, max_cluster_size=max_cluster_size, \
+      self.recreate_clusters_idx(clusters=self.clusters, span2cluster_label=span2cluster_label, idxs=idxs, max_level=max_level, max_cluster_size=max_cluster_size, \
                                min_overlap_merge_cluster=min_overlap_merge_cluster, prefered_leaf_node_size=prefered_leaf_node_size, kmeans_batch_size=kmeans_batch_size)
     elif self.clusters: 
       self.recreate_parents_data()
@@ -514,14 +514,14 @@ class SearcherIndexer(nn.Module):
     return self
   
   #get the sentence embedding for the sent or batch of sentences
-  #NOTE: We do not use the temperature here because we will compute the embeddings with temperature on the fly during clustering or searching
+  #temperature should be used with getting the target embeddings for search.
   def get_embeddings(self, sent_or_batch, temperature=None, universal_embed_mode=""):
     return get_embeddings(sent_or_batch, downsampler=self.downsampler, dtype=self.dtype, embedder=self.embedder, \
                           universal_embed_mode=self.universal_embed_mode if universal_embed_mode == "" else universal_embed_mode, prototypes=self.prototypes, \
                           universal_downsampler=self.universal_downsampler,temperature=temperature)
               
   #embed all of self.content_data_store or (idx, content) for idx in idxs for the row/content from content_data_store
-  #NOTE: We do not use the temperature here because we will compute the embeddings with temperature on the fly during clustering or searching
+  #NOTE: We do not use the temperature here because we will compute the embeddings with temperature on the fly during searching
   def embed_text(self, start_idx=None, chunk_size=500, idxs=None, use_tqdm=True, auto_create_bm25_idx=False, **kwargs):
     assert self.content_data_store is not None
     if start_idx is None: start_idx = 0
@@ -569,14 +569,13 @@ class SearcherIndexer(nn.Module):
     self.parent2idx = dict([(a,idx) for idx, a in enumerate(all_parents)])
     self.parents = torch.from_numpy(np_memmap(self.mmap_file, shape=[self.mmap_len, self.embed_dim], dtype=self.dtype)[[a[1] for a in all_parents]]).to(device)
 
-  #recreate the cluster index using the parameters, including the temperature specified in self.temperature
-  def recreate_clusters_idx(self,  clusters=None, span2cluster_label=None, cluster_temperature=None, idxs=None, max_level=4, max_cluster_size=200, \
+  #recreate the cluster index using the parameters
+  def recreate_clusters_idx(self,  clusters=None, span2cluster_label=None, idxs=None, max_level=4, max_cluster_size=200, \
                                min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000,):
     global device
     if clusters is None or idxs is not None:
       if clusters is None and idxs is not None: clusters = self.clusters
       clusters, _ = self.cluster(clusters=clusters, span2cluster_label=span2cluster_label, idxs=idxs, max_level=max_level, max_cluster_size=max_cluster_size, \
-                                 cluster_temperature=cluster_temperature if cluster_temperature is None else self.cluster_temperature, \
                                  min_overlap_merge_cluster=min_overlap_merge_cluster, prefered_leaf_node_size=prefered_leaf_node_size, kmeans_batch_size=kmeans_batch_size)
     #print (clusters)
     self.clusters = clusters
@@ -593,12 +592,12 @@ class SearcherIndexer(nn.Module):
     return self.parent2idx.keys()
   
 
-  def cluster(self, clusters=None, span2cluster_label=None, idxs=None, max_level=4, max_cluster_size=200, cluster_temperature=None, \
+  def cluster(self, clusters=None, span2cluster_label=None, idxs=None, max_level=4, max_cluster_size=200,  \
                                min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000, use_tqdm=True):
     return create_hiearchical_clusters(clusters=clusters, span2cluster_label=span2cluster_label, mmap_file=self.mmap_file, \
                                        mmap_len=self.mmap_len, embed_dim=self.embed_dim, dtype=self.dtype, \
                                        skip_idxs=self.skip_idxs, idxs=idxs, max_level=max_level, max_cluster_size=max_cluster_size, \
-                                       min_overlap_merge_cluster=min_overlap_merge_cluster, cluster_temperature=cluster_temperature, \
+                                       min_overlap_merge_cluster=min_overlap_merge_cluster, \
                                        prefered_leaf_node_size=prefered_leaf_node_size, kmeans_batch_size=kmeans_batch_size, use_tqdm=use_tqdm)
   
   
@@ -649,7 +648,7 @@ class SearcherIndexer(nn.Module):
   #if the underlying data is jsonl, then the result of the data will also be returned in the dict.
   #WARNING: we overwrite the 'id', 'score', and 'text' field, so we might want to use a different field name like f'{field_prefix}_score'
   #key_terms. TODO: See https://whoosh.readthedocs.io/en/latest/keywords.html
-  #the temperature field will determine how broad or narrow to search.
+  #the temperature field will determine how broad or narrow to search for the target vector.
   def search(self, query=None, target=None, do_bm25_only=False, k=5, chunk_size=100, limit=None, search_temperature=None,):
     def _get_data(idx):
       l  = self.content_data_store[idx]
