@@ -194,7 +194,7 @@ class RiverbedFeatureExtractorModel(nn.Module):
           return 'conclusion: date of '+ date +"; "+text + " || "
         else:
           return 'conclusion: ' +text + " || "
-      return None
+      return data
     
   def extract_perplexity(self,data, infield, outfield):
      data[outfield] = self.get_perplexity(data[infield])
