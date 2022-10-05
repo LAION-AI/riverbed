@@ -146,35 +146,45 @@ class RiverbedFeatureExtractorModel(nn.Module):
   def forward(self, *args,**kwargs):
     return self.searcher(*args, **kwargs)
 
-
-      
-  def _intro_with_date(self, span):
-      text, position, ents = span['text'], span['position'], span['ents']
+  def extract_ents(self, data, infield, outfield):
+    line = data[infield]
+    curr_ents = list(itertools.chain(*[[(e.text, e.label_)] if '||' not in e.text else [(e.text.split("||")[0].strip(), e.label_), (e.text.split("||")[-1].strip(), e.label_)] for e in spacy_nlp(line).ents]))
+    curr_ents = list(set([e for e in curr_ents if e[0]]))
+    curr_ents.sort(key=lambda a: len(a[0]), reverse=True)
+    ent_cnts = Counter(v[1].lower()+"_cnt" for v in curr_ents)
+    for feature_label, cnt in ent_cnts.items():
+          data[feature_label] = cnt
+    data[outfield] = curr_ents
+    return data
+  
+  def extract_intro_with_date(self, data, infield, outfield):
+      text, position, ents = data[infield], data['position'], data['ents']
       if position < 0.05 and text.strip() and (len(text) < 50 and text[0] not in "0123456789" and text[0] == text[0].upper() and text.split()[-1][0] == text.split()[-1][0].upper()):
         date = [e[0] for e in ents if e[1] == 'DATE']
         if date: 
           date = date[0]
           date = self.dateutil_parse_ext(date)
         if  date: 
-          return 'intro: date of '+ date +"; "+text + " || "
+          data[outfield] = 'intro: date of '+ date +"; "+text + " || "
         else:
-          return 'intro: ' +text + " || "
-
-  def _section_with_date(self, span):
-      text, position, ents = span['text'], span['position'], span['ents']
+          data[outfield] = 'intro: ' +text + " || "
+      return data
+    
+  def _section_with_date(self,data, infield, outfield):
+      text, position, ents = data[infield], data['position'], data['ents']
       if  position >= 0.05 and position < 0.95 and text.strip() and (len(text) < 50 and text[0] not in "0123456789" and text[0] == text[0].upper() and text.split()[-1][0] == text.split()[-1][0].upper()):
         date = [e[0] for e in ents if e[1] == 'DATE']
         if date: 
           date = date[0]
           date = self.dateutil_parse_ext(date)
         if  date: 
-          return 'section: date of '+ date +"; "+text + " || "
+          data[outfield] =  'section: date of '+ date +"; "+text + " || "
         else:
-          return  'section: ' +text + " || "
-      return None
+          data[outfield] =   'section: ' +text + " || "
+      return data
 
-  def _conclusion_with_date(self, span):
-      text, position, ents = span['text'], span['position'], span['ents']
+  def extract_conclusion_with_date(self, data, infield, outfield):
+      text, position, ents = data[infield], data['position'], data['ents']
       if  position >= 0.95 and text.strip() and (len(text) < 50 and text[0] not in "0123456789" and text[0] == text[0].upper() and text.split()[-1][0] == text.split()[-1][0].upper()):
         date = [e[0] for e in ents if e[1] == 'DATE']
         if date: 
@@ -185,16 +195,41 @@ class RiverbedFeatureExtractorModel(nn.Module):
         else:
           return 'conclusion: ' +text + " || "
       return None
-
-    # for extracting a prefix for a segment of text. a segment can contain multiple spans.
+    
+  def extract_perplexity(self,data, infield, outfield):
+     data[outfield] = self.get_perplexity(data[infield])
+     return data
+  
+  # for extracting a prefix for a segment of text. a segment can contain multiple spans.
   # the prefixes are used to create more informative embeddings for a span.
-  default_prefix_extractors = [
-      ('intro_with_date', _intro_with_date), \
-      ('section_with_date', _section_with_date), \
-      ('conclusion_with_date', _conclusion_with_date) \
+  default_extractors = [
+      ('ents', None, None, extract_ents, 'text', 'ents'), \
+      ('intro_with_date', None, None, extract_intro_with_date, 'text', 'prefix', ), \
+      ('section_with_date', None, None, extract_section_with_date, 'text', 'prefix', ), \
+      ('conclusion_with_date', None, None, extract_conclusion_with_date, 'text', 'prefix', ),
+      ('perplexity', .5, 1.5, extract_perplexity, 'text', 'perplexity', ),
+      
       ]
 
-  def extract(self, data, embed_search_field, prefix_extractors=default_prefix_extractors):
+    
+  RELATIVE_LOW = 0
+  RELATIVE_MEDIUM = 1
+  RELATIVE_HIGH= 2
+  
+  # for feature extraction on a single span and potentially between spans in a series. 
+  # tuples of (feature_label, lower_band, upper_band, extractor). assumes prefix extraction has occured.
+  # returns data which can be used to store in the feature_label for a span. if upper_band and lower_band are set, then an additional label X_level stores
+  # the relative level label as well.
+  #
+  #TODO: other potential features include similarity of embedding from its cluster centroid
+  #compound words %
+  #stopwords %
+  #term_frequency-inverse_document_frequency weight
+  #add inverse cluster size as a feature.
+  #      cosine distance to nearest neighbor cluster head
+
+
+    def extract_one_span(self, data, embed_search_field, extractors=default_extractors):
         line = data[embed_search_field]
         curr_ents = list(itertools.chain(*[[(e.text, e.label_)] if '||' not in e.text else [(e.text.split("||")[0].strip(), e.label_), (e.text.split("||")[-1].strip(), e.label_)] for e in spacy_nlp(line).ents]))
         curr_ents = list(set([e for e in curr_ents if e[0]]))
@@ -205,9 +240,81 @@ class RiverbedFeatureExtractorModel(nn.Module):
             if extracted_text:
               line = extracted_text
         line = line.replace(". .", ". ").replace("..", ".").replace(":.", ".")
-        line  = self.tokenizer.tokenize(line, use_synonym_replacement=False)         
-        return {embed_search_field: line, 'ents': curr_ents}
-        
+        line  = self.tokenizer.tokenize(line, use_synonym_replacement=False)    
+        data =  {embed_search_field: line, 'ents': curr_ents}
+        ent_cnts = Counter(v[1].lower()+"_cnt" for v in data['ents'])
+        for feature_label, cnt in ent_cnts.items():
+          data[feature_label] = cnt
+        return data
+  
+                 
+  def extract(self, batch, running_features_per_label, running_features_size, feature_extractors, feature_extractors=default_extractors):
+    feature_labels = []
+    features = []
+    relative_levels = []
+    for  in feature_extractors:
+      feature_label, lower_band, upper_band, extractor, infield, outfield = extractor_specs
+      need_to_high = True
+      need_to_low = True
+      need_to_medium = True
+      prior_change = -1
+      feature_labels.append(feature_label)
+      features.append([])
+      relative_levels.append([])
+      features_per_label = features[-1]
+      relative_level_per_label = relative_levels[-1]
+      running_features = running_features_per_label[feature_label] = running_features_per_label.get(feature_label, [])
+      #do an initial run to get the initial standard deviation and mean
+      if lower_band is not None:
+        if len(running_features) < running_features_size:
+          for data in batch:
+            data = extractor(self, data, infield, outfield)
+            if not data.get(outfield): 
+              running_features.append(None)
+              continue
+            p = data[outfield]
+            running_features.append(p)
+            if len(running_features) >= running_features_size:
+                break
+        stdv = statistics.stdev(running_features)
+        mn = statistics.mean (running_features)
+        relative_label = self.RELATIVE_LOW
+      for idx, data in enumerate(batch):
+          data = extractor(self, data, infield, outfield)
+          if lower_band is not None:
+            #recompute the running features standard devicaiton and mean
+            if len(running_features) >= running_features_size:    
+              stdv = statistics.stdev(running_features)
+              mn = statistics.mean (running_features)
+            if len(running_features) > running_features_size:
+              running_features.pop()    
+            if abs(ret-mn) >= stdv*upper_band and need_to_high:
+              relative_label = self.RELATIVE_HIGH
+              prior_change = idx
+              need_to_high = False
+              need_to_low = True
+              need_to_medium = True
+            elif  abs(ret-mn) < stdv*upper_band and abs(p-mn) > stdv*lower_band  and need_to_medium:
+              relative_label = self.RELATIVE_MEDIUM
+              prior_change = idx
+              need_to_high = True
+              need_to_low = True
+              need_to_medium = False
+            elif abs(ret-mn) <= stdv*lower_band and need_to_low:
+              relative_label = self.RELATIVE_LOW
+              prior_change = idx
+              need_to_high = False
+              need_to_low = True
+              need_to_medium = False
+            data[outfield+"_level"] = relative_label 
+          
+    for idx, data in enumerate(batch):
+      for feature_label, features_per_label, relative_level_per_label in  zip(feature_labels, features, relative_levels):
+        data[feature_label] = features_per_label[idx]
+        if relative_level_per_label: data[feature_label+"_level"] = relative_level_per_label[idx]
+
+    return batch
+
   #vector and perpexity guided generation      
   #generate text based simiarilty between vectors found through search and lowering the 
   #perplexity with respect to pretraining corpus trained with the kenlm model.
@@ -1194,98 +1301,7 @@ class RiverbedSpanAnalyzerModel(nn.Module):
    labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set = init_models()
    self.span_searcher = SearcherIndexer(idx_dir=project_name+"/span_searcher", embedder=embedder, indexer=span_indexer)
    self.indexer = span_indexer
-                                    
-  RELATIVE_LOW = 0
-  RELATIVE_MEDIUM = 1
-  RELATIVE_HIGH= 2
-  
-  # for feature extraction on a single span and potentially between spans in a series. 
-  # tuples of (feature_label, lower_band, upper_band, extractor). assumes prefix extraction has occured.
-  # returns data which can be used to store in the feature_label for a span. if upper_band and lower_band are set, then an additional label X_level stores
-  # the relative level label as well.
-  #
-  #TODO: other potential features include similarity of embedding from its cluster centroid
-  #compound words %
-  #stopwords %
-  #term_frequency-inverse_document_frequency weight
-  
-  default_span_level_feature_extractors = [
-      ('perplexity', .5, 1.5, lambda self, span: 0.0 if self.riverbed_model is None else self.riverbed_model.get_perplexity(span['tokenized_text'])),
-      ('prefix', None, None, lambda self, span: "" if " || " not in span['text'] else  span['text'].split(" || ", 1)[0].strip()),
-      ('date', None, None, lambda self, span: "" if " || " not in span['text'] else span['text'].split(" || ")[0].split(":")[-1].split("date of")[-1].strip("; ")), 
-  ]
-  
-  def _create_span_features(self, batch, span_level_feature_extractors, running_features_per_label, running_features_size):
-    feature_labels = []
-    features = []
-    relative_levels = []
-    for feature_label, lower_band, upper_band, extractor in span_level_feature_extractors:
-      need_to_high = True
-      need_to_low = True
-      need_to_medium = True
-      prior_change = -1
-      feature_labels.append(feature_label)
-      features.append([])
-      relative_levels.append([])
-      features_per_label = features[-1]
-      relative_level_per_label = relative_levels[-1]
-      running_features = running_features_per_label[feature_label] = running_features_per_label.get(feature_label, [])
-      if lower_band is not None:
-        if len(running_features) < running_features_size:
-          for span in batch:
-            p = extractor(self, span)
-            running_features.append(p)
-            if len(running_features) >= running_features_size:
-                break
-        stdv = statistics.stdev(running_features)
-        mn = statistics.mean (running_features)
-        relative_label = self.RELATIVE_LOW
-      for idx, span in enumerate(batch):
-        p = extractor(self, span)
-        features_per_label.append(p)
-        if lower_band is not None:
-          running_features.append(p)
-          if len(running_features) >= running_features_size:    
-            stdv = statistics.stdev(running_features)
-            mn = statistics.mean (running_features)
-          if len(running_features) > running_features_size:
-            running_features.pop()    
-          if abs(p-mn) >= stdv*upper_band and need_to_high:
-            relative_label = self.RELATIVE_HIGH
-            prior_change = idx
-            need_to_high = False
-            need_to_low = True
-            need_to_medium = True
-          elif  abs(p-mn) < stdv*upper_band and abs(p-mn) > stdv*lower_band  and need_to_medium:
-            relative_label = self.RELATIVE_MEDIUM
-            prior_change = idx
-            need_to_high = True
-            need_to_low = True
-            need_to_medium = False
-          elif abs(p-mn) <= stdv*lower_band and need_to_low:
-            relative_label = self.RELATIVE_LOW
-            prior_change = idx
-            need_to_high = False
-            need_to_low = True
-            need_to_medium = False
-          running_features.append(p)
-          relative_level_per_label.append(relative_label) 
-          
-    for idx, span in enumerate(batch):
-      span['cluster_label']= None
-      span['cluster_label_before']= None
-      span['cluster_label_after']= None
-      for feature_label, features_per_label, relative_level_per_label in  zip(feature_labels, features, relative_levels):
-        span[feature_label] = features_per_label[idx]
-        if relative_level_per_label: span[feature_label+"_level"] = relative_level_per_label[idx]
-      ent_cnts = Counter(v[1].lower()+"_cnt" for v in span['ents'])
-      for feature_label, cnt in ent_cnts.items():
-        span[feature_label] = cnt
-    return batch
-  
-  #TODO: add inverse cluster size as a feature.
-  #      cosine distance to nearest neighbor cluster head
-
+                 
   # code more informative labels for the span clusters
   def _create_informative_parent_label_from_tfidf(self, clusters, span2idx, span2data, span2cluster_label, span_label2user_label=None, \
                                             label2term_frequency=None, document_frequency=None, domain_stopwords_set=stopwords_set, max_levels=4):
