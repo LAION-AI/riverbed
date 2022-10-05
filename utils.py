@@ -280,8 +280,14 @@ def _get_embeddings(sent, downsampler, embedder="minilm", universal_embed_mode=N
   dat = apply_model(embedder, sent)
   #print (dat.dtype)
   dat = torch.nn.functional.normalize(dat, dim=1)
+  
+  #some embedders are very sensitive to running the data through softmax (very spiky data), so
+  #we maginfify the parts of the vector that have a high value, but not by as much as a normal softmax
+  #in this way, we can control the softmax with a temperature but still have norm
   if temperature is not None:
-    dat = _apply_temperature(dat,temperature)
+    dat = (_apply_temperature(dat,temperature) + 9*dat)/10
+  else:
+    dat = (_apply_temperature(dat,1.0) + 9*dat)/10
   dat = downsampler(dat)
   if universal_embed_mode:
       dat = cosine_similarity(dat, prototypes)
