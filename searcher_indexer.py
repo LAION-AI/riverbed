@@ -147,6 +147,9 @@ class BasicIndexer(IndexerMixin):
         line1, line2 =  get_content_from_line(line, self.embed_search_field), None
       else:
         line1, line2 =  None, get_content_from_line(line, self.bm25_field)
+      if line1: line1 = line1.replace("\\n", "\n")
+      if line2: line2 = line2.replace("\\n", "\n")
+      
       lineno_arr[0] = lineno_arr[0]+1
       if line1 is not None and line2 is not None and not line1.strip() and not line2.strip(): 
         continue
@@ -156,15 +159,14 @@ class BasicIndexer(IndexerMixin):
         continue
       offset = 0
       if line1 is not None and line2 is not None:
-        line1arr, line2arr = line1.split("\\n"), line2.split("\\n")
+        line1arr, line2arr = line1.split("\n"), line2.split("\n")
       elif line1 is not None:
-        line1arr = line1.split("\\n")
+        line1arr = line1.split("\n")
         line2arr = [""]*len(line1arr)
       else:
-        line2arr = line2.split("\\n")
+        line2arr = line2.split("\n")
         line1arr = [""]*len(line2arr)
       #assert len(line1arr) == len(line2arr)
-      
       for text, key_words in zip(line1arr, line2arr):
         if not text.strip() and not key_words.strip(): 
           continue
@@ -186,7 +188,7 @@ class BasicIndexer(IndexerMixin):
               yield dat
           else:
             #print ([a['embedding_text'] for a in batch])
-            input_ids = doc2query_tokenizer([a['embedding_text'] for a in batch], max_length=512, truncation=True, return_tensors='pt').to(device)
+            input_ids = doc2query_tokenizer([a['embedding_text'] for a in batch], max_length=512, truncation=True, padding=True, return_tensors='pt').to(device)
             with torch.no_grad():
               outputs = doc2query_model.generate(
                 **input_ids,
@@ -200,29 +202,31 @@ class BasicIndexer(IndexerMixin):
               dat['queries'] = queries
               dat['keywords'] += " ".join(queries)
               yield dat
-            batch = []
-            batch_size = 0
+          batch = []
+          batch_size = 0
       
       if batch:
-          if not self.do_doc2query:
-            for dat in batch:
-              yield dat
-          else:
-            #print ([a['embedding_text'] for a in batch])
-            input_ids = doc2query_tokenizer([a['embedding_text'] for a in batch], max_length=512, truncation=True, return_tensors='pt').to(device)
-            with torch.no_grad():
-              outputs = doc2query_model.generate(
-                **input_ids,
-                max_length=64,
-                do_sample=True,
-                top_p=0.95,
-                num_return_sequences=self.num_queries)
-              outputs = [doc2query_tokenizer.decode(output, skip_special_tokens=True) for output in outputs]
-            for dat, rng in zip(batch, range(0, len(outputs), self.num_queries)):
-              queries = outputs[rng:rng+20]
-              dat['queries'] = queries
-              dat['keywords'] += " ".join(queries)
-              yield dat  
+        if not self.do_doc2query:
+          for dat in batch:
+            yield dat
+        else:
+          #print ([a['embedding_text'] for a in batch])
+          input_ids = doc2query_tokenizer([a['embedding_text'] for a in batch], max_length=512, truncation=True, padding=True, return_tensors='pt').to(device)
+          with torch.no_grad():
+            outputs = doc2query_model.generate(
+              **input_ids,
+              max_length=64,
+              do_sample=True,
+              top_p=0.95,
+              num_return_sequences=self.num_queries)
+            outputs = [doc2query_tokenizer.decode(output, skip_special_tokens=True) for output in outputs]
+          for dat, rng in zip(batch, range(0, len(outputs), self.num_queries)):
+            queries = outputs[rng:rng+20]
+            dat['queries'] = queries
+            dat['keywords'] += " ".join(queries)
+            yield dat
+        batch = [] 
+        batch_size = 0  
           
             
   
