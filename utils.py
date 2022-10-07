@@ -91,7 +91,7 @@ def init_models(embedder=None):
       doc2query_encoder = doc2query_encoder.to(device)
     else:
       doc2query_model = T5ForConditionalGeneration.from_pretrained('doc2query/all-t5-base-v1').eval()
-      doc2query_encoder = T5EncoderModel.from_pretrained('doc2query/all-t5-base-v1').half().eval()
+      doc2query_encoder = T5EncoderModel.from_pretrained('doc2query/all-t5-base-v1').eval()
       #share the parameter so we don't waste memory
       doc2query_encoder.shared = doc2query_model.shared
       doc2query_encoder.encoder = doc2query_model.encoder
