@@ -286,12 +286,12 @@ def _get_embeddings(sent, downsampler, embedder="minilm", universal_embed_mode=N
   else:
     dat = (2*_apply_temperature(dat,1) + norm_dat)/3
   p = next(downsampler.parameters())
-  dat = downsampler(dat.to(device=p.device, type=p.dtype))
+  dat = downsampler(dat.to(device=p.device, dtype=p.dtype))
   if universal_embed_mode:
       dat = cosine_similarity(dat, prototypes)
       dat = torch.nn.functional.normalize(dat, dim=1)
       p = next(downsampler.parameters())
-      dat = universal_downsampler(dat.to(device=p.device, type=p.dtype))
+      dat = universal_downsampler(dat.to(device=p.device, dtype=p.dtype))
 
   return dat
 
