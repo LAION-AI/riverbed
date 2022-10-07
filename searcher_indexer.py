@@ -345,7 +345,7 @@ class SearcherIndexer(nn.Module):
       if device == 'cuda' and self.dtype == np.float16:
         self.downsampler = self.downsampler.half().eval().to(device)
       else:
-        self.downsampler = self.downsampler.eval().to(device)
+        self.downsampler = self.downsampler.float().eval().to(device)
     if self.parents is not None: 
       if self.dtype == np.float16:
         self.parents = self.parents.half().to(device)
@@ -490,7 +490,7 @@ class SearcherIndexer(nn.Module):
       if device == 'cuda' and self.dtype == np.float16:
         self.downsampler = self.downsampler.half().eval().to(device)
       else:
-        self.downsampler = self.downsampler.eval().to(device)
+        self.downsampler = self.downsampler.float().eval().to(device)
     if self.parents is not None: 
       if device == 'cuda' and self.dtype == np.float16:
         self.parents = self.parents.half().to(device)
@@ -552,7 +552,6 @@ class SearcherIndexer(nn.Module):
       # self.indexer.reset_embed_search_idx(0)
       # data_iterator = self.indexer.process_embed_search_field(data_iterator, **kwargs)
       data_iterator = content_data_store_reader()  
-    
     self.mmap_len, skip_idxs =  embed_text(data_iterator, self.mmap_file, start_idx=start_idx, downsampler=self.downsampler, \
                           mmap_len=self.mmap_len, embed_dim=self.embed_dim, embedder=self.embedder, chunk_size=chunk_size, use_tqdm=use_tqdm, \
                           universal_embed_mode=self.universal_embed_mode, prototypes=self.prototypes, universal_downsampler=self.universal_downsampler)
