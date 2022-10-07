@@ -342,7 +342,7 @@ class SearcherIndexer(nn.Module):
     
     self.prototype_sentences,  self.prototypes, self.universal_downsampler = prototype_sentences,  prototypes, universal_downsampler
     if self.downsampler is not None: 
-      if self.dtype == np.float16:
+      if device == 'cuda' and self.dtype == np.float16:
         self.downsampler = self.downsampler.half().eval().to(device)
       else:
         self.downsampler = self.downsampler.eval().to(device)
@@ -389,7 +389,7 @@ class SearcherIndexer(nn.Module):
       universal_downsampler = nn.Linear(len(prototype_sentences), embed_dim, bias=False)
       self.prototype_sentences,  self.prototypes, self.universal_downsampler = prototype_sentences,  prototypes, universal_downsampler
       if self.universal_downsampler is not None: 
-        if self.dtype == np.float16:
+        if device == 'cuda' and self.dtype == np.float16:
           self.universal_downsampler = self.universal_downsampler.half().eval().to(device)
         else:
           self.universal_downsampler= self.universal_downsampler.eval().to(device)
@@ -487,12 +487,12 @@ class SearcherIndexer(nn.Module):
     if auto_create_bm25_idx and self.content_data_store:
        self.recreate_bm25_idx(auto_create_bm25_idx=auto_create_bm25_idx, idxs=idxs, use_tqdm=use_tqdm)    
     if self.downsampler is not None: 
-      if self.dtype == np.float16:
+      if device == 'cuda' and self.dtype == np.float16:
         self.downsampler = self.downsampler.half().eval().to(device)
       else:
         self.downsampler = self.downsampler.eval().to(device)
     if self.parents is not None: 
-      if self.dtype == np.float16:
+      if device == 'cuda' and self.dtype == np.float16:
         self.parents = self.parents.half().to(device)
       else:
         self.parents = self.parents.to(device)
@@ -501,7 +501,7 @@ class SearcherIndexer(nn.Module):
     if self.universal_embed_mode is not None and self.prototype_sentences:
       self.prototypes = self.get_embeddings(self.prototype_sentences)
     if self.prototypes is not None: 
-      if self.dtype == np.float16:
+      if device == 'cuda' and self.dtype == np.float16:
         self.prototypes = self.prototypes.half().to(device)
       else:
         self.prototypes = self.prototypes.to(device)
