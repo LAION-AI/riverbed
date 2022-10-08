@@ -29,7 +29,6 @@ from pathlib import Path, PurePath
 from typing import Callable, Dict, List, Optional, Union
 
 import dataset
-import fsspec.compression
 import numpy as np
 import pandas as pd
 import pyarrow as pa
@@ -81,7 +80,6 @@ from sqlalchemy.pool import StaticPool
 from sqlalchemy.schema import MetaData
 from sqlalchemy.sql import text
 from sqlalchemy.util import safe_reraise
-from torch import nn
 
 sys.path.append(
     os.path.abspath(
@@ -90,13 +88,12 @@ sys.path.append(
 )
 
 
-from data_tooling.datastore.connectors.memmap import *
-from data_tooling.datastore.connectors.sql import *
-from data_tooling.datastore.utils import *
+from datastore2sql import *
+
 
 ######################################################################################
 # Extensions to Huggingface's datasets to create a datastore that
-# interconnects to sqlite and memmap
+# interconnects to sqlite and memmap. 
 #
 # We want to have mutliple types of storage that ideally can be
 # transported as a file transfer with an arrow dataset (perhaps a tar
