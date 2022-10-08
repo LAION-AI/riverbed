@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-""" A datastore based on Huggingface's datasets that connects to sqlite and memmap"""
+""" A datastore based on https://github.com/pudo/dataset and Huggingface's datasets that connects to sqlite and memmap"""
 
 import atexit
 import copy
@@ -87,7 +87,7 @@ sys.path.append(
     )
 )
 
-
+from .utils import *
 from .datastore2sql import *
 
 
@@ -96,12 +96,16 @@ from .datastore2sql import *
 # interconnects to sqlite and memmap. 
 #
 # We want to have mutliple types of storage that ideally can be
-# transported as a file transfer with an arrow dataset (perhaps a tar
-# file?). So if we have <signature>.arrow, we may have
+# transported as a file transfer. So if we have <signature>.arrow, we may have
 # fts_<signature>.db (for full text indexing sqlite database) and
 # <signature>.db (sqlite database), and <siganture>.mmap (mmap file
-# reprsenting a tensor)
-
+# reprsenting a tensor).  All these files might be under the directory <signature>.  
+# to deploy the whole dataset, zip or tgz the directory. 
+#
+# We want to be able to create copies of all or a portions of a dataset, then save and manipulate
+# the copies. For example, we may want to annotate a portion of a dataset and share that annotation. 
+# One workflow might be to first search for a subset. Then tag the subset human annotators. Use
+# a labeling model on the rest of the subset. Save the subest. And share the subset as a zip or tgz file. 
 # NOTE: datasets uses the terms 'features' and 'columns' interchangably.
 
 
@@ -172,7 +176,7 @@ class Datastore(Dataset):
     def _get_mmap(self, path, dtype, shape):
         shape[0] = max(shape[0], len(self))
         # what happens when the datastore shrinks??
-        ret = np_mmap(path, dtype, shape)
+        ret = np_mmap(path, dtype=dtype, shape=shape)
         if not hasattr(self, "mmap_access_cnt"):
             self.mmap_access_cnt = 0
         if (
@@ -184,7 +188,7 @@ class Datastore(Dataset):
         return ret
 
     # we use class variables to cache sql connections because we don't
-    # want it serialized in this instance. TODO: this might take up
+    # want it serialized in the instance. TODO: this might take up
     # too much memory, so we might use an LRU cache instead.
     db_table = {}
 
@@ -412,7 +416,7 @@ class Datastore(Dataset):
                 value = "**"
             dtype = table.db.types.guess(value)
             feature_view.append((dst_feature_view, dtype))
-        self.add_sql(
+        self.sync_with_sql(
             feature_view=feature_view,
             table_name=table_name,
             connection_uri=connection_uri,
@@ -447,7 +451,7 @@ class Datastore(Dataset):
         num_proc=4,
         fts_connection_uri=None,
     ):
-        return cls.from_dict({}).add_sql(
+        return cls.from_dict({}).sync_with_sql(
             feature_view=feature_view,
             table_name=table_name,
             connection_uri=connection_uri,
@@ -458,7 +462,7 @@ class Datastore(Dataset):
             fts_connection_uri=fts_connection_uri,
         )
 
-    def add_sql(
+    def sync_with_sql(
         self,
         feature_view=None,
         table_name=None,
@@ -470,12 +474,15 @@ class Datastore(Dataset):
     ):
         """
         mapping one or more columns/features to a sql
-        database. creates a sqlalchmey/dataset dynamically with
+        database. If no connection_uri is passed, 
+        creates a sqlalchmey/sqlite dataset dynamically with
         primary_id as the primary key.
+        
         TODO: remember to strip passwords from any
         connection_uri. passwords should be passed as vargs and added
         to the conneciton url dynamically passwords should not be
         perisisted.
+        
         NOTE: this dataset will not automatically change if the
         database changes, and vice versa. periodically call this
         method again to sync the two or create callbacks/triggers in
@@ -1305,7 +1312,7 @@ class Datastore(Dataset):
         )
         return Datastore.from_dataset(ret, self)
 
-    # renaming a column view mapped to a sql database will not change the name in the database.
+    #NOTE: renaming a column view mapped to a sql database will not change the name in the database.
     @fingerprint_transform(inplace=False)
     def rename_column(
         self, original_column_name: str, new_column_name: str, new_fingerprint
@@ -1325,7 +1332,7 @@ class Datastore(Dataset):
         )
         return Datastore.from_dataset(ret, self, views_map=views_map)
 
-    # renaming a column view mapped to a sql database will not change the name in the database.
+    #NOTE: renaming a column view mapped to a sql database will not change the name in the database.
     @fingerprint_transform(inplace=False)
     def rename_columns(
         self, column_mapping: Dict[str, str], new_fingerprint
