@@ -1,4 +1,4 @@
-# Copyright 2021, Ontocord, LLC
+# Copyright 2021-2022, Ontocord, LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -88,7 +88,7 @@ sys.path.append(
 )
 
 
-from datastore2sql import *
+from .datastore2sql import *
 
 
 ######################################################################################
