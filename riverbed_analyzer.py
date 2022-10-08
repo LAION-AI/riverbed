@@ -13,18 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# NOTES:
-# we want to create feature detectors to segment spans of text. One way is to do clustering of embeddings of text.
-# this will roughly correspond to area of similarities or interestingness. 
-# we could do changes in perplexity, changes in embedding similarity, and detection of patterns such as section headers.
-# we could have heuristics hand-crafted rules, like regexes for ALL CAPs folowed by non ALL CAPS, or regions of low #s of stopwords, followed by high #s of stopwords.
-# or regions of high count of numbers ($1000,000).
-
-# we could also run segments of text through counting the "_", based on sentence similarities, etc. and create a series.
-# below is a simple detection of change from a std dev from a running mean, but we could do some more complex fitting using:
-# the library ruptures. https://centre-borelli.github.io/ruptures-docs/examples/text-segmentation/
-
-# with region labels, we can do things like tf-idf of tokens, and then do a mean of the tf-idf of a span. A span with high avg tf-idf means it is interesting or relevant. 
 
 import math, os
 import copy
@@ -53,7 +41,7 @@ import gzip
 import multiprocessing
 from torch import nn
 from .utils import *
-from .searcher import *
+from .searcher_indexer import *
 
 if torch.cuda.is_available():
   device = 'cuda'
@@ -69,6 +57,18 @@ except:
 # The Riverbed code includes a RiverbedTokenizer, RiverbedModel and RiverbedDocumenProcessor for information retrieval processing. 
 # The tokenizer stores the stopwords, compound, token2weight and synonyms data structure.
 # the model stores a copy of synonyms and the kenlm model and a searcher to search token embeddings/ontology.
+# NOTES:
+# we want to create feature detectors to segment spans of text. One way is to do clustering of embeddings of text.
+# this will roughly correspond to area of similarities or interestingness. 
+# we could do changes in perplexity, changes in embedding similarity, and detection of patterns such as section headers.
+# we could have heuristics hand-crafted rules, like regexes for ALL CAPs folowed by non ALL CAPS, or regions of low #s of stopwords, followed by high #s of stopwords.
+# or regions of high count of numbers ($1000,000).
+
+# we could also run segments of text through counting the "_", based on sentence similarities, etc. and create a series.
+# below is a simple detection of change from a std dev from a running mean, but we could do some more complex fitting using:
+# the library ruptures. https://centre-borelli.github.io/ruptures-docs/examples/text-segmentation/
+
+# with region labels, we can do things like tf-idf of tokens, and then do a mean of the tf-idf of a span. A span with high avg tf-idf means it is interesting or relevant. 
 
 #################################################################################
 #ANALYZER MODEL CODE
