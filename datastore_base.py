@@ -109,7 +109,7 @@ from .datastore2sql import *
 # NOTE: datasets uses the terms 'features' and 'columns' interchangably.
 
 
-class Datastore(Dataset):
+class RiverbedDatastore(Dataset):
     """
     A class that wraps a Huggingface arrow based Dataset to provide
     support for features bound to memmap and sqlalchemy via the
@@ -195,16 +195,16 @@ class Datastore(Dataset):
     def _get_db_table(self, feature):
         if feature in self.views_map and self.views_map[feature]["type"] == "sql":
             table_name, connection_url = val["table_name"], val["connection_uri"]
-            if (table_name, connection_uri) in Datastore.db_table:
-                table = Datastore.db_table[(table_name, connection_uri)]
+            if (table_name, connection_uri) in RiverbedDatastore.db_table:
+                table = RiverbedDatastore.db_table[(table_name, connection_uri)]
             else:
-                if connection_uri in Datastore.db_connection:
-                    db = Datastore.db_connection[connection_uri]
+                if connection_uri in RiverbedDatastore.db_connection:
+                    db = RiverbedDatastore.db_connection[connection_uri]
                 else:
-                    Datastore.db_connection[connection_uri] = db = DatabaseExt(
+                    RiverbedDatastore.db_connection[connection_uri] = db = DatabaseExt(
                         connection_uri
                     )
-                Datastore.db_table[(table_name, connection_uri)] = table = db[
+                RiverbedDatastore.db_table[(table_name, connection_uri)] = table = db[
                     table_name
                 ]
             return table
@@ -295,7 +295,7 @@ class Datastore(Dataset):
         )
         val = self.views_map[dst_feature_view]
         self.map(
-            Datastore._move_to_mmap_col,
+            RiverbedDatastore._move_to_mmap_col,
             batch_size=batch_size,
             batched=True,
             num_proc=num_proc,
@@ -338,14 +338,14 @@ class Datastore(Dataset):
         shape[0] = max(shape[0], len(self))
         if primary_id not in self.features:
             if len(self) == 0 and shape[0] > 0:
-                self = Datastore.from_dataset(
+                self = RiverbedDatastore.from_dataset(
                     Dataset.from_dict({primary_id: range(shape[0])}), self
                 )
                 ids = {a: 1 for a in range(len(self))}
                 self.id2idx_identity = True
             else:
                 self = self.map(
-                    Datastore._add_idx,
+                    RiverbedDatastore._add_idx,
                     with_indices=True,
                     batch_size=batch_size,
                     batched=True,
@@ -397,7 +397,7 @@ class Datastore(Dataset):
             connection_uri = "sqlite:///" + self.cache_files[0]["filename"].replace(
                 ".arrow", ".db"
             )
-        table = Datastore._get_db_table(self, table_name, connection_uri)
+        table = RiverbedDatastore._get_db_table(self, table_name, connection_uri)
         if type(src_feature_to_dst_views_map) is list:
             src_feature_to_dst_views_map = dict(src_feature_to_dst_views_map)
         elif type(src_feature_to_dst_views_map) is str:
@@ -426,7 +426,7 @@ class Datastore(Dataset):
             fts_connection_uri=fts_connection_uri,
         )
         self = self.map(
-            Datastore.upsert_sql_from_batch,
+            RiverbedDatastore.upsert_sql_from_batch,
             batch_size=batch_size,
             batched=True,
             num_proc=1 if connection_uri == "sqlite://" else num_proc,
@@ -523,7 +523,7 @@ class Datastore(Dataset):
         table_ids = table.find(_columns=primary_id)
         if primary_id not in self.features:
             if len(self) == 0 and table_ids:
-                self = Datastore.from_dataset(
+                self = RiverbedDatastore.from_dataset(
                     Dataset.from_dict(
                         {primary_id: range(max(id[primary_id] for id in table_ids))}
                     ),
@@ -533,7 +533,7 @@ class Datastore(Dataset):
                 self.id2idx_identity = True
             else:
                 self = self.map(
-                    Datastore._add_idx,
+                    RiverbedDatastore._add_idx,
                     with_indices=True,
                     batch_size=batch_size,
                     batched=True,
@@ -743,7 +743,7 @@ class Datastore(Dataset):
         if function is None and remove_columns is None:
             return ret
 
-        # just copy the filter function here, but use Datastore's map function.
+        # just copy the filter function here, but use RiverbedDatastore's map function.
         if len(self.list_indexes()) > 0:
             raise DatasetTransformationNotAllowedError(
                 "Using `.filter` on a dataset with attached indexes is not allowed. You can first run `.drop_index() to remove your index and then re-add it.`"
@@ -1141,19 +1141,19 @@ class Datastore(Dataset):
                 raise RuntimeError(
                     f"Datstore returned from map must have an {primary_id} column to link to views."
                 )
-            if handle_views != DataStore.PERSIST_IN_ARROW:
+            if handle_views != RiverbedDatastore.PERSIST_IN_ARROW:
                 for key in views_map:
-                    if handle_views == Datastore.UPDATE_VIEWS:
+                    if handle_views == RiverbedDatastore.UPDATE_VIEWS:
                         if val["type"] == "mmap":
                             mmap_array = np_mmap(
                                 val["path"], val["dtype"], val["shape"]
                             )
                             mmap_array[batch[primary_id]] = batch[feature]
-                    elif handle_views == Datastore.STATIC_VIEWS:
+                    elif handle_views == RiverbedDatastore.STATIC_VIEWS:
                         if key in ret:
                             del ret[key]
                 if handle_views == 2:
-                    Datastore.upsert_sql_from_batch(ret, views_map, primary_id, None)
+                    RiverbedDatastore.upsert_sql_from_batch(ret, views_map, primary_id, None)
         return ret
 
     @staticmethod
@@ -1166,9 +1166,9 @@ class Datastore(Dataset):
                 raise RuntimeError(
                     f"Datstore returned from map must have an {primary_id} column to link to views."
                 )
-            if handle_views != Datastore.PERSIST_IN_ARROW:
+            if handle_views != RiverbedDatastore.PERSIST_IN_ARROW:
                 for key in views_map:
-                    if handle_views == Datastore.UPDATE_VIEWS:
+                    if handle_views == RiverbedDatastore.UPDATE_VIEWS:
                         if val["type"] == "mmap":
                             mmap_array = np_mmap(
                                 val["path"], val["dtype"], val["shape"]
@@ -1178,7 +1178,7 @@ class Datastore(Dataset):
                         if key in ret:
                             del ret[key]
                 if handle_views == 2:
-                    Datastore.upsert_sql_from_batch(ret, views_map, primary_id, None)
+                    RiverbedDatastore.upsert_sql_from_batch(ret, views_map, primary_id, None)
         return ret
 
     #:arg handle_views: tells us how to handle views.
@@ -1215,7 +1215,7 @@ class Datastore(Dataset):
         for column in remove_columns if remove_columns is not None else []:
             if column in views_map:
                 del views_map[column]
-        if handle_views != Datastore.PERSIST_IN_ARROW:
+        if handle_views != RiverbedDatastore.PERSIST_IN_ARROW:
             fn_kwargs = {
                 "fn_kwargs": fn_kwargs,
                 "views_map": views_map,
@@ -1224,9 +1224,9 @@ class Datastore(Dataset):
                 "primary_id": self.primary_id,
             }
             if with_indices:
-                function = Datastore.map_fn_with_indices_and_handle_views
+                function = RiverbedDatastore.map_fn_with_indices_and_handle_views
             else:
-                function = Datastore.map_fn_and_handle_views
+                function = RiverbedDatastore.map_fn_and_handle_views
         if shared_dir is None:
             shared_dir = self.shared_dir
         ret = super().map(
@@ -1268,7 +1268,7 @@ class Datastore(Dataset):
         ret = super().add_column(
             name=name, column=column, new_fingerprint=new_fingerprint
         )
-        return Datastore.from_dataset(ret, self)
+        return RiverbedDatastore.from_dataset(ret, self)
 
     def class_encode_column(self, column: str) -> "Datastore":
         if not hasattr(self, "views_map"):
@@ -1276,14 +1276,14 @@ class Datastore(Dataset):
         if column in self.views_map:
             raise NotImplementedError()
         ret = super().class_encode_column(column)
-        return Datastore.from_dataset(ret, self)
+        return RiverbedDatastore.from_dataset(ret, self)
 
     @fingerprint_transform(inplace=False)
     def flatten(self, new_fingerprint, max_depth=16) -> "Datastore":
         if not hasattr(self, "views_map"):
             self.views_map = {}
         ret = super().flatten(new_fingerprint, max_depth)
-        return Datastore.from_dataset(ret, self)
+        return RiverbedDatastore.from_dataset(ret, self)
 
     def cast(
         self,
@@ -1310,7 +1310,7 @@ class Datastore(Dataset):
             writer_batch_size=writer_batch_size,
             num_proc=num_proc,
         )
-        return Datastore.from_dataset(ret, self)
+        return RiverbedDatastore.from_dataset(ret, self)
 
     #NOTE: renaming a column view mapped to a sql database will not change the name in the database.
     @fingerprint_transform(inplace=False)
@@ -1324,13 +1324,13 @@ class Datastore(Dataset):
             val = views_map[original_column_name]
             del views_map[original_column_name]
             views_map[new_column_name] = val
-            return Datastore.from_dataset(self, self, views_map=views_map)
+            return RiverbedDatastore.from_dataset(self, self, views_map=views_map)
         ret = super().rename_column(
             original_column_name=original_column_name,
             new_column_name=new_column_name,
             new_fingerprint=new_fingerprint,
         )
-        return Datastore.from_dataset(ret, self, views_map=views_map)
+        return RiverbedDatastore.from_dataset(ret, self, views_map=views_map)
 
     #NOTE: renaming a column view mapped to a sql database will not change the name in the database.
     @fingerprint_transform(inplace=False)
@@ -1346,17 +1346,17 @@ class Datastore(Dataset):
             views_map[new_column_name] = val
             del column_mapping[original_column_name]
         if not column_mapping:
-            return Datastore.from_dataset(self, self, views_map=views_map)
+            return RiverbedDatastore.from_dataset(self, self, views_map=views_map)
         ret = super().rename_column(
             column_mapping=column_mapping, new_fingerprint=new_fingerprint
         )
-        return Datastore.from_dataset(ret, self, views_map=views_map)
+        return RiverbedDatastore.from_dataset(ret, self, views_map=views_map)
 
     def prepare_for_task(self, task: Union[str, TaskTemplate]) -> "Datastore":
         if not hasattr(self, "views_map"):
             self.views_map = {}
         ret = super().prepare_for_task(task)
-        return Datastore.from_dataset(ret, self)
+        return RiverbedDatastore.from_dataset(ret, self)
 
     @transmit_format
     @fingerprint_transform(inplace=False, ignore_kwargs=["cache_file_name"])
@@ -1379,7 +1379,7 @@ class Datastore(Dataset):
             disable_nullable=disable_nullable,
             new_fingerprint=new_fingerprint,
         )
-        return Datastore.from_dataset(ret, self)
+        return RiverbedDatastore.from_dataset(ret, self)
 
     @transmit_format
     @fingerprint_transform(
@@ -1410,7 +1410,7 @@ class Datastore(Dataset):
             writer_batch_size=writer_batch_size,
             new_fingerprint=new_fingerprint,
         )
-        return Datastore.from_dataset(ret, self)
+        return RiverbedDatastore.from_dataset(ret, self)
 
     @transmit_format
     @fingerprint_transform(
@@ -1439,7 +1439,7 @@ class Datastore(Dataset):
             writer_batch_size=writer_batch_size,
             new_fingerprint=new_fingerprint,
         )
-        return Datastore.from_dataset(ret, self)
+        return RiverbedDatastore.from_dataset(ret, self)
 
     @transmit_format
     @fingerprint_transform(
@@ -1484,7 +1484,7 @@ class Datastore(Dataset):
             test_new_fingerprint=test_new_fingerprint,
         )
         for key in list(ret.keys()):
-            ret[key] = Datastore.from_dataset(ret, self)
+            ret[key] = RiverbedDatastore.from_dataset(ret, self)
         return ret
 
     @transmit_format
@@ -1493,7 +1493,7 @@ class Datastore(Dataset):
         if not hasattr(self, "views_map"):
             self.views_map = {}
         ret = super().add_item(item=item, new_fingerprint=new_fingerprint)
-        return Datastore.from_dataset(ret, self)
+        return RiverbedDatastore.from_dataset(ret, self)
 
     @transmit_format
     @fingerprint_transform(inplace=False)
@@ -1542,7 +1542,7 @@ class Datastore(Dataset):
             indices_table=indices_table,
             fingerprint=new_fingerprint,
         )
-        return Datastore.from_dataset(ret, self)
+        return RiverbedDatastore.from_dataset(ret, self)
 
     def align_labels_with_mapping(
         self, label2id: Dict, label_column: str
@@ -1552,7 +1552,7 @@ class Datastore(Dataset):
         ret = super().align_labels_with_mapping(
             label2id=label2id, label_column=label_column
         )
-        return Datastore.from_dataset(ret, self)
+        return RiverbedDatastore.from_dataset(ret, self)
 
     @staticmethod
     def from_csv(
@@ -1563,7 +1563,7 @@ class Datastore(Dataset):
         keep_in_memory: bool = False,
         **kwargs,
     ):
-        """Create Datastore from CSV file(s).
+        """Create RiverbedDatastore from CSV file(s).
         Args:
             path_or_paths (path-like or list of path-like): Path(s) of the CSV file(s).
             split (:class:`NamedSplit`, optional): Split name to be assigned to the dataset.
@@ -1577,7 +1577,7 @@ class Datastore(Dataset):
         # Dynamic import to avoid circular dependency
         from .io.csv import CsvDatasetReader
 
-        return Datastore.from_dataset(
+        return RiverbedDatastore.from_dataset(
             CsvDatasetReader(
                 path_or_paths,
                 split=split,
@@ -1598,7 +1598,7 @@ class Datastore(Dataset):
         field: Optional[str] = None,
         **kwargs,
     ):
-        """Create Datastore from JSON or JSON Lines file(s).
+        """Create RiverbedDatastore from JSON or JSON Lines file(s).
         Args:
             path_or_paths (path-like or list of path-like): Path(s) of the JSON or JSON Lines file(s).
             split (:class:`NamedSplit`, optional): Split name to be assigned to the dataset.
@@ -1613,7 +1613,7 @@ class Datastore(Dataset):
         # Dynamic import to avoid circular dependency
         from .io.json import JsonDatasetReader
 
-        return Datastore.from_dataset(
+        return RiverbedDatastore.from_dataset(
             JsonDatasetReader(
                 path_or_paths,
                 split=split,
@@ -1635,7 +1635,7 @@ class Datastore(Dataset):
         columns: Optional[List[str]] = None,
         **kwargs,
     ):
-        """Create Datastore from Parquet file(s).
+        """Create RiverbedDatastore from Parquet file(s).
         Args:
             path_or_paths (path-like or list of path-like): Path(s) of the Parquet file(s).
             split (:class:`NamedSplit`, optional): Split name to be assigned to the dataset.
@@ -1652,7 +1652,7 @@ class Datastore(Dataset):
         # Dynamic import to avoid circular dependency
         from dataset.io.parquet import ParquetDatasetReader
 
-        return Datastore.from_dataset(
+        return RiverbedDatastore.from_dataset(
             ParquetDatasetReader(
                 path_or_paths,
                 split=split,
@@ -1673,7 +1673,7 @@ class Datastore(Dataset):
         keep_in_memory: bool = False,
         **kwargs,
     ):
-        """Create Datastore from text file(s).
+        """Create RiverbedDatastore from text file(s).
         Args:
             path_or_paths (path-like or list of path-like): Path(s) of the text file(s).
             split (:class:`NamedSplit`, optional): Split name to be assigned to the dataset.
@@ -1687,7 +1687,7 @@ class Datastore(Dataset):
         # Dynamic import to avoid circular dependency
         from .io.text import TextDatasetReader
 
-        return Datastore.from_dataset(
+        return RiverbedDatastore.from_dataset(
             TextDatasetReader(
                 path_or_paths,
                 split=split,
@@ -1745,14 +1745,14 @@ class Datastore(Dataset):
             if "connection_uri" in value:
                 if "sqlite:///" in value["connection_uri"]:
                     src = value["connection_uri"].replace("sqlite:///", "")
-                    if value["connection_uri"] in Datastore.db_connection:
-                        db = Datastore.db_connection[value["connection_uri"]]
+                    if value["connection_uri"] in RiverbedDatastore.db_connection:
+                        db = RiverbedDatastore.db_connection[value["connection_uri"]]
                         db.close()
-                        del Datastore.db_connection[value["connection_uri"]]
+                        del RiverbedDatastore.db_connection[value["connection_uri"]]
                         db = None
                     for key in list(Datastore.db_table.keys()):
                         if key[1] == value["connection_uri"]:
-                            del Datastore.db_table[key]
+                            del RiverbedDatastore.db_table[key]
                     value["connection_uri"] = "sqlite:///" + Path(src).name
                 else:
                     continue
@@ -1865,7 +1865,7 @@ class Datastore(Dataset):
 
         logger.info("Dataset saved in {}".format(dataset_path))
         if move_files:
-            return Datastore.load_from_disk(
+            return RiverbedDatastore.load_from_disk(
                 dataset_path,
                 fs=fs,
             )
@@ -1908,7 +1908,7 @@ class Datastore(Dataset):
                 ret.views_map[key]["connection_uri"] = "sqlite:///" + data_path
             else:
                 ret.views_map[key]["path"] = data_path
-        return Datastore.from_dataset(ret)
+        return RiverbedDatastore.from_dataset(ret)
 
 
 class FeaturesWithViews(Features):
