@@ -640,7 +640,8 @@ def _is_contiguous(arr):
 class FileByLineIdx:
     """ A class for accessing a file by line numbers. Requires  fobj that provides a seek, and tell method.
     Optionally, the idx representing the line seek points can also be passed as line_idx_mmap filename. """
-    def __init__(self, fobj, filename, line_idx_mmap=None):
+    def __init__(self,filename,  fobj=None, line_idx_mmap=None):
+      if fobj is None: fobj = open(filename, "rb")
       if line_idx_mmap is None: 
         if not os.path.exists(filename+"_idx"):
             os.makedirs(filename+"_idx")        
@@ -822,7 +823,7 @@ class GzipByLineIdx(igzip.IndexedGzipFile):
             need_export_index = True
           else:
             kwargs['index_file'] = kwargs.pop('index_file', filename+"_idx/igzip.pickle")
-        line_idx_mmap = kwargs.pop("line_idx_mmap") 
+        line_idx_mmap = kwargs.pop("line_idx_mmap", None) 
         if line_idx_mmap is None: 
           line_idx_mmap = f"{filename}_idx/line_idx.mmap"
         self.line_idx_mmap= line_idx_mmap
