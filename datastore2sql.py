@@ -161,13 +161,13 @@ class ResultIterExt:
             rp.close()
 
 
-class TableSharded(dataset.Table):
+class TableExt(dataset.Table):
     PRIMARY_DEFAULT = "id"
 
-    """ Extends dataset.Table's functionality to be sharded across multiple sql databases.
-    Works with Datastore(s) and adds sqlite full-text-search (FTS). 
-    Sharded by the row primary id.
-    We can treat sqlite databases in a special way because they are
+    """ Extends dataset.Table's functionality to work with a RiverbedDatastore.
+    Optionally, a table can be sharded across multiple sql databases.
+    Optionally adds sqlite full-text-search (FTS). 
+    NOTE: We can treat sqlite databases in a special way because they are
     file based, and we lazy load those from a network or shared fs,
     etc.
     """
@@ -194,7 +194,6 @@ class TableSharded(dataset.Table):
             primary_increment=primary_increment,
             auto_create=auto_create,
         )
-        assert shard_defs is not None or start_row is not None
         self.auto_create = auto_create
         self.start_row = start_row
         self.end_row = end_row
@@ -321,7 +320,7 @@ class TableSharded(dataset.Table):
         """Perform a search on the table similar to
         dataset.Table.find, except: optionally gets a result only for
         specific columns by passing in _columns keyword. And
-        optionally perform full-text-search (BM25) on via a Sqlite3
+        optionally perform full-text-search (BM25) via a Sqlite3
         table.
         :arg _fts_query:
         :arg _fts_step:
@@ -773,7 +772,7 @@ class TableSharded(dataset.Table):
         )
         self.external_fts_columns[column] = (db, fts_table_name)
 
-    # sqlite3 fts manual updates. we create TableSharded level updates when we don't have actual triggers in the sqlite3 database.
+    # sqlite3 fts manual updates. we create TableExt level updates when we don't have actual triggers in the sqlite3 database.
     def update_fts(self, column, new_data=None, old_data=None, mode="insert"):
         if column != self._primary_id and column in self.external_fts_columns:
             db, fts_table_name = self.external_fts_columns[column]
@@ -788,7 +787,7 @@ class TableSharded(dataset.Table):
 
 
 class DatabaseExt(dataset.Database):
-    """A DatabaseExt textends dataset.Database and represents a SQL database with multiple tables of type TableSharded."""
+    """A DatabaseExt textends dataset.Database and represents a SQL database with multiple tables of type TableExt."""
 
     def __init__(self, *args, **kwargs):
         """Configure and connect to the database."""
@@ -1000,7 +999,7 @@ class DatabaseExt(dataset.Database):
                     end_row = shard_def['end_row']
                     break
             if table_name not in self._tables:
-                self._tables[table_name] = TableSharded(
+                self._tables[table_name] = TableExt(
                     self,
                     table_name,
                     primary_id=primary_id,
@@ -1033,6 +1032,6 @@ class DatabaseExt(dataset.Database):
                     end_row = shard_def['end_row']
                     break
             if table_name not in self._tables:
-                self._tables[table_name] = TableSharded(self, table_name, 
+                self._tables[table_name] = TableExt(self, table_name, 
                                                         start_row = start_row, end_row=end_row)
             return self._tables.get(table_name)
