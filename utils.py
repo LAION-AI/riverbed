@@ -836,7 +836,7 @@ class GzipByLineIdx(igzip.IndexedGzipFile):
           pos = self.tell()
           self.seek(0, os.SEEK_END)
           self.file_size = file_size = self.tell() 
-          if self.idx is None:
+          if not os.path.exists(self.line_idx_mmap):
             def reader(fobj, rng, max_rng, ret):
               fobj.seek(rng,0)
               pos = fobj.tell()
