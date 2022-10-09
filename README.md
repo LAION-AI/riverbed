@@ -1,5 +1,5 @@
 # riverbed
-Tools for text datamining and NLP at scale.
+Tools for content datamining and NLP at scale.
 
 ## motiviation
 Given a set of image data and/or text data in human language, or code, we would like to:
