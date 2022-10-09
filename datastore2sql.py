@@ -164,10 +164,9 @@ class ResultIterExt:
 class TableSharded(dataset.Table):
     PRIMARY_DEFAULT = "id"
 
-    """ Extends dataset.Table's functionality to work with
-    Datastore(s) and to add sqlite full-text-search (FTS). Can be a
-    view into several sharded tables in one or more databases. Sharded
-    by the row primary id.
+    """ Extends dataset.Table's functionality to be sharded across multiple sql databases.
+    Works with Datastore(s) and adds sqlite full-text-search (FTS). 
+    Sharded by the row primary id.
     We can treat sqlite databases in a special way because they are
     file based, and we lazy load those from a network or shared fs,
     etc.
@@ -185,6 +184,7 @@ class TableSharded(dataset.Table):
         start_row=None,
         end_row=None,
         fs=None,
+        cache_dir = None,
     ):
         super().__init__(
             database,
@@ -194,18 +194,11 @@ class TableSharded(dataset.Table):
             primary_increment=primary_increment,
             auto_create=auto_create,
         )
-        assert shards is not None or database is not None
+        assert shard_defs is not None or start_row is not None
         self.auto_create = auto_create
         self.start_row = start_row
-        self.start_row = end_row
-        if shard_dres:
-            shard_defs.sort(key=lambda a: a["start_row"])
-        else:
-            shard_defs = []
+        self.end_row = end_row
         self.shard_defs = shard_defs
-        self._shards = [None] * len(
-            shard_defs
-        )  # TODO - use LRU cache so we can clear out db connecitons that are old or stale
         if fs is None:
             fs = os
         self.fs = fs
@@ -213,99 +206,39 @@ class TableSharded(dataset.Table):
             cache_dir = get_temporary_cache_files_directory()
         self.cache_dir = cache_dir
         auto_create = False
-        super(PersistedRowShards).__init(shard_defs, fs)
         # TODO: automatically fill in external_fts_columns and has_fts_trigger in the _sync* methods.
         self.external_fts_columns = {}
         self.has_fts_trigger = False
 
-    def cache_shard_file(self, idx, f):
-        shard_def = self.shard_defs[idx]
-        fs = self.fs
-        dataset_path = self.cache_dir
-        if is_remote_filesystem(fs):
-            f_dataset_path = extract_path_from_uri(f)
-            data_path = Path(dataset_path, f_dataset_path)
-            fs.download(f_dataset_path, data_path.as_posix(), recursive=True)
-        next(wait_until_files_loaded(f))
-        return f
-
-    @lru_cache(100)
     def shards(self, idx):
-        shard = self._shard_by_idx(idx)
-        shard.start_row = self.shard_defs["start_row"]
-        shard.end_row = self.shard_defs["end_row"]
-        return shard
-
-    def _shard_by_idx(self, idx):
-        shard_def = self.shard_defs[idx]
-        if shard_def["database_kwargs"] and "url" in shard_def["database_kwargs"]:
-            url = shard_def["database_kwargs"]["url"]
-            if url.startswith("sqlite:///"):
-                new_path = "sqlite:///" + self.cache_shard_file(
-                    idx, url.replace("sqlite:///", "")
-                )
-                shard_def = copy.deepcopy(shard_def)
-                shard_def["database_kwargs"]["url"] = url
-        elif shard_def["database_args"]:
-            url = shard_def["database_args"]
-            if url.startswith("sqlite:///"):
-                new_path = "sqlite:///" + self.cache_shard_file(
-                    idx, url.replace("sqlite:///", "")
-                )
-                shard_def = copy.deepcopy(shard_def)
-                shard_def["database_args"] = [url]
-        return TableSharded(
-            database=DatabaseExt(
-                *shard_def["database_args"], **shard_def["database_kwargs"]
-            ),
-            table_name=self.name,
+        if idx == 0 and self.row_start == 0: return self
+        database = self.database._shard_by_idx(idx)
+        if database == self.database: return self
+        return database.get_table_shard(table_name=self.name,
             primary_id=self._primary_id,
             primary_type=self._primary_type,
             primary_increment=self._primary_increment,
             auto_create=self.auto_create,
-            start_row=shard_def["start_row"],
-            end_row=shard_def["end_row"],
-        )
-
-    def _sync_all_shards(self):
-        if self.shards_defs:
-            for idx, shard_def, shard in enumerate(self.shard_defs):
-                self.shards(idx)
+            shard_row=self.shard_def[idx]["start_row"])
 
     @property
     def exists(self):
         """Check to see if the table currently exists in the database."""
-        if self.shards:
-            self._sync_all_shards()
-            for shard in self.shards:
-                if shard.exits:
-                    return True
-            return False
-        else:
-            return super().exits
+        return super().exits
 
     @property
     def table(self):
         """Get a reference to the table, which may be reflected or created."""
-        if self.shards_defs:
-            return self.shards(0).table
-        else:
-            return super().table
+        return super().table
 
     @property
     def columns(self):
         """Get a listing of all columns that exist in the table."""
-        if self.shards_defs:
-            return self.shards(0).columns
-        else:
-            return super().columns
+        return super().columns
 
     def has_column(self, column):
         """Check if a column with the given name exists on this table."""
-        if self.shards_defs:
-            return self.shards(0).has_column(column)
-        else:
-            return super().has_column(column)
+        return super().has_column(column)
 
     def create_column(self, name, type, **kwargs):
         """Create a new column ``name`` of a specified type.
@@ -322,7 +255,7 @@ class TableSharded(dataset.Table):
         if self.shards_defs:
             for idx in range(len(self.shards_defs)):
                 shard = self.shards(idx)
-                shard.create_column(name, type, **kwargs)
+                super(shard).create_column(name, type, **kwargs)
         else:
             super().create_column(name, type, **kwargs)
 
@@ -339,7 +272,7 @@ class TableSharded(dataset.Table):
         if self.shards_defs:
             for idx in range(len(self.shards_defs)):
                 shard = self.shards(idx)
-                shard.create_column_by_example(name, value)
+                super(shard).create_column_by_example(name, value)
         else:
             super().create_column_by_example(name, value)
 
@@ -352,7 +285,7 @@ class TableSharded(dataset.Table):
         if self.shards_defs:
             for idx in range(len(self.shards_defs)):
                 shard = self.shards(idx)
-                shard.drop_column(column)
+                super(shard).drop_column(column)
         else:
             super().drop_column(column)
 
@@ -363,20 +296,13 @@ class TableSharded(dataset.Table):
         if self.shards_defs:
             for idx in range(len(self.shards_defs)):
                 shard = self.shards(idx)
-                shard.drop()
+                super(shard).drop()
         else:
             super().drop()
 
     def has_index(self, columns):
         """Check if an index exists to cover the given ``columns``."""
-        if self.shards_defs:
-            for idx in range(len(self.shards_defs)):
-                shard = self.shards(idx)
-                if shard.has_index(columns):
-                    return True
-            return False
-        else:
-            return super().has_index(columns)
+        return super().has_index(columns)
 
     def create_index(self, columns, name=None, **kw):
         """Create an index to speed up queries on a table.
@@ -387,7 +313,7 @@ class TableSharded(dataset.Table):
         if self.shards_defs:
             for idx in range(len(self.shards_defs)):
                 shard = self.shards(idx)
-                shard.create_index(columns, name, **kw)
+                super(shard).create_index(columns, name, **kw)
         else:
             super().create_index(columns, name, **kw)
 
@@ -421,15 +347,7 @@ class TableSharded(dataset.Table):
         if not self.exists:
             return iter([])
 
-        if self.shards:
-            self._sync_all_shards()
-            if "_count" in kwargs:
-                return sum(
-                    shard
-                    for shard in sellf.find(
-                        *copy.deepcopy(_clauses), **copy.deepcopy(kwargs)
-                    )
-                )
+        if self.shards_defs and 'dont_recurse_in_shards' not in kwargs:
             if self._primary_id in kwargs:
                 # do the case where we have specific id ranges. we pass in the queries by row id.
                 ids = kwars[self._primary_id]["in"]
@@ -454,12 +372,12 @@ class TableSharded(dataset.Table):
                             kwargs_shard = copy.deepcopy(kwargs)
                             kwargs_shard[self._primary_id] = {"in": curr_ids}
                             if not ret:
-                                ret = self.shards(shard_idx).find(
+                                ret = self.shards(shard_idx).find(dont_recurse_in_shards=True,
                                     *copy.deepcopy(_clauses), **kwargs_shard
                                 )
                             else:
                                 ret.extend(
-                                    self.shards(shard_idx).find(
+                                    self.shards(shard_idx).find(dont_recurse_in_shards=True,
                                         *copy.deepcopy(_clauses), **kwargs_shard
                                     )
                                 )
@@ -470,32 +388,35 @@ class TableSharded(dataset.Table):
                     kwargs_shard = copy.deepcopy(kwargs)
                     kwargs_shard[self._primary_id] = {"in": curr_ids}
                     if not ret:
-                        ret = self.shards(shard_idx).find(
+                        ret = self.shards(shard_idx).find(dont_recurse_in_shards=True,
                             *copy.deepcopy(_clauses), **kwargs_shard
                         )
                     else:
                         ret.extend(
-                            self.shards(shard_idx).find(
+                            self.shards(shard_idx).find(dont_recurse_in_shards=True,
                                 *copy.deepcopy(_clauses), **kwargs_shard
                             )
                         )
+                if "_cnt" in kwargs: return sum(ret)
                 return ret
             else:
                 ret = []
                 for idx in range(len(self.shards_defs)):
                     shard = self.shards(idx)
                     if not ret:
-                        ret = shard.find(
+                        ret = shard.find(dont_recurse_in_shards=True,
                             *copy.deepcopy(_clauses), **copy.deepcopy(kwargs)
                         )
                     else:
                         ret.extend(
-                            shard.find(
+                            shard.find(dont_recurse_in_shards=True,
                                 *copy.deepcopy(_clauses), **copy.deepcopy(kwargs)
                             )
                         )
+                if "_cnt" in kwargs: return sum(ret)
                 return ret
-
+            
+        #base case (no scattering to the shards)
         _fts_query = kwargs.pop("_fts_query", None)
         _count = kwargs.pop("_count", None)
         _fts_step = kwargs.pop("_fts_step", QUERY_STEP)
@@ -603,13 +524,13 @@ class TableSharded(dataset.Table):
         row_type_fn = self.db.row_type
         if id2rank:
             fts_results = list(id2rank.items())
-            fts_results.sort(key=lambda a: a[0])
+            fts_results.sort(key=lambda a: a[1])
             len_fts_results = len(fts_results)
             total_cnt = 0
             for rng in range(0, len_fts_results, _fts_step):
                 max_rng = min(len_fts_results, rng + _fts_step)
                 kwargs[self._primary_id] = {
-                    "in": [int(a[1]) for a in fts_results[rng:max_rng]]
+                    "in": [int(a[0]) for a in fts_results[rng:max_rng]]
                 }
                 args = self._args_to_clause(kwargs, clauses=_clauses)
 
@@ -871,8 +792,23 @@ class DatabaseExt(dataset.Database):
 
     def __init__(self, *args, **kwargs):
         """Configure and connect to the database."""
+        database_naming_fn = None if 'database_naming_fn' not in kwargs else kwargs.pop('database_naming_fn')
+        shard_defs = None if 'shard_defs' not in kwargs else kwargs.pop('shard_defs')
+        lock  = None if 'lock' not in kwargs else kwargs.pop('lock')
         super().__init__(*args, **kwargs)
+        self.database_naming_fn = database_naming_fn
+        self.shard_defs = shard_defs
+        if lock is not None:
+            self.lock = lock
+        if shard_defs:
+            shard_defs.sort(key=lambda a: a["start_row"])
+            kwargs['database_naming_fn'] = database_naming_fn
+            kwargs['shard_defs'] = shard_defs
+            kwargs['lock'] = self.lock
+            self.database_args = args
+            self.database_kwargs = kwargs
 
+                
     def create_fts_index(
         self, fts_table_name, stemmer, column, table_name=None, primary_id="id"
     ):
@@ -961,10 +897,68 @@ class DatabaseExt(dataset.Database):
                     for key in list(data.keys()):
                         if key not in ("rowid", column):
                             del data[key]
-                    fts_table.insert_many(new_data)
+                fts_table.insert_many(new_data)
 
+    
+    @lru_cache(100)
+    def shards(self, idx):
+        shard = self._shard_by_idx(idx)
+        return shard
+
+    def _shard_by_idx(self, idx):
+        shard_def = self.shard_defs[idx]
+        if shard_def["start_row"]  == self.start_row and shard_def["end_row"]  == self.end_row: return self 
+        return DatabaseExt(table_name=self.name,
+            primary_id=self._primary_id,
+            primary_type=self._primary_type,
+            primary_increment=self._primary_increment,
+            auto_create=self.auto_create,
+            start_row=shard_def["start_row"],
+            end_row=shard_def["end_row"])
+        
+        #if this is multi-threaded, we may need to do some locking so we don't download twice
+        database_kwargs = self.database_kwargs
+        database_args = self.database_args
+        old_url = None
+        if database_kwargs and "url" in database_kwargs:
+            old_url = url = database_kwargs["url"]
+            if self.database_naming_fn:
+                url = self.database_naming_fn(idx, url)
+            else:
+                url = url.split(".")
+                if len(url) == 1:
+                    url[-1] = url[-1]+f"_{idx}"
+                else:    
+                    url[-2] = url[-2]+f"_{idx}"
+                url = ".".join(url)
+            if url.startswith("sqlite:///"):
+                new_path = "sqlite:///" + self.cache_shard_file(
+                    idx, url.replace("sqlite:///", "")
+                )
+                database_kwargs["url"] = url
+        elif database_args:
+            old_url = url = database_args[0]
+            if url.startswith("sqlite:///"):
+                new_path = "sqlite:///" + self.cache_shard_file(
+                    idx, url.replace("sqlite:///", "")
+                )
+                database_args[0] = url
+        database = DatabaseExt(
+                *database_args, **database_kwargs
+            )
+        if old_url is not None:
+          if database_kwargs and "url" in database_kwargs:
+            database_kwargs["url"] = old_url
+          else:
+            database_args[0] = old_url
+
+    def _sync_all_shards(self):
+        if self.shards_defs:
+            for idx, shard_def, shard in enumerate(self.shard_defs):
+                self.shards(idx)
+                
     def create_table(
-        self, table_name, primary_id=None, primary_type=None, primary_increment=None
+        self, table_name, primary_id=None, primary_type=None, primary_increment=None, shard_row=0, 
     ):
         """Create a new table.
         Either loads a table or creates it if it doesn't exist yet. You can
@@ -994,7 +988,17 @@ class DatabaseExt(dataset.Database):
             primary_type, str
         ), "Text-based primary_type support is dropped, use db.types."
         table_name = normalize_table_name(table_name)
+       
         with self.lock:
+            start_row = end_row = None
+            if self.shard_defs is not None and shard_row != self.row_start:
+              for idx in range(len(self.shards_defs)):
+                 shard_def = shard_defs[idx]
+                 if shard_def['row_start'] <= shard_row and shard_row <= shard_def['row_end']:
+                    self = self.shards(idx)
+                    start_row = shard_def['start_row']
+                    end_row = shard_def['end_row']
+                    break
             if table_name not in self._tables:
                 self._tables[table_name] = TableSharded(
                     self,
@@ -1003,10 +1007,12 @@ class DatabaseExt(dataset.Database):
                     primary_type=primary_type,
                     primary_increment=primary_increment,
                     auto_create=True,
+                    start_row = start_row,
+                    end_row =  end_row
                 )
             return self._tables.get(table_name)
 
-    def load_table(self, table_name):
+    def load_table(self, table_name, shard_row=0):
         """Load a table.
         This will fail if the tables does not already exist in the database. If
         the table exists, its columns will be reflected and are available on
@@ -1017,6 +1023,16 @@ class DatabaseExt(dataset.Database):
         """
         table_name = normalize_table_name(table_name)
         with self.lock:
+            start_row = end_row = None
+            if self.shard_defs is not None and shard_row != self.row_start:
+              for idx in range(len(self.shards_defs)):
+                 shard_def = shard_defs[idx]
+                 if shard_def['row_start'] <= shard_row and shard_row <= shard_def['row_end']:
+                    self = self.shards(idx)
+                    start_row = shard_def['start_row']
+                    end_row = shard_def['end_row']
+                    break
             if table_name not in self._tables:
-                self._tables[table_name] = TableSharded(self, table_name)
+                self._tables[table_name] = TableSharded(self, table_name, 
+                                                        start_row = start_row, end_row=end_row)
             return self._tables.get(table_name)
