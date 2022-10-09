@@ -20,6 +20,7 @@ class RiverbedIndexer(IndexerMixin):
                 running_features_size=100, label2term_frequency=None, document_frequency=None, domain_stopwords_set=stopwords_set,\
                 use_synonym_replacement=False, ):
     super().__init__()
+    self.project_name = project_name
     self.idx = start_idx
     self.embed_search_field = embed_search_field
     self.bm25_field = bm25_field
@@ -298,23 +299,24 @@ class RiverbedIndexer(IndexerMixin):
       
           
     span2idx, span_clusters, label2term_frequency, document_frequency, span2cluster_label = self.span2idx, self.span_clusters, self.label2term_frequency, self.document_frequency, self.span2cluster_label                    
-    self.searcher = searcher.switch_search_context(project_name, data_iterator=data_iterator, search_field="tokenized_text", bm25_field="text", embedder=embedder, \
+    self.searcher = self.searcher.switch_search_context(self.project_name, data_iterator=data_iterator, search_field="tokenized_text", bm25_field="text", embedder=embedder, \
                              auto_embed_text=True, auto_create_bm25_idx=True, auto_create_embeddings_idx=True)
     
     #TODO: cleanup label2term_frequency, document_frequency
     return self
 
   def gzip_jsonl_file(self):
-    if not os.path.exists(f"{project_name}/spans.jsonl"):
-      os.system(f"gzip {project_name}/spans.jsonl")
-    GzipFileByLine(f"{project_name}/spans.jsonl")
+    if not os.path.exists(f"{self.project_name}/spans.jsonl"):
+      os.system(f"gzip {self.project_name}/spans.jsonl")
+    GzipFileByLineIdx(f"{self.project_name}/spans.jsonl.gz")
     
-  def save_pretrained(self, tokenizer_name):
-      os.system(f"mkdir -p {tokenizer_name}")
-      pickle.dump(self, open(f"{tokenizer_name}/{tokenizer_name}.pickle", "wb"))
+  def save_pretrained(self, project_name=None):
+      if project_name is None: project_name = self.project_name
+      os.system(f"mkdir -p {project_name}")
+      pickle.dump(self, open(f"{project_name}/indexer.pickle", "wb"))
     
   @staticmethod
-  def from_pretrained(tokenizer_name):
-      self = pickle.load(open(f"{tokenizer_name}/{tokenizer_name}.pickle", "rb"))
+  def from_pretrained(project_name):
+      self = pickle.load(open(f"{project_name}/indexer.pickle", "rb"))
       return self
 
