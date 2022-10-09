@@ -639,19 +639,14 @@ def _is_contiguous(arr):
 
 class FileByLineIdx:
     """ A class for accessing a file by line numbers. Requires  fobj that provides a seek, and tell method.
-    Optionally, the idx representing the line seek points can also be passed as line_idx_mmap filename. """
-    def __init__(self,filename,  fobj=None, line_idx_mmap=None):
-      if fobj is None: fobj = open(filename, "rb")
-      if line_idx_mmap is None: 
-        if not os.path.exists(filename+"_idx"):
-            os.makedirs(filename+"_idx")        
-        line_idx_mmap = f"{filename}_idx/line_idx.mmap"
-      self.line_idx_mmap= line_idx_mmap
+    Optionally, the dat representing the line seek points can also be passed as dat. """
+    def __init__(self, fobj, dat=None):
+      self.dat = dat
       self.fobj = fobj
       pos = fobj.tell()
       fobj.seek(0, os.SEEK_END)
       self.file_size = file_size = fobj.tell() 
-      if os.path.exists(self.line_idx_mmap):
+      if self.dat is not None:
         fobj.seek(pos,0)
       else:
         def reader(fobj, rng, max_rng, ret):
@@ -675,25 +670,20 @@ class FileByLineIdx:
           worker.start()
         for worker in workers:
           worker.join()
-        line2seekpoint = [0]+list(itertools.chain(*line_nums))
-        self._len = len(line2seekpoint)
-        np_mmap(self.line_idx_mmap, dtype=np.int64, shape=(len(self)))[:] = line2seekpoint
-        
+        self.dat = [0]+list(itertools.chain(*line_nums))
         fobj.seek(pos,0)
   
-    def __len__(self): return self._len
-    
+
     def __iter__(self):
         fobj = self.fobj
         len_self = len(self)
-        line_idx = np_mmap(self.line_idx_mmap, dtype=np.int64, shape=(len(self)))
         for start in range(0, len_self, 1000):
           end = min(len_self, start+1000)
-          start = line_idx[start]
+          start = self.dat[start]
           if end == len_self:
             end = self.file_size
           else:
-            end= line_idx[end]-1
+            end= self.dat[end]-1
           ret = []
           pos = self.tell()
           fobj.seek(start, 0)
@@ -702,10 +692,12 @@ class FileByLineIdx:
           for line in ret:
             yield line
 
+    def __len__(self):
+        return len(self.dat)
+
     def __getitem__(self, keys):
         fobj = self.fobj
         start, end = None, None
-        line_idx = np_mmap(self.line_idx_mmap, dtype=np.int64, shape=(len(self)))
         if isinstance(keys, int):
           contiguous = False
         else:
@@ -716,25 +708,25 @@ class FileByLineIdx:
           end = len(self) if keys.stop is None else keys.stop
 
         if contiguous:
-          start = line_idx[start]
-          if end >= len(self):
+          start = self.dat[start]
+          if end >= len(self.dat):
             end = self.file_size
           else:
-            end= line_idx[end+1]-1
+            end= self.dat[end+1]-1
           pos = fobj.tell()
           fobj.seek(start, 0)
           ret= fobj.read(end-start).split(b'\n')
           fobj.seek(pos, 0)
           return ret
         elif isinstance(keys, int):
-          start = line_idx[keys]
+          start = self.dat[keys]
           pos = fobj.tell()
           fobj.seek(start, 0)
           ret= fobj.readline()
           fobj.seek(pos, 0)
           return ret
         else:
-          return [self[i] for i in keys]
+          return [self[idx] for idx in keys]
 
 
 def _unpickle_gzip_by_line(state):
@@ -779,7 +771,7 @@ class GzipByLineIdx(igzip.IndexedGzipFile):
         with an open file handle (``fileobj``), or with a ``filename``. If the
         former, the file must have been opened in ``'rb'`` mode.
         .. note:: The ``auto_build`` behaviour only takes place on calls to
-          :meth:`seek`.
+                  :meth:`seek`.
         :arg filename:         File name or open file handle.
         :arg fileobj:          Open file handle.
         :arg mode:             Opening mode. Must be either ``'r'`` or ``'rb``.
@@ -808,7 +800,7 @@ class GzipByLineIdx(igzip.IndexedGzipFile):
                                Passed through to
                                ``io.BufferedReader.__init__``. If not provided,
                                a default value of 1048576 is used.
-        :arg line_idx_mmap:             Optional, must be passed as a keyword argument.
+        :arg line2seekpoint:      Optional, must be passed as a keyword argument.
                                If not passed, this will automatically be created.                               
         """
         filename = kwargs.get("filename") 
@@ -823,13 +815,11 @@ class GzipByLineIdx(igzip.IndexedGzipFile):
             need_export_index = True
           else:
             kwargs['index_file'] = kwargs.pop('index_file', filename+"_idx/igzip.pickle")
-        line_idx_mmap = kwargs.pop("line_idx_mmap", None) 
-        if line_idx_mmap is None: 
-          line_idx_mmap = f"{filename}_idx/line_idx.mmap"
-        self.line_idx_mmap= line_idx_mmap
+        
         if 'file_size' in kwargs:
           file_size = self.file_size = kwargs.pop('file_size', None)
           need_export_index = False
+        self.line2seekpoint  = kwargs.pop('line2seekpoint', None)
         if need_export_index and 'auto_build' not in kwargs: kwargs['auto_build'] = True
         super(GzipByLineIdx, self).__init__(*args, **kwargs)
         if not hasattr(self, 'file_size'):
@@ -837,7 +827,7 @@ class GzipByLineIdx(igzip.IndexedGzipFile):
           pos = self.tell()
           self.seek(0, os.SEEK_END)
           self.file_size = file_size = self.tell() 
-          if not os.path.exists(self.line_idx_mmap):
+          if self.line2seekpoint is None:
             def reader(fobj, rng, max_rng, ret):
               fobj.seek(rng,0)
               pos = fobj.tell()
@@ -860,9 +850,7 @@ class GzipByLineIdx(igzip.IndexedGzipFile):
               worker.start()
             for worker in workers:
               worker.join()
-            line2seekpoint = [0]+list(itertools.chain(*line_nums))
-            self._len = len(line2seekpoint)
-            np_mmap(self.line_idx_mmap, dtype=np.int64, shape=(len(self)))[:] = line2seekpoint
+            self.line2seekpoint = [0]+list(itertools.chain(*line_nums))
         if filename and need_export_index: 
           self.export_index(filename+"_idx/igzip.pickle")
 
@@ -882,6 +870,10 @@ class GzipByLineIdx(igzip.IndexedGzipFile):
                 'with an open file object, or that has been created '
                 'with drop_handles=False')
 
+        # export and serialise the index if
+        # any index points have been created.
+        # The index data is serialised as a
+        # bytes object.
         if fobj.npoints == 0:
             index = None
 
@@ -898,8 +890,8 @@ class GzipByLineIdx(igzip.IndexedGzipFile):
             'readbuf_size'     : fobj.readbuf_size,
             'readall_buf_size' : fobj.readall_buf_size,
             'buffer_size'      : self._IndexedGzipFile__buffer_size,
-            'line_idx_mmap'         : self.line_idx_mmap,
-            'file_size'        : self.file_size,
+            'line2seekpoint'   : self.line2seekpoint,
+            'file_size'   : self.file_size,
             'tell'             : self.tell(),
             'index'            : index}
 
@@ -908,14 +900,13 @@ class GzipByLineIdx(igzip.IndexedGzipFile):
     
     def __iter__(self):
         len_self = len(self)
-        line_idx = np_mmap(self.line_idx_mmap, dtype=np.int64, shape=(len(self)))
         for start in range(0, len_self, 1000):
           end = min(len_self, start+1000)
-          start = line_idx[start]
+          start = self.line2seekpoint[start]
           if end == len_self:
             end = self.file_size
           else:
-            end= line_idx[end]-1
+            end= self.line2seekpoint[end]-1
           ret = []
           with self._IndexedGzipFile__file_lock:
             pos = self.tell()
@@ -926,11 +917,10 @@ class GzipByLineIdx(igzip.IndexedGzipFile):
             yield line
 
     def __len__(self):
-        return self._len
+        return len(self.line2seekpoint)
 
     def __getitem__(self, keys):
         start, end = None, None
-        line_idx = np_mmap(self.line_idx_mmap, dtype=np.int64, shape=(len(self)))
         if isinstance(keys, int):
           contiguous = False
         else:
@@ -941,11 +931,11 @@ class GzipByLineIdx(igzip.IndexedGzipFile):
           end = len(self) if keys.stop is None else keys.stop
 
         if contiguous:
-          start = line_idx[start]
-          if end >= len(self):
+          start = self.line2seekpoint[start]
+          if end >= len(self.line2seekpoint):
             end = self.file_size
           else:
-            end= line_idx[end+1]-1
+            end= self.line2seekpoint[end+1]-1
           with self._IndexedGzipFile__file_lock:
             pos = self.tell()
             self.seek(start, 0)
@@ -953,7 +943,7 @@ class GzipByLineIdx(igzip.IndexedGzipFile):
             self.seek(pos, 0)
             return ret
         elif isinstance(keys, int):
-          start = line_idx[keys]
+          start = self.line2seekpoint[keys]
           with self._IndexedGzipFile__file_lock:
             pos = self.tell()
             self.seek(start, 0)
@@ -961,7 +951,7 @@ class GzipByLineIdx(igzip.IndexedGzipFile):
             self.seek(pos, 0)
             return ret
         else:
-          return [self[i] for i in keys]
+          return [self[idx] for idx in keys]
     
     @staticmethod
     def open(filename):
@@ -969,4 +959,3 @@ class GzipByLineIdx(igzip.IndexedGzipFile):
           return GzipByLineIdx(filename, index_file=filename+"_idx/index.pickle")
        else:
           return GzipByLineIdx(filename) 
-
