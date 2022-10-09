@@ -328,7 +328,7 @@ class SearcherIndexer(nn.Module):
         if filename.endswith(".gz"):
           content_data_store = GzipByLineIdx.open(filename)
         else:
-          content_data_store =  FileByLineIdx(fobj=open(filename, "rb"))  
+          content_data_store =  FileByLineIdx(fobj=open(filename, "rb"), filename=filename)  
     self.content_data_store = content_data_store 
     if downsampler is None:
       model_embed_dim = get_model_embed_dim(embedder)
@@ -816,6 +816,7 @@ class SearcherIndexer(nn.Module):
           self.content_data_store = GzipByLineIdx.open(filename)
         elif type(self.content_data_store) is FileByLineIdx:
           self.content_data_store.fobj=open(filename, "rb")
+          self.line_idx_mmap = f"{idx_dir}/line_idx.mmap"
       self.downsampler.eval().to(device)
       if self.clusters: self.recreate_parents_data()
       if self.prototype_sentences and self.prototypes is None: 
