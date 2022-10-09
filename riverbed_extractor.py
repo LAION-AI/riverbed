@@ -40,8 +40,15 @@ import tqdm
 import gzip
 import multiprocessing
 from torch import nn
+import langid
 from .utils import *
 from .searcher_indexer import *
+from .char_manager import junk, special_char
+from .stopwords import stopwords as all_stopwords
+from .langid_manager import *
+from .banned_words import banned_words
+from .flagged_words import flagged_words
+from .cjk import lang_is_cjk
 
 if torch.cuda.is_available():
   device = 'cuda'
@@ -54,7 +61,176 @@ try:
 except:
    labse_tokenizer= labse_model=  clip_processor = minilm_tokenizer= clip_model= minilm_model= spacy_nlp= stopwords_set = None
 
+import sys, os
+import itertools
+try:
+    sys.path.append(os.path.abspath(os.path.dirname(__file__)))         
+except:
+    pass
 
+
+_lang_2_max_stopword_len = dict([(lang, max(s.count(" ")+1 if not lang_is_cjk(lang) else len(s) for s in arr)) for lang, arr in all_stopwords.items()])
+_lang_2_max_bannedword_len = dict([(lang, max(s.count(" ")+1 if not lang_is_cjk(lang) else len(s) for s in arr)) for lang, arr in banned_words.items()])
+_lang_2_max_flaggedword_len = dict([(lang, max(s.count(" ")+1 if not lang_is_cjk(lang) else len(s) for s in arr)) for lang, arr in flagged_words.items()])
+
+def extract_junk_ratio(self, data, infield, outfield):
+    s = data[infield]
+    s = s.lower().strip()
+    len_s = len(s)
+    if len_s == 0: return data
+    data[outfield] = len([s2 for s2 in s if s2 in junk])/len(s)
+    return data
+  
+def extract_stopword_ratio(self, data, infield, outfield):  
+    if hasattr(self, 'src_lang'):
+      src_lang = self.src_lang
+    else:
+      src_lang='en'
+    s = data[infield]
+    s = s.lower().strip()
+    len_s = len(s)
+    if len_s == 0: 
+      data[outfield] = 0
+      return data 
+    if lang_is_cjk(src_lang):
+      s_arr = s
+    else:
+      s_arr = [s2.strip(special_char) for s2 in s.lower().split() if s2.strip(special_char)]
+        
+    stop_cnt = total_cnt = 1
+    if not stopwords:
+        data[outfield] = 0
+        return data 
+    else:
+        word_len = lang_2_max_stopword_len.get(src_lang, max_word_len)
+        len_s = len(s_arr)
+        stop_cnt = 0
+        total_cnt = 0
+        for i in range(len_s):
+          if s_arr[i] is None: continue
+          for j in range(min(len_s, i+word_len), i, -1):
+            word = "".join(s_arr[i:j]) if is_cjk else " ".join(s_arr[i:j])
+            if word in stopwords:
+              stop_cnt += 1
+              s_arr[i] = "".join(s_arr[i:j]) if is_cjk else " ".join(s_arr[i:j]) 
+              for k in range(i+1, j):
+                s_arr[k] = None
+              break
+          total_cnt += 1
+        data[outfield] =  (stop_cnt/total_cnt) 
+        return data
+
+def extract_flaggedwords_ratio(self, data, infield, outfield, ):
+        if hasattr(self, 'lang_groups'):
+          lang_groups = self.lang_groups
+        else:
+          lang_groups=[]  
+        if hasattr(self, '_bannedwords'):
+          _bannedwords = self._bannedwords
+        else:
+          _bannedwords = self._bannedwords = set(list(itertools.chain(*[list(banned_words.get(lang, [])) for lang in list(lang_groups)+['en']])))
+        if hasattr(self, '_flaggedwords'):
+          _flaggedwords = self._flaggedwords 
+        else:
+          _flaggedwords = self._flaggedwords = set(list(itertools.chain(*[list(flagged_words.get(lang, [])) for lang in list(lang_groups)+['en']])))
+        if hasattr(self, 'src_lang'):
+          src_lang = self.src_lang
+        else:
+          src_lang='en'
+        s = data[infield]
+        s = s.lower().strip()
+        len_s = len(s)
+        if len_s == 0: return 0
+        if lang_is_cjk(src_lang):
+          s_arr = s
+        else:
+          s_arr = [s2.strip(special_char) for s2 in s.lower().split() if s2.strip(special_char)]
+        b_cnt = 0
+        f_cnt = 0
+        total_cnt = 0
+        for i in range(len_s):
+          if s_arr[i] is None: continue
+          word_len = max_flagged_banned_word_len
+          for j in range(min(len_s, i+word_len),i,-1):
+            word = "".join(s_arr[i:j]) if is_cjk else " ".join(s_arr[i:j])
+            is_flagged = word in _flaggedwords
+            is_banned = word in _bannedwords
+            if is_flagged or is_banned:
+              if is_flagged: f_cnt += 1
+              if is_banned: b_cnt += 1
+              s_arr[i] =  word
+              for k in range(i+1, j):
+                s_arr[k] = None
+          total_cnt += 1
+        data[outfield] = (f_cnt/total_cnt) *  (1+(1000*b_cnt/total_cnt))
+        return data
+         
+def extract_langid(self, data, infield, outfield):
+      line = data[infield]
+      lang =  langid.classify(line)
+      if lang:
+        lang = lang[0]
+      else:
+        lang = "en"
+      data[outfiled] = lang
+      return data
+    
+
+def extract_ents(self, data, infield, outfield):
+    line = data[infield]
+    curr_ents = list(itertools.chain(*[[(e.text, e.label_)] if '||' not in e.text else [(e.text.split("||")[0].strip(), e.label_), (e.text.split("||")[-1].strip(), e.label_)] for e in spacy_nlp(line).ents]))
+    curr_ents = list(set([e for e in curr_ents if e[0]]))
+    curr_ents.sort(key=lambda a: len(a[0]), reverse=True)
+    ent_cnts = Counter(v[1].lower()+"_cnt" for v in curr_ents)
+    for feature_label, cnt in ent_cnts.items():
+          data[feature_label] = cnt
+    data[outfield] = curr_ents
+    return data
+  
+def extract_intro_with_date(self, data, infield, outfield):
+      text, position, ents = data[infield], data['position'], data['ents']
+      if position < 0.05 and text.strip() and (len(text) < 50 and text[0] not in "0123456789" and text[0] == text[0].upper() and text.split()[-1][0] == text.split()[-1][0].upper()):
+        date = [e[0] for e in ents if e[1] == 'DATE']
+        if date: 
+          date = date[0]
+          date = self.dateutil_parse_ext(date)
+        if  date: 
+          data[outfield] = 'intro: date of '+ date +"; "+text + " || "
+        else:
+          data[outfield] = 'intro: ' +text + " || "
+      return data
+    
+def extract_section_with_date(self, data, infield, outfield):
+      text, position, ents = data[infield], data['position'], data['ents']
+      if  position >= 0.05 and position < 0.95 and text.strip() and (len(text) < 50 and text[0] not in "0123456789" and text[0] == text[0].upper() and text.split()[-1][0] == text.split()[-1][0].upper()):
+        date = [e[0] for e in ents if e[1] == 'DATE']
+        if date: 
+          date = date[0]
+          date = self.dateutil_parse_ext(date)
+        if  date: 
+          data[outfield] =  'section: date of '+ date +"; "+text + " || "
+        else:
+          data[outfield] =   'section: ' +text + " || "
+      return data
+
+def extract_conclusion_with_date(self, data, infield, outfield):
+      text, position, ents = data[infield], data['position'], data['ents']
+      if  position >= 0.95 and text.strip() and (len(text) < 50 and text[0] not in "0123456789" and text[0] == text[0].upper() and text.split()[-1][0] == text.split()[-1][0].upper()):
+        date = [e[0] for e in ents if e[1] == 'DATE']
+        if date: 
+          date = date[0]
+          date = self.dateutil_parse_ext(date)
+        if  date: 
+          return 'conclusion: date of '+ date +"; "+text + " || "
+        else:
+          return 'conclusion: ' +text + " || "
+      return data
+    
+def extract_perplexity(self,data, infield, outfield):
+     data[outfield] = self.get_perplexity(data[infield])
+     return data
+  
+  
 #################################################################################
 #FEATURE EXRACTORS
 #Given a corpus, create feature detectors
@@ -80,59 +256,6 @@ class RiverbedFeatureExtractorModel(nn.Module):
   def forward(self, *args,**kwargs):
     return self.searcher(*args, **kwargs)
 
-  def extract_ents(self, data, infield, outfield):
-    line = data[infield]
-    curr_ents = list(itertools.chain(*[[(e.text, e.label_)] if '||' not in e.text else [(e.text.split("||")[0].strip(), e.label_), (e.text.split("||")[-1].strip(), e.label_)] for e in spacy_nlp(line).ents]))
-    curr_ents = list(set([e for e in curr_ents if e[0]]))
-    curr_ents.sort(key=lambda a: len(a[0]), reverse=True)
-    ent_cnts = Counter(v[1].lower()+"_cnt" for v in curr_ents)
-    for feature_label, cnt in ent_cnts.items():
-          data[feature_label] = cnt
-    data[outfield] = curr_ents
-    return data
-  
-  def extract_intro_with_date(self, data, infield, outfield):
-      text, position, ents = data[infield], data['position'], data['ents']
-      if position < 0.05 and text.strip() and (len(text) < 50 and text[0] not in "0123456789" and text[0] == text[0].upper() and text.split()[-1][0] == text.split()[-1][0].upper()):
-        date = [e[0] for e in ents if e[1] == 'DATE']
-        if date: 
-          date = date[0]
-          date = self.dateutil_parse_ext(date)
-        if  date: 
-          data[outfield] = 'intro: date of '+ date +"; "+text + " || "
-        else:
-          data[outfield] = 'intro: ' +text + " || "
-      return data
-    
-  def _section_with_date(self,data, infield, outfield):
-      text, position, ents = data[infield], data['position'], data['ents']
-      if  position >= 0.05 and position < 0.95 and text.strip() and (len(text) < 50 and text[0] not in "0123456789" and text[0] == text[0].upper() and text.split()[-1][0] == text.split()[-1][0].upper()):
-        date = [e[0] for e in ents if e[1] == 'DATE']
-        if date: 
-          date = date[0]
-          date = self.dateutil_parse_ext(date)
-        if  date: 
-          data[outfield] =  'section: date of '+ date +"; "+text + " || "
-        else:
-          data[outfield] =   'section: ' +text + " || "
-      return data
-
-  def extract_conclusion_with_date(self, data, infield, outfield):
-      text, position, ents = data[infield], data['position'], data['ents']
-      if  position >= 0.95 and text.strip() and (len(text) < 50 and text[0] not in "0123456789" and text[0] == text[0].upper() and text.split()[-1][0] == text.split()[-1][0].upper()):
-        date = [e[0] for e in ents if e[1] == 'DATE']
-        if date: 
-          date = date[0]
-          date = self.dateutil_parse_ext(date)
-        if  date: 
-          return 'conclusion: date of '+ date +"; "+text + " || "
-        else:
-          return 'conclusion: ' +text + " || "
-      return data
-    
-  def extract_perplexity(self,data, infield, outfield):
-     data[outfield] = self.get_perplexity(data[infield])
-     return data
   
   # for extracting a prefix for a segment of text. a segment can contain multiple spans.
   # the prefixes are used to create more informative embeddings for a span.
