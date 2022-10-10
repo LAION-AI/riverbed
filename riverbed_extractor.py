@@ -86,7 +86,8 @@ def extract_compound_ratio(self, data, infield, outfield):
     s = s.lower().strip()
     len_s = len(s)
     if len_s == 0: return data
-    data[outfield] = sum([0 if "_" not in s2 else s2.count("_")**2 for s2 in s if s2 in junk])/len(s)
+    s = s.split()
+    data[outfield] = sum([0 if "_" not in s2 else s2.count("_")**2 for s2 in s])/len(s)
     return data
   
 def extract_stopword_ratio(self, data, infield, outfield):  
