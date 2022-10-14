@@ -42,7 +42,18 @@ import multiprocessing
 import math 
 import json
 from dateutil.parser import parse as dateutil_parse
+import seaborn as sns
+from tsnecuda import TSNE
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 
+in_notebook = 'google.colab' in sys.modules
+if not in_notebook:
+    try:
+        get_ipython()
+    except:
+      in_notebook = False
+      
 if torch.cuda.is_available():
   device = 'cuda'
 else:
@@ -620,8 +631,27 @@ def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, mmap_le
     idxs = [idx for idx, label in enumerate(all_spans) if label not in span2cluster_label]
   
   return clusters, span2cluster_label
-        
-    
+
+#level 0 means the bottom most parents. level -1 means the children.         
+def plot_clusters(clusters, span2cluster_label, mmap_file, mmap_len=0, embed_dim=25, dtype=np.float16, level=0, additional_idxs=None, plot_width=11.7, plot_heigth=8.27, \
+        tsne_perplexity=15, tsne_learning_rate=10):
+  cluster_embeddings = np_memmap(mmap_file, shape=[mmap_len, embed_dim], dtype=dtype)
+  num_colors = 0
+  all_children=[]
+  colors = []
+  for parent, children in clusters.items():
+    if parent[1] == level+1:
+      all_children.extend(children)
+      colors.extend([num_colors]*len(children))
+      num_colors += 1
+  X = cluster_embeddings[all_children].astype(np.float32)
+  sns.set(rc={'figure.figsize':(plot_width,plot_heigth)})
+  palette = sns.color_palette("bright", num_colors)
+  with torch.no_grad():
+    X_emb =  TSNE(n_components=2, perplexity=tsne_perplexity, learning_rate=tsne_learning_rate).fit_transform(X)
+    sns.scatterplot(X_emb[:,0], X_emb[:,1],  legend='full',  hue=colors, palette=palette)
+    plt.show()
+
 def _is_contiguous(arr):
         start = None
         prev = None
