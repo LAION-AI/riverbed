@@ -284,7 +284,7 @@ def _apply_temperature(dat,temperature):
 #helper function for getting embeddings
 # for embedding saved into disk (embed_text), we don't use a temperature
 # for search, we can vary the temperature  of the target vector change the focus of the search.
-def _get_embeddings(sent, downsampler, embedder="minilm", universal_embed_mode=None, prototypes=None, \
+def _get_embeddings(sent, downsampler=None, embedder="minilm", universal_embed_mode=None, prototypes=None, \
                     temperature=None, universal_downsampler=None):
   dat = apply_model(embedder, sent)
   #print (dat.dtype)
@@ -296,8 +296,9 @@ def _get_embeddings(sent, downsampler, embedder="minilm", universal_embed_mode=N
     dat = (_apply_temperature(dat,1)+_apply_temperature(dat,temperature) + norm_dat)/3
   else:
     dat = (2*_apply_temperature(dat,1) + norm_dat)/3
-  p = next(downsampler.parameters())
-  dat = downsampler(dat.to(device=p.device, dtype=p.dtype))
+  if downsampler is not None:
+    p = next(downsampler.parameters())
+    dat = downsampler(dat.to(device=p.device, dtype=p.dtype))
   if universal_embed_mode:
       dat = cosine_similarity(dat, prototypes)
       dat = torch.nn.functional.normalize(dat, dim=1)
@@ -324,19 +325,22 @@ def get_embeddings(sent, downsampler, dtype=np.float16, embedder="minilm", unive
 #create embeddings for all text in dat_iter. data_iter can be an interable of just the text or a (idx, text) pair.
 #saves to the mmap_file. returns downsampler, skip_idxs, dtype, mmap_len, embed_dim.
 #skip_idxs are the lines/embeddings that are empty and should not be clustered search indexed.
-def embed_text(dat_iter, mmap_file, start_idx=None, downsampler=None, skip_idxs=None,  dtype=np.float16, mmap_len=0, embed_dim=25,  \
+def embed_text(dat_iter, mmap_file, start_idx=None, downsampler=None, skip_idxs=None,  dtype=np.float16, mmap_len=0, embed_dim=25, \
                embedder="minilm", chunk_size=500,  universal_embed_mode=None, prototypes=None, \
                temperature=None, universal_downsampler=None, use_tqdm=True):
     global device, labse_tokenizer, labse_model,  clip_processor, minilm_tokenizer, clip_model, minilm_model, spacy_nlp, stopwords_set
     assert not universal_embed_mode or (prototypes is not None and universal_downsampler is not None)   
-    assert downsampler is not None
     init_models()
     use_model(embedder)
     if start_idx is None: start_idx = mmap_len
     if skip_idxs is None: skip_idxs = []
-    if dtype == np.float16:
-        downsampler = downsampler.half()
-    downsampler = downsampler.to(device)
+    if downsampler is None:
+      assert embed_dim == get_model_embed_dim(embedder)
+    else:
+      if dtype == np.float16:
+          downsampler = downsampler.half()
+      downsampler = downsampler.to(device)
+      assert embed_dim == downsampler.weights.shape[1]
     batch = []
     idxs = []
     if use_tqdm:
@@ -359,7 +363,7 @@ def embed_text(dat_iter, mmap_file, start_idx=None, downsampler=None, skip_idxs=
             if batch:
               dat = _get_embeddings(batch, downsampler, embedder, universal_embed_mode, prototypes, \
                                     temperature, universal_downsampler).cpu().numpy()
-              cluster_embeddings = np_memmap(mmap_file, shape=[mmap_len, embed_dim], dat=dat, idxs=idxs, dtype=dtype)  
+              np_memmap(mmap_file, shape=[mmap_len, embed_dim], dat=dat, idxs=idxs, dtype=dtype)  
               batch = []
               idxs = []
             if not l:
@@ -367,7 +371,7 @@ def embed_text(dat_iter, mmap_file, start_idx=None, downsampler=None, skip_idxs=
       if batch:
         dat = _get_embeddings(batch, downsampler, embedder, universal_embed_mode, prototypes, \
                                     temperature, universal_downsampler).cpu().numpy()
-        cluster_embeddings = np_memmap(mmap_file, shape=[mmap_len, embed_dim], dat=dat, idxs=idxs, dtype=dtype)  
+        np_memmap(mmap_file, shape=[mmap_len, embed_dim], dat=dat, idxs=idxs, dtype=dtype)  
         batch = []
         idxs = []
     return mmap_len, skip_idxs
