@@ -335,7 +335,7 @@ def embed_text(dat_iter, mmap_file, start_idx=None, downsampler=None, skip_idxs=
     if start_idx is None: start_idx = mmap_len
     if skip_idxs is None: skip_idxs = []
     if downsampler is None:
-      assert embed_dim == get_model_embed_dim(embedder)
+      embed_dim = get_model_embed_dim(embedder)
     else:
       if dtype == np.float16:
           downsampler = downsampler.half()
