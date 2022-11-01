@@ -420,7 +420,7 @@ def embeddings_search(target, mmap_file, top_parents,  top_parent_idxs, parent2i
 
 #internal function used to cluster one batch of embeddings
 #spans are either int tuples of (level, embedding_idx) or just the embedding_idx. 
-def _cluster_one_batch(true_k,  spans, embedding_idxs, clusters, span2cluster_label, level, cluster_embeddings, min_overlap_merge_cluster):
+def _cluster_one_batch(true_k,  spans, embedding_idxs, clusters, span2cluster_label, level, cluster_embeddings, min_overlap_merge_cluster, grouping_fn=None, grouping_fn_callback_data=None):
     with torch.no_grad():
        embeddings = torch.from_numpy(cluster_embeddings[embedding_idxs])
        if device == 'cuda':
@@ -441,37 +441,48 @@ def _cluster_one_batch(true_k,  spans, embedding_idxs, clusters, span2cluster_la
     #print (len(tmp_cluster), tmp_cluster)
     #create unique (level, id) labels and merge if necessary
     for a_cluster in tmp_cluster.values():
-        label = None
         need_labels = [span for span in a_cluster if span not in span2cluster_label]
+        if grouping_fn is not None:
+          labeled_groups_hash = grouping_fun(grouping_fn_callback_data, cluster_embeddings, [span for span in a_cluster if span in span2cluster_label])
+          unlabeled_groups_hash = grouping_fun(grouping_fn_callback_data, cluster_embeddings, need_labels)
+        else:
+          labeled_groups_hash = {'*': [span for span in a_cluster if span in span2cluster_label]}
+          unlabeled_groups_hash =  {'*': need_labels}
         if need_labels:
-          cluster_labels = [span2cluster_label[span] for span in a_cluster if span in span2cluster_label]
-          if cluster_labels:
-            # merge with previous clusters if there is an overlap
-            most_common = Counter(cluster_labels).most_common(1)[0]
-            if most_common[1] >= min_overlap_merge_cluster: 
-              label = most_common[0]
-          if not label:
-            # otherwise create a new cluster
-            if type(need_labels[0]) is int:
-              label = (level, need_labels[0])
-            else:
-              label = (level, need_labels[0][1])
-          for span in need_labels:
-            if span not in clusters.get(label, []):
-              clusters[label] = clusters.get(label, []) + [span]
-            span2cluster_label[span] = label
+          for group_id, unlabeled_group in unlabeled_groups_hash.items():
+            label = None
+            if group_id in labeled_groups_hash:
+              labeled_group = labeled_groups_hash[group_id]
+              cluster_labels =[span2cluster_label[span] for span in labeled_group]
+              if not cluster_labels: continue
+              # merge with previous labeled clusters if there is an overlap
+              most_common = Counter(cluster_labels).most_common(1)[0]
+              if most_common[1] >= min_overlap_merge_cluster: 
+                label = most_common[0]    
+            if not label:
+              # otherwise create a new cluster
+              if type(unlabeled_group[0]) is int:
+                label = (level, unlabeled_group[0])
+              else:
+                label = (level, unlabeled_group[0][1])
+            for span in unlabeled_group:
+              if span not in clusters.get(label, []):
+                clusters[label] = clusters.get(label, []) + [span]
+              span2cluster_label[span] = label
 
 
-# Incremental hiearchical clustering from embeddings in the mmap file. Can also used to create an index for searching.       
-# with a max of 4 levels, and each node containing 200 items, we can have up to 1.6B items approximately
-# span2cluster_label maps a span to a parent span. spans can be of the form int|(int,int).
-# leaf nodes are ints. non-leaf nodes are (int,int) tuples
-# clusters maps cluster_label => list of spans  
-# when we use the term 'idx', we normally refer to the index in an embedding file.
+
 def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, mmap_len=0, embed_dim=25, dtype=np.float16, skip_idxs=None, idxs=None, max_level=4, \
                                 max_cluster_size=200, min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000, \
-                                recluster_start_iter=0.85, max_decluster_iter=0.95, use_tqdm=True):
+                                recluster_start_iter=0.85, max_decluster_iter=0.95, use_tqdm=True, grouping_fn=None, grouping_fn_callback_data=None):
   """
+  Incremental hiearchical clustering from embeddings stored in a mmap file. Can also used to create an index for searching.       
+  with a max of 4 levels, and each node containing 200 items, we can have up to 1.6B items approximately
+  span2cluster_label maps a child span to a parent span. spans can be of the form int|(int,int).
+  leaf nodes are ints. non-leaf nodes are (int,int) tuples
+  clusters maps cluster_label => list of spans  
+  when we use the term 'idx', we normally refer to the index in an embedding file.
+
   :arg clusters:      the dict mapping parent span to list of child span
   :arg span2cluster_label: the inverse of the above.
   :arg mmap_file:     the name of the mmap file.
@@ -485,7 +496,8 @@ def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, mmap_le
   :arg min_overlap_merge_cluster. When incremental clustering, the minimum overlap between one cluster and another before merging them.
   :arg kmeans_batch_size: the size of each batch of embeddings that are kmean batched.
   :arg use_tqdm:        whether to report the progress of the clustering.
-  
+  :arg grouping_fn:       Optional. a function that takes in a grouping_fn_callback_data, embeddings, and a list of spans, will return a hash of form {'group_X': [...], 'group_Y': [...], etc.}
+  :arg grouping_fn_callback_data: Optional. arbitrary data to pass to the grouping_fn
   """
   global device
   if skip_idxs is None: 
@@ -601,7 +613,7 @@ def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, mmap_le
           true_k = int(len(embedding_idxs)/prefered_leaf_node_size)
         else:
           true_k = int(len(embedding_idxs)/max_cluster_size)
-        _cluster_one_batch(true_k,  spans, embedding_idxs, clusters, span2cluster_label, level, cluster_embeddings, min_overlap_merge_cluster)
+        _cluster_one_batch(true_k,  spans, embedding_idxs, clusters, span2cluster_label, level, cluster_embeddings, min_overlap_merge_cluster, grouping_fn, grouping_fn_callback_data)
         # re-cluster any small clusters or break up large clusters   
         if times >= recluster_at:  
             need_recompute_clusters = False   
@@ -621,7 +633,7 @@ def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, mmap_le
                   true_k = int(len(embedding_idxs)/prefered_leaf_node_size)
                 else:
                   true_k = int(len(embedding_idxs)/max_cluster_size)
-                _cluster_one_batch(true_k,  spans, embedding_idxs, clusters, span2cluster_label, level, cluster_embeddings,  min_overlap_merge_cluster)
+                _cluster_one_batch(true_k,  spans, embedding_idxs, clusters, span2cluster_label, level, cluster_embeddings,  min_overlap_merge_cluster, grouping_fn, grouping_fn_callback_data)
         
             if need_recompute_clusters:
               clusters.clear()
