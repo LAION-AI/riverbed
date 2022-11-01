@@ -78,14 +78,19 @@ def hashing(
 
 
 def find_clusters_batch(visited, hash2cluster, cluster2hash, hashes, num_blocks, hamming_distance):
+    """
+    Create clusters within hamming distance. 
+    Collapses a->b, b->c to all be in the same cluster.
+    NOTE: this isn't always true that a and c are within hamming_distance. 
+    NOTE: The cluster_id is the hashcode of the first item in the cluster and thus can be used to do further clustering and hamming distance matching.
+    """
     matches = simhash.find_all(hashes, num_blocks, hamming_distance)
     graph = defaultdict(dict)
     for x, y in matches:
       graph[x][y] = True
       graph[y][x] = True
     hashes = set(hashes)
-    cluster_id: int = 0
-
+    
     while hashes:
         hash = hashes.pop()
         if hash in visited:
@@ -98,6 +103,7 @@ def find_clusters_batch(visited, hash2cluster, cluster2hash, hashes, num_blocks,
 
         q = deque([hash])
         visited.add(hash)
+        cluster_id = hash
         hash2cluster[hash] = cluster_id
         cluster2hash[cluster_id] = cluster2hash.get(cluster_id, []) + [hash]
 
@@ -111,10 +117,12 @@ def find_clusters_batch(visited, hash2cluster, cluster2hash, hashes, num_blocks,
                 hash2cluster[neighbor] = cluster_id
                 cluster2hash[cluster_id] = cluster2hash.get(cluster_id, []) + [neighbor]
 
-        cluster_id += 1
     return visited, hash2cluster, cluster2hash,
 
 def find_clusters(hashes, num_blocks, hamming_distance, do_sort=True, batch_size=900000, verbose=False):
+  """ Incrementally find clusters of int64 bit hashes of *around* the same hamming distance from each other. 
+  Returns hash2cluster and cluster2hash dicts, where the ids are all int64 bit hashes.
+  """
   if do_sort: 
     hashes.sort()
   # we are assuming no exact duplicates. if we want to deal with exact duplicates, we can easily just collapse them in sequence
@@ -147,15 +155,18 @@ def find_clusters(hashes, num_blocks, hamming_distance, do_sort=True, batch_size
     visited, hash2cluster, cluster2hash = find_clusters_batch(visited, hash2cluster, cluster2hash, hashes2, num_blocks, hamming_distance)
   return hash2cluster, cluster2hash
 
-def incremental_span_and_document_neardedup(text, dup_span, dup_doc, shingle_size = 5, cleanup_dup_span_limit=1000000, cleanup_dup_doc_limit=1000000, normalize_text=True, keep_first_dup_in_text=True, replace_char='*'):
+def incremental_span_and_document_neardedup( dup_span, dup_doc, text, formatted_text=None, shingle_size = 5, cleanup_dup_span_limit=1000000, cleanup_dup_doc_limit=1000000, normalize_text=True, keep_first_dup_in_text=True, replace_char='*'):
     """
-    Given a document text, and a hashtable representing any near duplicate spans and duplicate docs, remove duplicate spans of shingle size from the text.
+    Given a document text and a dict representing any near duplicate spans and duplicate docs, remove duplicate spans of shingle size sentences from the text.
+    The text can be in the form of clean unformatted text, e.g., removed formatting and any extraneous tags, and the corresponding formatted text, 
     
     Return:
     
-      doc_is_dup, text
+      doc_is_dup, deduped clean_text, deduped formatted_text
         where doc_is_dup is 0 if there is no duplicates, 1 if there are partial span dups, and 2 if the whole document is a near dup.
         text is the original text with any duplicate spans replaced with the replace_char, collapsing multiple replace chars into one char.
+      NOTE: the formatted_text are ot guaranted to be deduped b/c there may be formatting in between spans that affects deduplication. 
+      If this doesn't work for you, then try calling the function with text as the formatted text, and not passing in formatted text at all.
 
     """
     is_dup_chunk={}
@@ -166,6 +177,7 @@ def incremental_span_and_document_neardedup(text, dup_span, dup_doc, shingle_siz
         .replace("!\" ", "!\"  ").replace("?\" ", "?\"  ").replace(".\" ", ".\"  ").replace("．\"", "．\"  ").replace("。\"", "。\"  ").replace("？\"", "？\"  ")\
         .replace("!》 ", "!》  ").replace("?》 ", "?》  ").replace(".》 ", ".》  ").replace("．》", "．》  ").replace("。》", "。》  ").replace("？》", "？》  ")\
         .replace("、", "、 ").replace("’s", " 's").replace("`s", " 's").replace("'s", " 's")
+    if formatted_text is None: formatted_text = clean_text
     text_arr = [a.strip() for a in clean_text.split("  ") if a.strip()]
     
     #chunkify into sentences
@@ -194,24 +206,24 @@ def incremental_span_and_document_neardedup(text, dup_span, dup_doc, shingle_siz
         prev_ch_idx = is_dup_chunk[hashcode][0]
         prev_chunk = chunks[prev_ch_idx]
         clean_position = clean_text.find(prev_chunk)
-        text_position = text.find(prev_chunk)
-        if clean_position >= 0 and text_position >= 0:
+        formatted_text_position = formatted_text.find(prev_chunk)
+        if clean_position >= 0 and formatted_text_position >= 0:
           clean_position += len(shingle)
-          text_position += len(shingle)
+          formatted_text_position += len(shingle)
           clean_text2 = clean_text[clean_position+1:]
-          text2 = text[text_position+1:]
+          formatted_text2 = formatted_text[formatted_text_position+1:]
           if shingle in clean_text2:
             clean_text2 = clean_text2.replace(shingle, replace_text)
           else:
             for chunk in chunks[ch_idx : ch_idx + shingle_size]:
               if len(chunk) > 3: clean_text2 = clean_text2.replace(chunk, replace_text)
-          if shingle in text2:
-            text2 = text2.replace(shingle, replace_text)
+          if shingle in formatted_text2:
+            formatted_text2 = formatted_text2.replace(shingle, replace_text)
           else:
             for chunk in chunks[ch_idx : ch_idx + shingle_size]:
-              if len(chunk) > 3: text2 = text2.replace(chunk, replace_text)
+              if len(chunk) > 3: formatted_text2 = formatted_text2.replace(chunk, replace_text)
           clean_text = clean_text[:clean_position+1] + clean_text2
-          text = text[:text_position+1] + text2
+          formatted_text = formatted_text[:formatted_text_position+1] + formatted_text2
       
       is_dup_chunk[hashcode] = is_dup_chunk.get(hashcode, []) + [ch_idx]
         
@@ -225,13 +237,13 @@ def incremental_span_and_document_neardedup(text, dup_span, dup_doc, shingle_siz
         if hashcode in dup_span and dup_span[hashcode] > len(ch_idx): #this item is a duplicate across documents
           ch_idx = ch_idx[0]
           shingle= " ".join(chunks[ch_idx : ch_idx + shingle_size])
-          if shingle in clean_text: 
-            text = text.replace(shingle, replace_text)
+          if shingle in formatted_text: 
+            formatted_text = formatted_text.replace(shingle, replace_text)
           else:
             for chunk in chunks[ch_idx : ch_idx + shingle_size]:
-                text = text.replace(chunk, replace_text)
+                formatted_text = formatted_text.replace(chunk, replace_text)
                 
-    text = text.replace(replace_char+" .", replace_text).\
+    formatted_text = formatted_text.replace(replace_char+" .", replace_text).\
         replace(replace_char+" !", replace_text).\
         replace(replace_char+" ?", replace_text).\
         replace(replace_char+" .", replace_text).\
@@ -241,7 +253,7 @@ def incremental_span_and_document_neardedup(text, dup_span, dup_doc, shingle_siz
         replace("  ", " ").\
         replace(' '+replace_char+' '+replace_char, " "+replace_char).\
         replace(' '+replace_char+' '+replace_char, " "+replace_char)
-    text = " ".join(text.split())
+    formatted_text = " ".join(formatted_text.split())
 
     #TODO: improve this so we cleaup by value until we reach the limit
     if len(dup_span) > cleanup_dup_span_limit:
@@ -254,8 +266,8 @@ def incremental_span_and_document_neardedup(text, dup_span, dup_doc, shingle_siz
           
     doc_is_dup = 0
     if any([a for a in is_dup_chunk.values() if len(a) > 1]):
-      clean_text = " ".join(clean_text.replace("*", "").split())
-      hashcode = clean_text.strip(' '+replace_char).lower()
+      hashcode = " ".join(clean_text.replace("*", "").split())
+      hashcode = hashcode.strip(' '+replace_char).lower()
       hashcode = DIGIT_REGEX.sub('1', hashcode)
       hashcode = hashing(hashcode)
       if hashcode in dup_doc:
@@ -265,6 +277,6 @@ def incremental_span_and_document_neardedup(text, dup_span, dup_doc, shingle_siz
         dup_doc[hashcode] = 1
         doc_is_dup=1
         
-     return doc_is_dup, text
+     return doc_is_dup, clean_text, formatted_text
 
     
