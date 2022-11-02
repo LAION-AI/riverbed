@@ -258,7 +258,7 @@ def incremental_span_and_document_neardedup( dup_span, dup_doc, unformatted_text
             for chunk in chunks[ch_idx : ch_idx + shingle_size]:
                 text = text.replace(chunk, replace_text)
     
-    text = text.replace(replace_char+" .", replace_text).\
+    clean_text = clean_text.replace(replace_char+" .", replace_text).\
         replace(replace_char+" !", replace_text).\
         replace(replace_char+" ?", replace_text).\
         replace(replace_char+" .", replace_text).\
@@ -268,7 +268,7 @@ def incremental_span_and_document_neardedup( dup_span, dup_doc, unformatted_text
         replace("  ", " ").\
         replace(' '+replace_char+' '+replace_char, " "+replace_char).\
         replace(' '+replace_char+' '+replace_char, " "+replace_char)
-    text = " ".join(text.split())
+    clean_text = " ".join(clean_text.split())
 
 
 
