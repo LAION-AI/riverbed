@@ -3,7 +3,7 @@
 # From https://github.com/stopwords-iso/stopwords-iso
 
 
-stopwords = {
+all_stopwords = {
   'af':  {'vir', 'kom', 'se', 'dat', 'ŉ', 'sy', 'die', 'om', 'wat', 'my', 'het', 'saam', 'te', 'maar', 'hy', 'uit', "'n", 'in', 'kan', 'ma', 'af', 'een', 'van', 'dag', 'jy', 'so', 'met', 'is', 'ek', 'ons', 'en', 'was', 'gesê', 'nie', 'gaan', 'al', 'dit', 'hom', 'sal', 'aan', 'haar', 'baie', 'jou', 'by', 'op', 'as', 'na', 'toe', 'sien', 'daar', 'hulle'} ,
   'ha':  {'mai', 'ga', 'kuma', 'sai', 'ba', 'ce', 'amma', 'yake', 'ni', 'suka', 'cikin', 'za', 'ita', 'wata', 'ji', 'in', 'ma', 'ne', 'don', 'shi', 'tana', 'wani', 'take', 'lokacin', 'su', 'ban', 'ka', 'wannan', 'yana', 'yi', 'da', 'sun', 'tafi', 'ina', 'ta', 'na', 'a', 'ko', 'ya'} ,
   'so':  {'inuu', 'uga', 'lakin', 'ku', 'isku', 'kuu', 'albaabkii', 'jirtay', 'kasoo', 'ayuu', 'ayee', 'jiray', 'si', 'kale', 'dhan', 'in', 'uu', 'ayaa', 'aad', 'hadana', 'atabo', 'soo', 'ka', 'ugu', 'markii', 'ay', 'waxa', 'waa', 'waxuu', 'oo'} ,
