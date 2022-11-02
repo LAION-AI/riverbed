@@ -39,9 +39,11 @@ kenlm_models = {
 ccnet_langs=set("af,ar,az,be,bg,bn,ca,cs,da,de,el,en,es,et,fa,fi,fr,gu,he,hi,hr,hu,hy,id,is,it,ja,ka,kk,km,kn,ko,lt,lv,mk,ml,mn,mr,my,ne,nl,no,pl,pt,ro,ru,uk,zh".split(","))
 def download_ccnet_sp_kenlm_models(lang, default_kenlm_wikipedia="./kenlm_ccnet_wikipedia_models"):
   if not os.path.exists(f"{default_kenlm_wikipedia}/{lang}.arpa.bin"):
+    print (f"loading {default_kenlm_wikipedia}/{lang}.arpa.bin")
     with FileLock(f"{default_kenlm_wikipedia}/{lang}.arpa.bin.lock"):
         os.system(f"wget -c  -P {default_kenlm_wikipedia} http://dl.fbaipublicfiles.com/cc_net/lm/{lang}.arpa.bin")
   if not os.path.exists(f"{default_kenlm_wikipedia}/{lang}.sp.model"):
+    print (f"loading {default_kenlm_wikipedia}/{lang}.sp.model")
     with FileLock(f"{default_kenlm_wikipedia}/{lang}.sp.model.lock"):
         os.system(f"wget -c  -P {default_kenlm_wikipedia} http://dl.fbaipublicfiles.com/cc_net/lm/{lang}.sp.model")
 
@@ -153,6 +155,7 @@ def load_kenlm_model(
             for model_file in model_files:
                 if not os.path.exists(f"{cache_dir}/{model_type}/{src_lang}.{model_file}"):
                     try:
+                        print (f"loading {model_type}/{src_lang}.{model_file}")
                         file_url = hf_hub_url(repo_id="edugp/kenlm",
                                               filename=f"{model_type}/{src_lang}.{model_file}")
                         file = cached_download(file_url)
