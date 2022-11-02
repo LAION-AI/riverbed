@@ -167,7 +167,7 @@ def incremental_span_and_document_neardedup( dup_span, dup_doc, unformatted_text
     normalize_text will add double spaces between common punctuations and quotes. 
     Return:
     
-      doc_is_dup, deduped clean_text, deduped formatted_text
+      doc_is_dup, deduped unformatted_text, deduped formatted_text
         where doc_is_dup is 0 if there is no duplicates, 1 if there are partial span dups, and 2 if the whole document is a near dup.
         text is the original text with any duplicate spans replaced with the replace_char, collapsing multiple replace chars into one char.
       NOTE: the formatted_text are ot guaranted to be deduped b/c there may be formatting in between spans that affects deduplication. 
@@ -175,15 +175,14 @@ def incremental_span_and_document_neardedup( dup_span, dup_doc, unformatted_text
 
     """
     is_dup_chunk={}
-    clean_text = unformatted_text
     if normalize_text:
       #simple normalize and add double spaces after sentences. TODO, add other lang punc.
-      clean_text = clean_text.replace("! ", "!  ").replace("? ", "?  ").replace(". ", ".  ").replace("．", "．  ").replace("。", "。  ").replace("？", "？  ")\
+      unformatted_text = unformatted_text.replace("! ", "!  ").replace("? ", "?  ").replace(". ", ".  ").replace("．", "．  ").replace("。", "。  ").replace("？", "？  ")\
         .replace("!\" ", "!\"  ").replace("?\" ", "?\"  ").replace(".\" ", ".\"  ").replace("．\"", "．\"  ").replace("。\"", "。\"  ").replace("？\"", "？\"  ")\
         .replace("!》 ", "!》  ").replace("?》 ", "?》  ").replace(".》 ", ".》  ").replace("．》", "．》  ").replace("。》", "。》  ").replace("？》", "？》  ")\
         .replace("、", "、 ").replace("’s", " 's").replace("`s", " 's").replace("'s", " 's")
-    if formatted_text is None: formatted_text = clean_text
-    text_arr = [a.strip() for a in clean_text.split("  ") if a.strip()]
+    if formatted_text is None: formatted_text = unformatted_text
+    text_arr = [a.strip() for a in unformatted_text.split("  ") if a.strip()]
     
     #chunkify into sentences
     chunks = []
@@ -199,7 +198,7 @@ def incremental_span_and_document_neardedup( dup_span, dup_doc, unformatted_text
     replace_text = " "+replace_char+" "
     shingles = [" ".join(chunks[i : i + shingle_size]) for i in range(len(chunks) - shingle_size)]
     is_dup_within_doc = {}
-    clean_text = " ".join(clean_text.split())
+    unformatted_text = " ".join(unformatted_text.split())
     
     #dedup spans other than the first matching span using shingle_size of sentences (e.g., a span) 
     for ch_idx in range(len(chunks) - shingle_size):
@@ -210,24 +209,24 @@ def incremental_span_and_document_neardedup( dup_span, dup_doc, unformatted_text
       if hashcode in is_dup_within_doc:
         prev_ch_idx = is_dup_within_doc[hashcode][0]
         prev_chunk = chunks[prev_ch_idx]
-        clean_position = clean_text.find(prev_chunk)
+        clean_position = unformatted_text.find(prev_chunk)
         formatted_text_position = formatted_text.find(prev_chunk)
         if clean_position >= 0 and formatted_text_position >= 0:
           clean_position += len(shingle)
           formatted_text_position += len(shingle)
-          clean_text2 = clean_text[clean_position+1:]
+          unformatted_text2 = unformatted_text[clean_position+1:]
           formatted_text2 = formatted_text[formatted_text_position+1:]
-          if shingle in clean_text2:
-            clean_text2 = clean_text2.replace(shingle, replace_text)
+          if shingle in unformatted_text2:
+            unformatted_text2 = unformatted_text2.replace(shingle, replace_text)
           else:
             for chunk in chunks[ch_idx : ch_idx + shingle_size]:
-              if len(chunk) > 3: clean_text2 = clean_text2.replace(chunk, replace_text)
+              if len(chunk) > 3: unformatted_text2 = unformatted_text2.replace(chunk, replace_text)
           if shingle in formatted_text2:
             formatted_text2 = formatted_text2.replace(shingle, replace_text)
           else:
             for chunk in chunks[ch_idx : ch_idx + shingle_size]:
               if len(chunk) > 3: formatted_text2 = formatted_text2.replace(chunk, replace_text)
-          clean_text = clean_text[:clean_position+1] + clean_text2
+          unformatted_text = unformatted_text[:clean_position+1] + unformatted_text2
           formatted_text = formatted_text[:formatted_text_position+1] + formatted_text2
       
       is_dup_within_doc[hashcode] = is_dup_within_doc.get(hashcode, []) + [ch_idx]
@@ -253,13 +252,13 @@ def incremental_span_and_document_neardedup( dup_span, dup_doc, unformatted_text
         if hashcode in dup_span and dup_span.get(hashcode,0) > len(ch_idx): #this item is a duplicate across documents
           ch_idx = ch_idx[0]
           shingle= " ".join(chunks[ch_idx : ch_idx + shingle_size])
-          if shingle in text: 
-            text = text.replace(shingle, replace_text)
+          if shingle in unformatted_text: 
+            unformatted_text = unformatted_text.replace(shingle, replace_text)
           else:
             for chunk in chunks[ch_idx : ch_idx + shingle_size]:
-                text = text.replace(chunk, replace_text)
+                unformatted_text = unformatted_text.replace(chunk, replace_text)
     
-    clean_text = clean_text.replace(replace_char+" .", replace_text).\
+    unformatted_text = unformatted_text.replace(replace_char+" .", replace_text).\
         replace(replace_char+" !", replace_text).\
         replace(replace_char+" ?", replace_text).\
         replace(replace_char+" .", replace_text).\
@@ -269,7 +268,7 @@ def incremental_span_and_document_neardedup( dup_span, dup_doc, unformatted_text
         replace("  ", " ").\
         replace(' '+replace_char+' '+replace_char, " "+replace_char).\
         replace(' '+replace_char+' '+replace_char, " "+replace_char)
-    clean_text = " ".join(clean_text.split())
+    unformatted_text = " ".join(unformatted_text.split())
 
 
 
@@ -297,7 +296,7 @@ def incremental_span_and_document_neardedup( dup_span, dup_doc, unformatted_text
           
     doc_is_dup = 0
     if any([a for h, a in is_dup_within_doc.items() if len(a) > 1 or len(a) < dup_span.get(h,len(a))]):
-      hashcode = " ".join(clean_text.replace("*", "").split())
+      hashcode = " ".join(unformatted_text.replace("*", "").split())
       hashcode = hashcode.strip(' '+replace_char).lower()
       hashcode = DIGIT_REGEX.sub('1', hashcode)
       hashcode = hashing(hashcode)
@@ -308,7 +307,7 @@ def incremental_span_and_document_neardedup( dup_span, dup_doc, unformatted_text
         dup_doc[hashcode] = 1
         doc_is_dup=1
         
-    return doc_is_dup, clean_text, formatted_text
+    return doc_is_dup, unformatted_text, formatted_text
 
     
 def test_simhash(): # test on a medium size dataset
