@@ -280,3 +280,11 @@ def incremental_span_and_document_neardedup( dup_span, dup_doc, text, formatted_
      return doc_is_dup, clean_text, formatted_text
 
     
+def test_simhash(): # test on a medium size dataset
+  num = 40000*1000
+  import numpy as np
+  import sys
+  arr = np.random.randint( sys.maxsize, size=num, dtype=np.int64)
+  arr.sort()
+  arr = arr.tolist()
+  find_clusters(arr, 5, 4, do_sort=False, verbose=True)
