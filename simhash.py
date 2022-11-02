@@ -56,7 +56,7 @@ def hashing(
             str.encode(document[i : i + window_size])
             for i in range(len(document) - window_size)
         ]
-        tokens = [str.encode(document)]
+        if not tokens: tokens = [str.encode(document)]
     elif tokenization == "punctuation":
         tokens0 = PUNCTUATION_REGEX.split(document)
         tokens = [
