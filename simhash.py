@@ -57,20 +57,23 @@ def hashing(
             for i in range(len(document) - window_size)
         ]
     elif tokenization == "punctuation":
-        tokens = PUNCTUATION_REGEX.split(document)
+        tokens0 = PUNCTUATION_REGEX.split(document)
         tokens = [
-            str.encode(" ".join(tokens[i : i + window_size]))
-            for i in range(len(tokens) - window_size)
+            str.encode(" ".join(tokens0[i : i + window_size]))
+            for i in range(len(tokens0) - window_size)
         ]
+        if not tokens: tokens = tokens0
     elif tokenization == "space":
-        tokens = document.split(" ") #consider whether we want to just use .split() to match \n and \t
+        tokens0 = document.split(" ") #consider whether we want to just use .split() to match \n and \t
         tokens = [
-            str.encode(" ".join(tokens[i : i + window_size]))
-            for i in range(len(tokens) - window_size)
+            str.encode(" ".join(tokens0[i : i + window_size]))
+            for i in range(len(tokens0) - window_size)
         ]
+        if not tokens: tokens = tokens0
     # we could try other types of tokenizations such as stemming and removal of stopwords
     else:
         raise Exception(f"Unrecognized tokenization spanmeter {tokenization}")
+    if not tokens: tokens = [document]
     #TODO: the hash code is actually a 64bit int. Check sys.maxsize. 
     #Was having a problem with serialzing np.int64 in json so i casted to int. 
     #might not be an issue in parquet in which case we should revert back to np.int64.
