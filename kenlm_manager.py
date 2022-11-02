@@ -38,18 +38,20 @@ kenlm_models = {
 #see https://github.com/facebookresearch/cc_net/blob/main/Makefile. These are default models if there aren't any from edugp
 ccnet_langs=set("af,ar,az,be,bg,bn,ca,cs,da,de,el,en,es,et,fa,fi,fr,gu,he,hi,hr,hu,hy,id,is,it,ja,ka,kk,km,kn,ko,lt,lv,mk,ml,mn,mr,my,ne,nl,no,pl,pt,ro,ru,uk,zh".split(","))
 def download_ccnet_sp_kenlm_models(lang, default_kenlm_wikipedia="./kenlm_ccnet_wikipedia_models"):
+  os.system(f"mkdir -p {default_kenlm_wikipedia}")
   if not os.path.exists(f"{default_kenlm_wikipedia}/{lang}.arpa.bin"):
-    print (f"loading {default_kenlm_wikipedia}/{lang}.arpa.bin")
     with FileLock(f"{default_kenlm_wikipedia}/{lang}.arpa.bin.lock"):
-        os.system(f"wget -c  -P {default_kenlm_wikipedia} http://dl.fbaipublicfiles.com/cc_net/lm/{lang}.arpa.bin")
+      print (f"downloading {default_kenlm_wikipedia}/{lang}.arpa.bin")
+      os.system(f"wget -c  -P {default_kenlm_wikipedia} http://dl.fbaipublicfiles.com/cc_net/lm/{lang}.arpa.bin")
   if not os.path.exists(f"{default_kenlm_wikipedia}/{lang}.sp.model"):
-    print (f"loading {default_kenlm_wikipedia}/{lang}.sp.model")
     with FileLock(f"{default_kenlm_wikipedia}/{lang}.sp.model.lock"):
-        os.system(f"wget -c  -P {default_kenlm_wikipedia} http://dl.fbaipublicfiles.com/cc_net/lm/{lang}.sp.model")
+      print (f"downloading {default_kenlm_wikipedia}/{lang}.sp.model")
+      os.system(f"wget -c  -P {default_kenlm_wikipedia} http://dl.fbaipublicfiles.com/cc_net/lm/{lang}.sp.model")
 
 def get_kenlm_models_from_savedir( default_kenlm_wikipedia="./kenlm_ccnet_wikipedia_models", save_dir="/content/drive/Shareddrives/LAION/kenlm_ccnet_wikipedia_models"):
   if not os.path.exists(default_kenlm_wikipedia):
     with FileLock(f"{default_kenlm_wikipedia}.lock"):
+        print ("copying kenlm models")
         os.system(f"cp -rf {save_dir} {default_kenlm_wikipedia}")
 
 # WOULD be good if we can create models based on cc100.
