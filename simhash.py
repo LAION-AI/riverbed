@@ -277,7 +277,7 @@ def incremental_span_and_document_neardedup( dup_span, dup_doc, text, formatted_
         dup_doc[hashcode] = 1
         doc_is_dup=1
         
-     return doc_is_dup, clean_text, formatted_text
+    return doc_is_dup, clean_text, formatted_text
 
     
 def test_simhash(): # test on a medium size dataset
