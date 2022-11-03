@@ -179,6 +179,7 @@ def incremental_span_and_document_neardedup( dup_span, dup_doc, unformatted_text
       #simple normalize and add double spaces after sentences. TODO, add other lang punc.
       unformatted_text = unformatted_text.replace("! ", "!  ").replace("? ", "?  ").replace(". ", ".  ").replace("．", "．  ").replace("。", "。  ").replace("？", "？  ")\
         .replace("!\" ", "!\"  ").replace("?\" ", "?\"  ").replace(".\" ", ".\"  ").replace("．\"", "．\"  ").replace("。\"", "。\"  ").replace("？\"", "？\"  ")\
+        .replace("!” ", "!”  ").replace("?” ", "?”  ").replace(".” ", ".”  ").replace("．”", "．”  ").replace("。”", "。”  ").replace("？”", "？”  ")\
         .replace("!》 ", "!》  ").replace("?》 ", "?》  ").replace(".》 ", ".》  ").replace("．》", "．》  ").replace("。》", "。》  ").replace("？》", "？》  ")\
         .replace("、", "、 ").replace("’s", " 's").replace("`s", " 's").replace("'s", " 's")
     if formatted_text is None: formatted_text = unformatted_text
@@ -267,7 +268,9 @@ def incremental_span_and_document_neardedup( dup_span, dup_doc, unformatted_text
         replace(replace_char+" ？", replace_text).\
         replace("  ", " ").\
         replace(' '+replace_char+' '+replace_char, " "+replace_char).\
+        replace(' '+replace_char+' '+replace_char, " "+replace_char).\ 
         replace(' '+replace_char+' '+replace_char, " "+replace_char)
+
     unformatted_text = " ".join(unformatted_text.split())
 
 
