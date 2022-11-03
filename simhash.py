@@ -268,7 +268,7 @@ def incremental_span_and_document_neardedup( dup_span, dup_doc, unformatted_text
         replace(replace_char+" ？", replace_text).\
         replace("  ", " ").\
         replace(' '+replace_char+' '+replace_char, " "+replace_char).\
-        replace(' '+replace_char+' '+replace_char, " "+replace_char).\ 
+        replace(' '+replace_char+' '+replace_char, " "+replace_char).\
         replace(' '+replace_char+' '+replace_char, " "+replace_char)
 
     unformatted_text = " ".join(unformatted_text.split())
