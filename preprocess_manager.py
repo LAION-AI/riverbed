@@ -113,18 +113,25 @@ def lang_id(document, cleanup_emoji=False, len_cutoff=1000):
   document = document.lower().replace("\n", " ")
   if len_cutoff and len(document) > len_cutoff: document = document[:len_cutoff]
   if cleanup_emoji:
-    document = emoji_pattern.sub(r'', document)
+    document = emoji_pattern.sub(r'', document).strip()
+  if not document:
+    return None, 0.0
   pred = lang_model.predict(document)
   lang = pred[0][0].replace("__label__", "")
   score_pred = pred[1][0]
   lang2 = langid.classify(document)
   lang2 = lang2[0]
   lang_group = get_lang_groups(lang2)
-  if lang2 != lang or (score_pred > 0.4 and score_pred < 0.7):
+  if lang2 != lang or (score_pred > 0.3 and score_pred < 0.5):
     if lang not in lang_group:
       pass
       #print (lang, lang2, score_pred)
     else:
+      score_pred = score_pred*1.5
+  #let's see if we can give more confidence that this document is a lang
+  if (score_pred > 0.3 and score_pred < 0.5):
+    stopword_score = get_stopword_score(lang, document)
+    if stopword_score > 0.8:
       score_pred = score_pred*1.5
   return lang, score_pred
   
