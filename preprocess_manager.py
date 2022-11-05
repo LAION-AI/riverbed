@@ -131,7 +131,13 @@ def lang_id(document, cleanup_emoji=False, len_cutoff=1000):
   #let's see if we can give more confidence that this document is a lang
   if (score_pred > 0.3 and score_pred < 0.5):
     stopword_score = get_stopword_score(lang, document)
-    if stopword_score > 0.8:
+    if stopword_score > 0.2:
       score_pred = score_pred*1.5
+  if (score_pred > 0.3 and score_pred < 0.5):
+     for lang2 in all_stopwords:
+      stopword_score = get_stopword_score(lang2, document)
+      if stopword_score > 0.2:
+        score_pred = 0.3 + stopword_score
+        break
   return lang, score_pred
   
