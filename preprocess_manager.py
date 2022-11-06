@@ -133,11 +133,13 @@ def lang_id(document, cleanup_emoji=False, len_cutoff=1000):
     stopword_score = get_stopword_score(lang, document)
     if stopword_score > 0.2:
       score_pred = score_pred*1.5
-  if (score_pred > 0.3 and score_pred < 0.5):
+  #let's see if we can guess the lang based on our stopword list (to match low resource langs)
+  if score_pred < 0.5:
      for lang2 in all_stopwords:
       stopword_score = get_stopword_score(lang2, document)
       if stopword_score > 0.2:
         score_pred = 0.3 + stopword_score
+        lang = lang2
         break
   return lang, score_pred
   
