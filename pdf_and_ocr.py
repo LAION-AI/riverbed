@@ -1,8 +1,15 @@
 import easyocr, math
 import tempfile, os
 import string
+import pdfplumber
+from pdfminer.layout import LTTextContainer, LTTextBox, LTFigure, LTTextLine, LTImage
+from pdfminer.high_level import extract_pages
+from pdfminer.image import ImageWriter
+from pdfminer.pdfdocument import PDFDocument
+from pdfminer.pdfparser import PDFParser
 from PIL import Image
-punc = string.punctuation + "¿？,،、º。゜ "
+
+punc_and_space = string.punctuation + "¿？,،、º。゜ "
 lst1 = ['en', 'af', 'az', 'bs', 'cs', 'cy', 'da', 'de', 'es', 'et', 'fr', 'ga', 'hr', 'hu', 'id', 'is', 'it', 'ku', 'la', 'lt', 'lv', 'mi', 'ms', 'mt', 'nl', 'no', 'oc', 'pi', 'pl', 'pt', 'ro', 'rs_latin', 'sk', 'sl', 'sq', 'sv', 'sw', 'tl', 'tr', 'uz', 'vi', ]
 lst2 = ["en",'ch_sim',]
 lst3 = ['en', 'hi', 'mr', 'ne', 'bh', 'mai', 'ang', 'bho', 'mah', 'sck', 'new', 'gom', ]
@@ -36,7 +43,7 @@ trannum = str.maketrans("0123456789", "1111111111")
 #TODO:we might create a lang/word detector using the first few layers of the 13 models and run them all together to estimate which ocr model is best to make the ocr decoding faster.
 # maybe do two passes, one with all_ocr_readers, then do lang detect and then one with reader for the particular predominant lang(s)
 def do_ocr_imgs(all_images, ocr_threshold=0.70, ocr_threshold2 = None, min_len=20, ignore_mostly_numbers=True, distance_for_newline=0.7):
-  global most_recently_used_model, most_recently_used_langs, punc
+  global most_recently_used_model, most_recently_used_langs, punc_and_space
   if ocr_threshold2 is None: ocr_threshold2 = ocr_threshold/2
   used_most_recent_model = False
   text = ""
@@ -68,7 +75,7 @@ def do_ocr_imgs(all_images, ocr_threshold=0.70, ocr_threshold2 = None, min_len=2
           found_ocr += prob
           found += 1
           text2 = text2 + " " + str(text3) 
-          if text2[-1] not in punc and data:
+          if text2[-1] not in punc_and_space and data:
              dst = math.sqrt(((data[-1][0][0][0] - coord[0][0])/max_x)**2 + ((data[-1][0][0][1] - coord[0][1])/max_y)**2)
              if dst > distance_for_newline: text2 = text2 + "."
           data.append((coord, text3, prob))
@@ -83,7 +90,7 @@ def do_ocr_imgs(all_images, ocr_threshold=0.70, ocr_threshold2 = None, min_len=2
         most_recently_used_model = reader
         most_recently_used_langs = langs
         text = text + " " + text2 
-        if text2[-1] not in punc: text = text + "."
+        if text2[-1] not in punc_and_space: text = text + "."
         best_text2 = text2
         best_ret = (data, found_ocr/found , langs)
         break
@@ -94,13 +101,14 @@ def do_ocr_imgs(all_images, ocr_threshold=0.70, ocr_threshold2 = None, min_len=2
         best_score = found_ocr/found 
          
     if best_text2: 
-      if best_text2[-1] not in punc: best_text2 = best_text2 + "."
+      if best_text2[-1] not in punc_and_space: best_text2 = best_text2 + "."
       text = text + " " + best_text2
       ret.append(best_ret)
     if temp_name is not None: os.system(f"rm {temp_name}")
   #if we found nothing that matched the thresholds, we might want to return the highest scoring
   return text.strip(), ret
 
+#extract 
 def extract_from_pdf(data, image_store_path, img_template_tag="###img###%s###", metadata_start_tag="###meta###0####", metadata_end_tag="###/meta###", title_tag="###title###0###"):
   temp_name = tempfile._get_default_tempdir() + "/" + next(tempfile._get_candidate_names()) + ".pdf"
   
@@ -134,10 +142,18 @@ def extract_from_pdf(data, image_store_path, img_template_tag="###img###%s###", 
       if temp_name is not None: os.system(f"rm {temp_name}")
       return None                    
   el = []
+  tables = []
   try:
-      for page_layout in extract_pages(temp_name):
-        for element in page_layout:
-          el.append(element)
+    
+    #TODO - refactor to use only pdfplumber and figure out how to get tables in context.
+    with pdfplumber.open(temp_name) as pdf:
+        for page in pdf.pages:
+          for element in page:
+            el.append(element)
+          tables.append(page.extract_tables(table_settings={}))
+      #for page_layout in extract_pages(temp_name):
+      #  for element in page_layout:
+      #    el.append(element)
   except:
       pass
   if not el:
