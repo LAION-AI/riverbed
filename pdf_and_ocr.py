@@ -2,7 +2,7 @@ import easyocr, math
 import tempfile, os
 import string
 from PIL import Image
-punc = string.punctuation + "¿？,،、º。゜"
+punc = string.punctuation + "¿？,،、º。゜ "
 lst1 = ['en', 'af', 'az', 'bs', 'cs', 'cy', 'da', 'de', 'es', 'et', 'fr', 'ga', 'hr', 'hu', 'id', 'is', 'it', 'ku', 'la', 'lt', 'lv', 'mi', 'ms', 'mt', 'nl', 'no', 'oc', 'pi', 'pl', 'pt', 'ro', 'rs_latin', 'sk', 'sl', 'sq', 'sv', 'sw', 'tl', 'tr', 'uz', 'vi', ]
 lst2 = ["en",'ch_sim',]
 lst3 = ['en', 'hi', 'mr', 'ne', 'bh', 'mai', 'ang', 'bho', 'mah', 'sck', 'new', 'gom', ]
@@ -34,6 +34,7 @@ except:
 trannum = str.maketrans("0123456789", "1111111111")
 
 #TODO:we might create a lang/word detector using the first few layers of the 13 models and run them all together to estimate which ocr model is best to make the ocr decoding faster.
+# maybe do two passes, one with all_ocr_readers, then do lang detect and then one with reader for the particular predominant lang(s)
 def do_ocr_imgs(all_images, ocr_threshold=0.70, ocr_threshold2 = None, min_len=20, ignore_mostly_numbers=True, distance_for_newline=0.7):
   global most_recently_used_model, most_recently_used_langs, punc
   if ocr_threshold2 is None: ocr_threshold2 = ocr_threshold/2
@@ -99,3 +100,101 @@ def do_ocr_imgs(all_images, ocr_threshold=0.70, ocr_threshold2 = None, min_len=2
     if temp_name is not None: os.system(f"rm {temp_name}")
   #if we found nothing that matched the thresholds, we might want to return the highest scoring
   return text.strip(), ret
+
+def extract_from_pdf(data, image_store_path, img_template_tag="###img###%s###", metadata_start_tag="###meta###0####", metadata_end_tag="###/meta###", title_tag="###title###0###"):
+  temp_name = tempfile._get_default_tempdir() + "/" + next(tempfile._get_candidate_names()) + ".pdf"
+  
+  with open(
+            temp_name,
+            "wb",
+          ) as fre:
+            fre.write(data) 
+            fre.cl
+  text = ""
+  meta = ""
+  title = ""
+  try:
+      fp = open(temp_name, 'rb')
+      parser = PDFParser(fp)
+      if doc.info:
+        meta = ""
+        for c in doc.info:
+          for a, b in c.items():
+            try: 
+              val = b.decode("utf8") 
+            except:
+              continue
+            if a.strip().lower() == "title": title = val
+            meta += " | "+a+": "+val
+        meta = meta.strip(" |")
+        if meta: meta = text = metadata_start_tag+" "+ meta + " "+metadata_end_tag
+      fp.close()
+      fp = parser = doc = None 
+  except:
+      if temp_name is not None: os.system(f"rm {temp_name}")
+      return None                    
+  el = []
+  try:
+      for page_layout in extract_pages(temp_name):
+        for element in page_layout:
+          el.append(element)
+  except:
+      pass
+  if not el:
+      if temp_name is not None: os.system(f"rm {temp_name}")
+      return None
+  found_text = False
+  image_files = []
+  iw = ImageWriter(image_store_path)
+  for element in el:
+      if isinstance(element, LTTextContainer) or \
+      isinstance(element, LTTextBox) or \
+      isinstance(element, LTTextLine):
+          found_text = True
+          text += " "+element.get_text()
+      elif isinstance(element, LTImage):
+        try:
+          image_id = iw.export_image(element)
+          image_files.append(image_id)
+          text += " "+img_template_tag%image_id
+        except:
+          continue
+      elif isinstance(element, LTFigure) :
+        el2 = []
+        try:
+          for element2 in element:
+           el2.append(element2)
+        except:
+          pass
+        for element2 in el2:
+          if isinstance(element2, LTTextContainer) or \
+          isinstance(element2, LTTextBox) or \
+          isinstance(element2, LTTextLine):
+              found_text = True
+              text += " "+element2.get_text()
+          elif isinstance(element2, LTImage):
+            try:
+              image_id = iw.export_image(element2)
+              image_files.append(image_id)
+              text += " "+img_template_tag%image_id
+            except:
+              continue
+
+                     
+  # if there is no text, then run OCR:
+  if not found_text:
+      text = meta
+      text2, ocr_data = do_ocr_imgs(image_files)
+      #TODO: do we keep the ocr_data - e.g., coordinates and other metadata for the text?
+      if text2:
+        for image_file in image_files:
+          os.system(f"rm {image_file}")          
+          text = text + " " + text2
+      else:
+        return ("", image_files)
+      
+  
+  #NOTE: we do not take care of the case where there are embded text images inside a pdf. Only the case where everything is an image.
+  if temp_name is not None: os.system(f"rm {temp_name}")
+                     
+  return (text, image_files)
