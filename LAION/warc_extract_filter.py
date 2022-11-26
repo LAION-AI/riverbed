@@ -5,11 +5,11 @@ import glob, os
 from tqdm import trange
 from time import sleep
 
-from riverbed.simhash import *
-from riverbed.stopwords import *
-from riverbed.preprocess_manager import *
-from riverbed.kenlm_manager import *
-from riverbed.pdf_and_ocr import *
+from ..simhash import *
+from ..stopwords import *
+from ..filtering import *
+from ..kenlm_manager import *
+from ..pdf_and_ocr import *
 
 from resiliparse.parse import detect_encoding
 from resiliparse.parse.html import HTMLTree
