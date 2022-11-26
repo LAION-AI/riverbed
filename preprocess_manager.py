@@ -119,6 +119,24 @@ def get_stopword_score(lang, doc, max_word_len=3, cjk_scale=1.5):
     if is_cjk: stopword_score = stopword_score*cjk_scale
     return (stopword_score)
 
+def get_score_moving_avg(lang, text, scores_per_lang, simple_moving_avg_window=10, fn=None):
+    if fn is None: fn = get_stopword_score
+    _min_cutoff = _stdev = _mean = _median = 0
+    _score = fn(lang, text)
+    _min_cutoff = _mean = _median = _stdev = _quantiles = None
+    scores_per_lang[lang] = _scores = _scores_per_lang.get(lang,[])
+    _scores.append(_score)
+    if len(_scores) < 2:
+      _min_cutoff = _score
+    else:
+      if len(_scores) > simple_moving_avg_window:
+         _scores_per_lang[lang] = _scores=_scores[-simple_moving_avg_window:]
+      _stdev = statistics.stdev(_scores)
+      _mean = statistics.mean (_scores)        
+      _median = statistics.median (_scores)        
+      _min_cutoff = _mean-(_stdev*_stdev_lower_bound)
+    return _min_cutoff, _stdev, _mean, _median 
+        
 import re
 
 emoji_pattern = re.compile("["
