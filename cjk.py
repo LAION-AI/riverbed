@@ -13,10 +13,10 @@ def cjk_detect(texts):
     # thai
     if re.search("[\u0E01-\u0E5B]", texts):
         return "th"
-    # javanese
+    # traditional javanese
     if re.search("[\uA980–\uA9DF]", texts):
-       return "ja"
+       return "jv_tr"
     return None
 
 def lang_is_cjk(lang):
-    return lang in {'zh', 'zh-classical', 'zh-min-nan', 'zh-yue', 'ko', 'ja', 'th'}
+    return lang in {'zh', 'zh-classical', 'zh-min-nan', 'zh-yue', 'ko', 'ja', 'th', 'jv_tr'}
