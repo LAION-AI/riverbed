@@ -40,8 +40,8 @@ import tqdm
 import gzip
 import multiprocessing
 from torch import nn
-from .utils import *
-from .searcher_indexer import *
+from ..utils import *
+from ..searcher_indexer import *
 
 if torch.cuda.is_available():
   device = 'cuda'
