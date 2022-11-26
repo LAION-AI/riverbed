@@ -16,6 +16,7 @@ limitations under the License.
 #https://github.com/piisa/muliwai/blob/7ccf36d016fa66a9b1ed00b0ce8b89d01a57dfc9/langid_manager.py which are under Apache 2.0
 
 from .stopwords import all_stopwords
+from .char_manager import *
 import fasttext, langid
 import os
 fasttext_model = os.path.abspath(os.path.dirname(__file__))  +"/bin/lid.176.ftz"
@@ -31,13 +32,18 @@ def get_ngram(sent, window_size=3, lang="en"):
   ret= [" ".join(tokens[i : i + window_size])   for i in range(len(tokens) - window_size)]
   return Counter(ret)
 
-def high_ngram(sent, cutoff=0.09):
-  aHash = get_ngram(sent)
+def get_ngram_score(sent, window_size=3, lang="en"):
+  aHash = get_ngram(sent, window_size, lang)
   sent_len = sent.count(" ")+1
   for key in list(aHash.keys()):
     aHash[key] = aHash[key]/sent_len
-  return any(a > cutoff for a in aHash.values())  
-
+  return aHash.most_common()[1]
+  
+def get_special_char_score (text, special_characters_default=None):
+  global junk
+  if special_characters_default is None: special_characters_default = junk
+  return len([a for a in text if a in special_characters_default])/len(text)
+    
 def get_lang_groups(src_lang):
     """ we use langid because it's pretty fast but it has difficulties in low resource languages
     langid can sometimes mistake languages that are in the same group. that is ok for our purpose as
