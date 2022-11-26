@@ -27,6 +27,16 @@ except:
   fasttext_model = os.path.abspath(os.path.dirname(__file__))  +"/bin/lid.176.ftz"
   lang_model = fasttext.load_model(fasttext_model)
 
+            
+import re
+
+emoji_pattern = re.compile("["
+        u"\U0001F600-\U0001F64F"  # emoticons
+        u"\U0001F300-\U0001F5FF"  # symbols & pictographs
+        u"\U0001F680-\U0001F6FF"  # transport & map symbols
+        u"\U0001F1E0-\U0001F1FF"  # flags (iOS)
+                           "]+", flags=re.UNICODE)
+
 def get_lang_groups(src_lang):
     """ we use langid because it's pretty fast but it has difficulties in low resource languages
     langid can sometimes mistake languages that are in the same group. that is ok for our purpose as
