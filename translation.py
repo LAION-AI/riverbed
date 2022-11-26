@@ -1,8 +1,9 @@
 #translation based stuff 
+import os
 try:
   import transformers
 except:
-  !pip install transformers  sentencepiece
+  os.system("pip install transformers  sentencepiece")
   
 from transformers import M2M100ForConditionalGeneration, M2M100Tokenizer, BertModel, BertTokenizerFast
 
