@@ -1,4 +1,5 @@
 import re
+    
 def cjk_detect(texts):
     # chinese
     if re.search("[\u4e00-\u9FFF]", texts):
@@ -12,6 +13,9 @@ def cjk_detect(texts):
     # thai
     if re.search("[\u0E01-\u0E5B]", texts):
         return "th"
+    # javanese
+    if re.search("[\uA980–\uA9DF]", texts):
+       return "ja"
     return None
 
 def lang_is_cjk(lang):
