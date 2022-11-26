@@ -21,6 +21,22 @@ import os
 fasttext_model = os.path.abspath(os.path.dirname(__file__))  +"/bin/lid.176.ftz"
 lang_model = fasttext.load_model(fasttext_model)
 
+from collections import Counter
+def get_ngram(sent, window_size=3, lang="en"):
+  if lang in {"zh", "ja", "ko", "th"}:
+    tokens = sent
+    ret= ["".join(tokens[i : i + window_size])   for i in range(len(tokens) - window_size)]
+  else:
+    tokens = sent.split()
+  ret= [" ".join(tokens[i : i + window_size])   for i in range(len(tokens) - window_size)]
+  return Counter(ret)
+
+def high_ngram(sent, cutoff=0.09):
+  aHash = get_ngram(sent)
+  sent_len = sent.count(" ")+1
+  for key in list(aHash.keys()):
+    aHash[key] = aHash[key]/sent_len
+  return any(a > cutoff for a in aHash.values())  
 
 def get_lang_groups(src_lang):
     """ we use langid because it's pretty fast but it has difficulties in low resource languages
