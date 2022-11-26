@@ -43,12 +43,12 @@ from torch import nn
 import langid
 from .utils import *
 from .searcher_indexer import *
-from .char_manager import junk, special_char
-from .stopwords import stopwords as all_stopwords
-from .langid_manager import *
-from .banned_words import banned_words
-from .flagged_words import flagged_words
-from .cjk import lang_is_cjk
+from ..char_manager import junk, special_char
+from ..stopwords import stopwords as all_stopwords
+from ..langid_manager import *
+from ..banned_words import banned_words
+from ..flagged_words import flagged_words
+from ..cjk import lang_is_cjk
 
 if torch.cuda.is_available():
   device = 'cuda'
