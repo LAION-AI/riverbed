@@ -17,6 +17,7 @@ limitations under the License.
 from .stopwords import all_stopwords
 from .char_manager import *
 from .filtering import *
+from .cjk import *
 
 import fasttext, langid
 import os
@@ -108,12 +109,23 @@ def lang_id(document, cleanup_emoji=False, len_cutoff=1000):
     stopword_score = get_stopword_score(lang, document)
     if stopword_score > 0.2:
       score_pred = score_pred*1.5
-  #let's see if we can guess the lang based on our stopword list (to match low resource langs)
+  lang2 = None
   if score_pred < 0.5:
-     for lang2 in all_stopwords:
-      stopword_score = get_stopword_score(lang2, document)
-      if stopword_score > 0.2:
-        score_pred = 0.3 + stopword_score
-        lang = lang2
-        break
+    #let's see if we can guess the lang based on our stopword list (to match low resource langs)
+    for lang2 in all_stopwords:
+       stopword_score = get_stopword_score(lang2, document)
+       if stopword_score > 0.2:
+         score_pred = 0.3 + stopword_score
+         lang = lang2
+         break
+  if score_pred < 0.5:  
+    #let's see if we can guess the lang based on cjk character code
+    lang2 = lang_is_cjk(document)
+    if lang2 and lang2 == lang:
+      score_pred += 0.3    
+      lang = lang2
+    elif lang2 and lang2 != lang:
+      lang = lang2
+      score_pred = 1.0 - score_pred
+      
   return lang, score_pred
