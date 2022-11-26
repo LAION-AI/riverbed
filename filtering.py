@@ -17,10 +17,11 @@ limitations under the License.
 from .stopwords import all_stopwords
 from .flaggedwords import flagged_words
 from .char_manager import *
+from .cjk import *
 
 from collections import Counter
 def get_ngram(text, window_size=3, lang="en"):
-  if lang in {"zh", "ja", "ko", "th"}:
+  if lang_is_cjk(lang):
     tokens = text
     ret= ["".join(tokens[i : i + window_size])   for i in range(len(tokens) - window_size)]
   else:
@@ -42,10 +43,10 @@ def get_special_char_score (lang, text, special_characters_default=None):
   return len([a for a in text if a in special_characters_default])/len(text)
 
 
-lang_2_max_stopword_len = dict([(lang, max(s.count(" ")+1 if lang not in {'zh', 'zh-classical', 'zh-min-nan', 'zh-yue', 'ko', 'ja', 'th', 'jv'} else len(s) for s in arr)) for lang, arr in all_stopwords.items()])
+lang_2_max_stopword_len = dict([(lang, max(s.count(" ")+1 if not lang_is_cjk(lang) else len(s) for s in arr)) for lang, arr in all_stopwords.items()])
 
 def get_stopword_score(lang, text, max_word_len=3, cjk_scale=1.5):
-    is_cjk = lang in {'zh', 'zh-classical', 'zh-min-nan', 'zh-yue', 'ko', 'ja', 'th', 'jv'}
+    is_cjk = lang_is_cjk(lang)
     stopwords =  all_stopwords.get(lang, {})
     if not stopwords: return 1
     text = text.lower().strip()
@@ -74,10 +75,10 @@ def get_stopword_score(lang, text, max_word_len=3, cjk_scale=1.5):
 
 
     
-lang_2_max_flaggedword_len = dict([(lang, max(s.count(" ")+1 if lang not in {'zh', 'zh-classical', 'zh-min-nan', 'zh-yue', 'ko', 'ja', 'th', 'jv'} else len(s) for s in arr)) for lang, arr in flagged_words.items()])
+lang_2_max_flaggedword_len = dict([(lang, max(s.count(" ")+1 if not lang_is_cjk(lang) else len(s) for s in arr)) for lang, arr in flagged_words.items()])
 
 def get_flaggedword_score(lang, text, max_word_len=3, cjk_scale=1.5):
-    is_cjk = lang in {'zh', 'zh-classical', 'zh-min-nan', 'zh-yue', 'ko', 'ja', 'th', 'jv'}
+    is_cjk = lang_is_cjk(lang)
     flaggedwords =  flagged_words.get(lang, {})
     if not flaggedwords: return 1
     text = text.lower().strip()
