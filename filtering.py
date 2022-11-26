@@ -34,7 +34,7 @@ def get_ngram_score(lang, text, window_size=3):
   text_len = text.count(" ")+1
   for key in list(aHash.keys()):
     aHash[key] = aHash[key]/text_len
-  return aHash.most_common()[1]
+  return aHash.most_common(1)[0][1]
   
 def get_special_char_score (lang, text, special_characters_default=None):
   global junk
