@@ -113,6 +113,52 @@ public_figure_kenlm_cutoff_map = {
            }
 }
 
+import tempfile, os, gzip
+form .char_manager import *
+
+try:
+  import transformers
+except:
+  os.system("pip install transformers sentencepiece")
+
+from transformers import AutoTokenizer
+try:
+  if mt5_tokenizer is None: pass
+except:
+  mt5_tokenizer = AutoTokenizer.from_pretrained("google/mt5-small")
+mt5_underscore = "▁"
+
+#change this to pass in the tokenizer
+def train_kenlm_model(model_name, data_files,  min_num_tokens=5, do_collapse_values=True, lmplz_loc = "./riverbed/bin/lmplz", tokenizer=None, do_lowercase=True):
+  global mt5_tokenizer
+  if tokenizer is None: tokenizer = mt5_tokenizer
+  if lmplz_loc != "./riverbed/bin/lmplz" and not os.path.exists("./lmplz"):
+        os.system(f"cp {lmplz_loc} ./lmplz")
+        lmplz = "./lmplz"
+  else:
+        lmplz = lmplz_loc
+  os.system(f"chmod u+x {lmplz}")
+  temp_name = tempfile._get_default_tempdir() + "/" + next(tempfile._get_candidate_names()) + ".txt"
+  with open(temp_name, "w", encoding="utf8") as out:  
+    for filename in data_files:
+      if filename.endswith(".gz"):
+        fin = gzip.open(filename)
+      else:
+        fin = open(filename, "rb")
+      for line in fin:
+        line = line.decode().strip()
+        words = tokenizer.tokenize(line)
+        words  = " ".join(words).replace(mt5_underscore, " ").replace("  ", " ").replace("  ", " ").strip() 
+        for w in punc_char:
+          words = words.replace(" "+w, w)
+        if do_lowercase: words = words.lower()
+        out.write(words+"\n")
+  if do_collapse_values:
+      os.system(f"./{lmplz} --collapse_values  --discount_fallback  --skip_symbols -o 5 --prune {min_num_tokens}  --arpa {model_name}.arpa <  {temp_name}") ##
+  else:
+      os.system(f"./{lmplz}  --discount_fallback  --skip_symbols -o 5 --prune {min_num_tokens}  --arpa {model_name}.arpa <  {temp_name}") ##
+  os.system(f"rm {temp_name}")        
+
 # TODO: Instead of defaulting to the ccnet models, we will want to pick and choose from the ccnet/edugp wikipedia model
 def load_kenlm_model(
         src_lang: str = "en",
