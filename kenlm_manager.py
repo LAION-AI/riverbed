@@ -57,7 +57,7 @@ def get_kenlm_models_from_savedir( default_kenlm_wikipedia="./kenlm_ccnet_wikipe
 # WOULD be good if we can create models based on cc100.
 
 # TODO figure out actual numbers. Also, add languge specific kenlm models. Check if there are variations b/c of
-#  gender, so we would have at least two patterns.
+# gender, so we would have at least two patterns.
 public_figure_kenlm_cutoff_map = {
     'en': {'wikipedia': [{'cutoff': 500, 'pattern': "{} (born"}],  # in wikipedia, you often have: Lincoln (born .... )
            'oscar': [{'cutoff': 500, 'pattern': "{} was born"}],
@@ -147,11 +147,16 @@ def train_kenlm_model(model_name, data_files,  min_num_tokens=5, do_collapse_val
         fin = open(filename, "rb")
       for line in fin:
         line = line.decode().strip()
-        words = tokenizer.tokenize(line)
-        words  = " ".join(words).replace(mt5_underscore, " ").replace("  ", " ").replace("  ", " ").strip() 
-        for w in punc_char:
-          words = words.replace(" "+w, w)
-        if do_lowercase: words = words.lower()
+        line = KenlmModel.normalize(
+            line,
+            accent=True,
+            lowercase=do_lowercase,
+            numbers = True,
+            punct = 1,
+            do_tokenize = True,
+            tokenizer = tokenizer,
+            normalize_spacing_for_tok = True
+        )
         out.write(words+"\n")
   if do_collapse_values:
       os.system(f"./{lmplz} --collapse_values  --discount_fallback  --skip_symbols -o 5 --prune {min_num_tokens}  --arpa {model_name}.arpa <  {temp_name}") ##
@@ -262,7 +267,7 @@ class SentencePiece:
         self.sp = sentencepiece.SentencePieceProcessor()
         self.sp.load(str(model))
 
-    def do(self, text: dict) -> dict:
+    def tokenize(self, text: dict) -> dict:
         tokenized = self.sp.encode_as_pieces(text)
         return " ".join(tokenized)
 
@@ -320,18 +325,22 @@ class KenlmModel:
             self,
             model_dataset: str,
             language: str,
-            lower_case: bool = False,
+            lowercase: bool = False,
             remove_accents: bool = False,
             normalize_numbers: bool = True,
             punctuation: int = 1,
             do_normalize_spacing_for_tok: bool = False,
+            tokenizer=None
     ):
         self.model_dataset = model_dataset
         self.model = kenlm.Model(os.path.join(self.model_dataset, f"{language}.arpa.bin"))
-        self.tokenizer = SentencePiece(os.path.join(self.model_dataset, f"{language}.sp.model"))
+        if tokenizer is None:
+          self.tokenizer = SentencePiece(os.path.join(self.model_dataset, f"{language}.sp.model"))
+        else:
+          self.tokenizer = tokenizer
         self.do_normalize_spacing_for_tok = do_normalize_spacing_for_tok
         self.accent = remove_accents
-        self.case = lower_case
+        self.lowercase = lowercase
         self.numbers = normalize_numbers
         self.punct = punctuation
         self.language = language
@@ -354,19 +363,18 @@ class KenlmModel:
     def pp(self, log_score, length):
         return 10.0 ** (-log_score / length)
 
-    def get_perplexity(self, doc: str, normalize_cc_net: bool = True):
-        if normalize_cc_net:
-            doc = self.normalize(
+    # Tokenize (after normalizing): See https://github.com/facebookresearch/cc_net/blob/bda555bd1cf1ee2e0b925363e62a61cd46c8b60d/cc_net/mine.py#L352 for full pipeline        
+    def get_perplexity(self, doc: str):
+        doc = self.normalize(
                 doc,
                 accent=self.accent,
-                case=self.case,
+                lower_case=self.lowercase,
                 numbers=self.numbers,
                 punct=self.punct,
+                tokenizer=self.tokenizer,
+                do_tokenize=True,
+                do_normalize_spacing_for_tok=self.do_normalize_spacing_for_tok
             )
-        # Tokenize (after normalizing): See https://github.com/facebookresearch/cc_net/blob/bda555bd1cf1ee2e0b925363e62a61cd46c8b60d/cc_net/mine.py#L352 for full pipeline
-        if self.do_normalize_spacing_for_tok:
-          doc = self.normalize_spacing_for_tok(doc)
-        doc = self.tokenizer.do(doc)
         doc_log_score, doc_length = 0, 0
         for line in doc.split("\n"):
             log_score = self.model.score(line)
@@ -375,28 +383,39 @@ class KenlmModel:
             doc_length += length
         return round(self.pp(doc_log_score, doc_length), 1)
     
+    @staticmethod
     def normalize(
-            self,
             line: str,
             accent: bool = True,
-            case: bool = True,
+            lowercase: bool = True,
             numbers: bool = True,
             punct: int = 1,
+            do_tokenize: bool = True,
+            tokenizer = None,
+            normalize_spacing_for_tok: bool = True
     ) -> str:
         line = line.strip()
         if not line:
             return line
-        if case:
+        if lowercase:
             line = line.lower()
         if accent:
-            line = self.strip_accents(line)
+            line = KenlmModel.strip_accents(line)
         if numbers:
-            line = self.digit_re.sub("0", line)
+            line = KenlmModel.digit_re.sub("0", line)
         if punct == 1:
-            line = self.replace_unicode_punct(line)
+            line = KenlmModel.replace_unicode_punct(line)
         elif punct == 2:
-            line = self.remove_unicode_punct(line)
-        line = self.remove_non_printing_char(line)
+            line = KenlmModel.remove_unicode_punct(line)
+        line = KenlmModel.remove_non_printing_char(line)
+        if do_tokenize:
+          assert tokenizer is not None
+          if self.do_normalize_spacing_for_tok:
+            line = self.normalize_spacing_for_tok(line)
+          line = self.tokenizer.tokenize(line)
+          line  = " ".join(" ".join(line).replace(mt5_underscore, " ").split())
+          for w in punc_char:
+            line = line.replace(" "+w, w)
         return line
 
     @staticmethod
@@ -484,16 +503,19 @@ class KenlmModel:
             return line
         return "".join(output)
 
-    def replace_unicode_punct(self, text: str) -> str:
-        return "".join(self.unicode_punct.get(c, c) for c in text)
+    @staticmethod
+    def replace_unicode_punct(text: str) -> str:
+        return "".join(KenlmModel.unicode_punct.get(c, c) for c in text)
 
-    def remove_unicode_punct(self, text: str) -> str:
+    @staticmethod
+    def remove_unicode_punct(text: str) -> str:
         """More aggressive version of replace_unicode_punct but also faster."""
-        return self.unicode_punct_re.sub("", text)
+        return KenlmModel.unicode_punct_re.sub("", text)
 
-    def remove_non_printing_char(self, text: str) -> str:
-        return self.non_printing_chars_re.sub("", text)
-
+    @staticmethod
+    def remove_non_printing_char(text: str) -> str:
+        return KenlmModel.non_printing_chars_re.sub("", text)
+    
     def check_common_name(self, name: str, return_score: bool = False):
         """
         Check if a name is a common name.
