@@ -15,7 +15,7 @@ limitations under the License.
 #adapted from https://github.com/piisa/muliwai/blob/main/preprocess_manager.py, and
 
 from .stopwords import all_stopwords
-from .flaggedwords import flagged_words
+from .flagged_words import flagged_words
 from .char_manager import *
 from .cjk import *
 
@@ -34,6 +34,7 @@ def get_ngram_score(lang, text, window_size=3):
   text_len = text.count(" ")+1
   for key in list(aHash.keys()):
     aHash[key] = aHash[key]/text_len
+  if not aHash: return 0.0
   return aHash.most_common(1)[0][1]
   
 def get_special_char_score (lang, text, special_characters_default=None):
@@ -80,7 +81,7 @@ lang_2_max_flaggedword_len = dict([(lang, max(s.count(" ")+1 if not lang_is_cjk(
 def get_flaggedword_score(lang, text, max_word_len=3, cjk_scale=1.5):
     is_cjk = lang_is_cjk(lang)
     flaggedwords =  flagged_words.get(lang, {})
-    if not flaggedwords: return 1
+    if not flaggedwords: return 0
     text = text.lower().strip()
     if is_cjk: 
       s_arr = list("".join(text.split())) 
@@ -88,20 +89,20 @@ def get_flaggedword_score(lang, text, max_word_len=3, cjk_scale=1.5):
       s_arr = text.split()
     word_len = lang_2_max_flaggedword_len.get(lang, max_word_len)
     len_s = len(s_arr)
-    stop_cnt = 0
+    flag_cnt = 0
     total_cnt = 0
     for i in range(len_s):
       if s_arr[i] is None: continue
       for j in range(min(len_s, i+word_len), i, -1):
         word = "".join(s_arr[i:j]) if is_cjk else " ".join(s_arr[i:j])
         if word in flaggedwords:
-          stop_cnt += 1
+          flag_cnt += 1
           s_arr[i] = "".join(s_arr[i:j]) if is_cjk else " ".join(s_arr[i:j]) 
           for k in range(i+1, j):
             s_arr[k] = None
           break
       total_cnt += 1
-    flaggedword_score =  (stop_cnt/total_cnt) 
+    flaggedword_score =  (flag_cnt/total_cnt) 
     if is_cjk: flaggedword_score = flaggedword_score*cjk_scale
     return (flaggedword_score)
 
