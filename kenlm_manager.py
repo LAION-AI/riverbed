@@ -24,6 +24,9 @@ import kenlm
 import sentencepiece
 from huggingface_hub import cached_download, hf_hub_url
 from filelock import FileLock
+from zmq import LINGER
+from .filtering import *
+from .cjk import *
 
 ## additional code to support kenlm entity querying
 kenlm_models = {
@@ -114,7 +117,7 @@ public_figure_kenlm_cutoff_map = {
 }
 
 import tempfile, os, gzip
-form .char_manager import *
+from .char_manager import *
 
 try:
   import transformers
@@ -128,8 +131,8 @@ except:
   mt5_tokenizer = AutoTokenizer.from_pretrained("google/mt5-small")
 mt5_underscore = "▁"
 
-#change this to pass in the tokenizer
-def train_kenlm_model(model_name, data_files,  min_num_tokens=5, do_collapse_values=True, lmplz_loc = "./riverbed/bin/lmplz", tokenizer=None, do_lowercase=True):
+
+def train_kenlm_model(model_name, data_files,  min_num_tokens=5, do_collapse_values=True, lmplz_loc = "./riverbed/bin/lmplz", tokenizer=None, do_lowercase=True, ngram_score=0.8, special_char_score=0.28, flaggedword_score=0.08):
   global mt5_tokenizer
   if tokenizer is None: tokenizer = mt5_tokenizer
   if lmplz_loc != "./riverbed/bin/lmplz" and not os.path.exists("./lmplz"):
@@ -147,6 +150,17 @@ def train_kenlm_model(model_name, data_files,  min_num_tokens=5, do_collapse_val
         fin = open(filename, "rb")
       for line in fin:
         line = line.decode().strip()
+        lang = cjk_detect(line)
+        if not lang: lang = "en"
+        score = get_ngram_score(lang, line)
+        if score >= ngram_score:
+          continue
+        score = get_special_char_score(lang, line)
+        if score >= special_char_score:
+          continue
+        score = get_flaggedword_score(lang, line)
+        if score >= flaggedword_score:
+          continue
         line = KenlmModel.normalize(
             line,
             accent=True,
@@ -155,9 +169,9 @@ def train_kenlm_model(model_name, data_files,  min_num_tokens=5, do_collapse_val
             punct = 1,
             do_tokenize = True,
             tokenizer = tokenizer,
-            normalize_spacing_for_tok = True
+            do_normalize_spacing_for_tok = True
         )
-        out.write(words+"\n")
+        out.write(line+"\n")
   if do_collapse_values:
       os.system(f"./{lmplz} --collapse_values  --discount_fallback  --skip_symbols -o 5 --prune {min_num_tokens}  --arpa {model_name}.arpa <  {temp_name}") ##
   else:
@@ -392,7 +406,7 @@ class KenlmModel:
             punct: int = 1,
             do_tokenize: bool = True,
             tokenizer = None,
-            normalize_spacing_for_tok: bool = True
+            do_normalize_spacing_for_tok: bool = True
     ) -> str:
         line = line.strip()
         if not line:
@@ -410,9 +424,9 @@ class KenlmModel:
         line = KenlmModel.remove_non_printing_char(line)
         if do_tokenize:
           assert tokenizer is not None
-          if self.do_normalize_spacing_for_tok:
-            line = self.normalize_spacing_for_tok(line)
-          line = self.tokenizer.tokenize(line)
+          if do_normalize_spacing_for_tok:
+            line = KenlmModel.normalize_spacing_for_tok(line)
+          line = tokenizer.tokenize(line)
           line  = " ".join(" ".join(line).replace(mt5_underscore, " ").split())
           for w in punc_char:
             line = line.replace(" "+w, w)
