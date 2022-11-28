@@ -80,7 +80,9 @@ lang_2_max_flaggedword_len = dict([(lang, max(s.count(" ")+1 if not lang_is_cjk(
 
 def get_flaggedword_score(lang, text, max_word_len=3, cjk_scale=1.5):
     is_cjk = lang_is_cjk(lang)
-    flaggedwords =  flagged_words.get(lang, {})
+    flaggedwords =  flagged_words.get(lang, set())
+    en_flaggedwords = flagged_words["en"]
+    flaggedwords = flaggedwords.union (en_flaggedwords)
     if not flaggedwords: return 0
     text = text.lower().strip()
     if is_cjk: 
