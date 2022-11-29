@@ -132,7 +132,7 @@ except:
 mt5_underscore = "▁"
 
 
-def train_kenlm_model(model_name, data_files,  min_num_tokens=5, do_collapse_values=True, lmplz_loc = "./riverbed/bin/lmplz", tokenizer=None, do_lowercase=True, ngram_score=0.8, special_char_score=0.28, flaggedword_score=0.08):
+def train_kenlm_model(model_name, data_files,  parse_file=None, min_num_tokens=5, do_collapse_values=True, lmplz_loc = "./riverbed/bin/lmplz", tokenizer=None, do_lowercase=True, ngram_score=0.8, special_char_score=0.28, flaggedword_score=0.08):
   global mt5_tokenizer
   if tokenizer is None: tokenizer = mt5_tokenizer
   if lmplz_loc != "./riverbed/bin/lmplz" and not os.path.exists("./lmplz"):
@@ -142,7 +142,8 @@ def train_kenlm_model(model_name, data_files,  min_num_tokens=5, do_collapse_val
         lmplz = lmplz_loc
   os.system(f"chmod u+x {lmplz}")
   temp_name = tempfile._get_default_tempdir() + "/" + next(tempfile._get_candidate_names()) + ".txt"
-  with open(temp_name, "w", encoding="utf8") as out:  
+  if parse_file is None: parse_file = temp_name
+  with open(parse_file, "w", encoding="utf8") as out:  
     for filename in data_files:
       if filename.endswith(".gz"):
         fin = gzip.open(filename)
@@ -173,9 +174,9 @@ def train_kenlm_model(model_name, data_files,  min_num_tokens=5, do_collapse_val
         )
         out.write(line+"\n")
   if do_collapse_values:
-      os.system(f"./{lmplz} --collapse_values  --discount_fallback  --skip_symbols -o 5 --prune {min_num_tokens}  --arpa {model_name}.arpa <  {temp_name}") ##
+      os.system(f"./{lmplz} --collapse_values  --discount_fallback  --skip_symbols -o 5 --prune {min_num_tokens}  --arpa {model_name}.arpa <  {parse_file}") ##
   else:
-      os.system(f"./{lmplz}  --discount_fallback  --skip_symbols -o 5 --prune {min_num_tokens}  --arpa {model_name}.arpa <  {temp_name}") ##
+      os.system(f"./{lmplz}  --discount_fallback  --skip_symbols -o 5 --prune {min_num_tokens}  --arpa {model_name}.arpa <  {parse_file}") ##
   os.system(f"rm {temp_name}")        
 
 # TODO: Instead of defaulting to the ccnet models, we will want to pick and choose from the ccnet/edugp wikipedia model
