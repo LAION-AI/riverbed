@@ -39,6 +39,7 @@ def get_ngram_score(lang, text, window_size=3):
   
 def get_special_char_score (lang, text, special_characters_default=None):
   global junk
+  if len(text) == 0: return 1
   #TODO: do we want to do any lang specific special_chars?
   if special_characters_default is None: special_characters_default = junk
   return len([a for a in text if a in special_characters_default])/len(text)
