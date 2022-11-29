@@ -163,7 +163,7 @@ def train_kenlm_model(model_name, data_files,  min_num_tokens=5, do_collapse_val
           continue
         line = KenlmModel.normalize(
             line,
-            accent=True,
+            accent=False,
             lowercase=do_lowercase,
             numbers = True,
             punct = 1,
