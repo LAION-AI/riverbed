@@ -24,9 +24,23 @@ import kenlm
 import sentencepiece
 from huggingface_hub import cached_download, hf_hub_url
 from filelock import FileLock
-from zmq import LINGER
 from .filtering import *
 from .cjk import *
+import tempfile, os, gzip
+from .char_manager import *
+
+try:
+  import transformers
+except:
+  os.system("pip install transformers sentencepiece")
+
+from transformers import AutoTokenizer
+try:
+  if mt5_tokenizer is None: pass
+except:
+  mt5_tokenizer = AutoTokenizer.from_pretrained("google/mt5-small")
+mt5_underscore = "▁"
+
 
 ## additional code to support kenlm entity querying
 kenlm_models = {
@@ -116,23 +130,8 @@ public_figure_kenlm_cutoff_map = {
            }
 }
 
-import tempfile, os, gzip
-from .char_manager import *
 
-try:
-  import transformers
-except:
-  os.system("pip install transformers sentencepiece")
-
-from transformers import AutoTokenizer
-try:
-  if mt5_tokenizer is None: pass
-except:
-  mt5_tokenizer = AutoTokenizer.from_pretrained("google/mt5-small")
-mt5_underscore = "▁"
-
-
-def train_kenlm_model(model_name, data_files,  parse_file=None, min_num_tokens=5, do_collapse_values=True, lmplz_loc = "./riverbed/bin/lmplz", tokenizer=None, do_lowercase=True, ngram_score=0.8, special_char_score=0.28, flaggedword_score=0.08):
+def train_kenlm_model(model_name, data_files,  parse_file=None, min_num_tokens=5, do_collapse_values=True, lmplz_loc = "./riverbed/bin/lmplz", tokenizer=None, do_lowercase=True, ngram_score=0.8, special_char_score=0.28, flaggedword_score=0.08, remove_accents=False):
   global mt5_tokenizer
   if tokenizer is None: tokenizer = mt5_tokenizer
   if lmplz_loc != "./riverbed/bin/lmplz" and not os.path.exists("./lmplz"):
@@ -164,7 +163,7 @@ def train_kenlm_model(model_name, data_files,  parse_file=None, min_num_tokens=5
           continue
         line = KenlmModel.normalize(
             line,
-            accent=False,
+            accent=remove_accents,
             lowercase=do_lowercase,
             numbers = True,
             punct = 1,
@@ -338,17 +337,21 @@ class KenlmModel:
     # does it make a difference?
     def __init__(
             self,
-            model_dataset: str,
-            language: str,
+            model_dataset: str=None,
+            language: str=None,
             lowercase: bool = False,
             remove_accents: bool = False,
             normalize_numbers: bool = True,
             punctuation: int = 1,
             do_normalize_spacing_for_tok: bool = False,
-            tokenizer=None
+            tokenizer=None,
+            model_path: str=None,
     ):
         self.model_dataset = model_dataset
-        self.model = kenlm.Model(os.path.join(self.model_dataset, f"{language}.arpa.bin"))
+        if model_path is not None:
+          self.model = kenlm.Model(model_path)
+        else:
+          self.model = kenlm.Model(os.path.join(self.model_dataset, f"{language}.arpa.bin"))
         if tokenizer is None:
           self.tokenizer = SentencePiece(os.path.join(self.model_dataset, f"{language}.sp.model"))
         else:
@@ -383,7 +386,7 @@ class KenlmModel:
         doc = self.normalize(
                 doc,
                 accent=self.accent,
-                lower_case=self.lowercase,
+                lowercase=self.lowercase,
                 numbers=self.numbers,
                 punct=self.punct,
                 tokenizer=self.tokenizer,
@@ -401,7 +404,7 @@ class KenlmModel:
     @staticmethod
     def normalize(
             line: str,
-            accent: bool = True,
+            accent: bool = False,
             lowercase: bool = True,
             numbers: bool = True,
             punct: int = 1,
