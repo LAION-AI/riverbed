@@ -47,6 +47,7 @@ kenlm_models = {
     'wikipedia': {},
     'oscar': {},
     'mc4': {},
+    'riverbed': {},
 }
 
 #NOTE: If you want to use the default cc_net kenlm wikipedia models, you will need to download them. You can manually download per the below or copy them from a saved dir.
@@ -181,9 +182,9 @@ def train_kenlm_model(model_name, data_files,  parse_file=None, min_num_tokens=5
 # TODO: Instead of defaulting to the ccnet models, we will want to pick and choose from the ccnet/edugp wikipedia model
 def load_kenlm_model(
         src_lang: str = "en",
-        pretrained_models: list = ['wikipedia'],
+        pretrained_models: list = ['riverbed'],
         store_model: bool = True,
-        cache_dir: str = "./kenlm_edugp_models",
+        cache_dir: str = "./kenlm_models",
         default_kenlm_wikipedia: str = "./kenlm_ccnet_wikipedia_models"
 ) -> dict:
     """
@@ -201,8 +202,9 @@ def load_kenlm_model(
     
     # check if pretrain model exist
     for model_type in pretrained_models:
-        if src_lang in kenlm_models[model_type]:
-            all_models[model_type] = kenlm_models[model_type][src_lang]
+
+        if ('*' if model_type == 'riverbed' else src_lang) in kenlm_models[model_type]:
+            all_models[model_type] = kenlm_models[model_type][src_lang if model_type != 'riverbed' else '*']
         elif model_type == "wikipedia" and os.path.exists(f"{default_kenlm_wikipedia}/{src_lang}.arpa.bin"):
             model = KenlmModel(default_kenlm_wikipedia, src_lang, do_normalize_spacing_for_tok=True)
             all_models[model_type] = model
@@ -214,15 +216,27 @@ def load_kenlm_model(
             all_models[model_type] = model
             if store_model:
               kenlm_models[model_type][src_lang] = model
-        elif model_type not in kenlm_models.keys():
+        elif model_type not in kenlm_models:
             warnings.warn(f"{model_type} pretrained model is not supported!")
         else:
             os.system(f"mkdir -p {cache_dir}/{model_type}")
             found = True
-            for model_file in model_files:
+            if model_type == "riverbed":
+              if not os.path.exists(f"{cache_dir}/{model_type}/arpa.bin"):
+                    try:
+                        print (f"loading ontocord/riverbed_kenlm/arpa.bin")
+                        file_url = hf_hub_url(repo_id="ontocord/riverbed_kenlm",
+                                              filename=f"arpa.bin")
+                        file = cached_download(file_url)
+                        os.system(f"ln -s {file} {cache_dir}/{model_type}/arpa.bin")
+                    except:
+                        warnings.warn(f'could not find model ontocord/riverbed_kenlm/arpa.bin. will stop searching...')
+                        found = False
+            else:        
+              for model_file in model_files:
                 if not os.path.exists(f"{cache_dir}/{model_type}/{src_lang}.{model_file}"):
                     try:
-                        print (f"loading {model_type}/{src_lang}.{model_file}")
+                        print (f"loading edugp/kenlm/{model_type}/{src_lang}.{model_file}")
                         file_url = hf_hub_url(repo_id="edugp/kenlm",
                                               filename=f"{model_type}/{src_lang}.{model_file}")
                         file = cached_download(file_url)
@@ -235,7 +249,7 @@ def load_kenlm_model(
                 model = KenlmModel(f"{cache_dir}/{model_type}", src_lang)
                 all_models[model_type] = model
                 if store_model:
-                    kenlm_models[model_type][src_lang] = model
+                    kenlm_models[model_type][src_lang if model_type != 'riverbed' else '*'] = model
     return all_models
 
 
@@ -347,9 +361,13 @@ class KenlmModel:
             tokenizer=None,
             model_path: str=None,
     ):
+        print (model_dataset)
         self.model_dataset = model_dataset
         if model_path is not None:
           self.model = kenlm.Model(model_path)
+        elif "riverbed" in model_dataset:
+          self.model = kenlm.Model(os.path.join(self.model_dataset, f"arpa.bin"))
+          tokenizer = mt5_tokenizer
         else:
           self.model = kenlm.Model(os.path.join(self.model_dataset, f"{language}.arpa.bin"))
         if tokenizer is None:
