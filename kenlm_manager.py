@@ -132,7 +132,7 @@ public_figure_kenlm_cutoff_map = {
 }
 
 
-def train_kenlm_model(model_name, data_files,  parse_file=None, min_num_tokens=5, do_collapse_values=True, lmplz_loc = "./riverbed/bin/lmplz", tokenizer=None, do_lowercase=True, ngram_score=0.8, special_char_score=0.28, flaggedword_score=0.08, remove_accents=False):
+def train_kenlm_model(model_name, data_files,  parse_file=None, min_num_tokens=5, do_collapse_values=True, lmplz_loc = "./riverbed/bin/lmplz", build_binary_loc = "./riverbed/bin/build_binary", tokenizer=None, do_lowercase=True, ngram_score=0.8, special_char_score=0.28, flaggedword_score=0.08, remove_accents=False):
   global mt5_tokenizer
   if tokenizer is None: tokenizer = mt5_tokenizer
   if lmplz_loc != "./riverbed/bin/lmplz" and not os.path.exists("./lmplz"):
@@ -141,6 +141,12 @@ def train_kenlm_model(model_name, data_files,  parse_file=None, min_num_tokens=5
   else:
         lmplz = lmplz_loc
   os.system(f"chmod u+x {lmplz}")
+  if build_binary_loc != "./riverbed/bin/build_binary" and not os.path.exists("./build_binary"):
+        os.system(f"cp {build_binary_loc} ./build_binary")
+        build_binary = "./build_binary"
+  else:
+        build_binary = build_binary_loc
+  os.system(f"chmod u+x {build_binary}")  
   temp_name = tempfile._get_default_tempdir() + "/" + next(tempfile._get_candidate_names()) + ".txt"
   if parse_file is None: parse_file = temp_name
   with open(parse_file, "w", encoding="utf8") as out:  
@@ -177,7 +183,8 @@ def train_kenlm_model(model_name, data_files,  parse_file=None, min_num_tokens=5
       os.system(f"./{lmplz} --collapse_values  --discount_fallback  --skip_symbols -o 5 --prune {min_num_tokens}  --arpa {model_name}.arpa <  {parse_file}") ##
   else:
       os.system(f"./{lmplz}  --discount_fallback  --skip_symbols -o 5 --prune {min_num_tokens}  --arpa {model_name}.arpa <  {parse_file}") ##
-  os.system(f"rm {temp_name}")        
+  os.system(f"rm {temp_name}")
+  os.sytem(f"./{build_binary} -i {model_name}.arpa {model_name}.bin")        
 
 # TODO: Instead of defaulting to the ccnet models, we will want to pick and choose from the ccnet/edugp wikipedia model
 def load_kenlm_model(
