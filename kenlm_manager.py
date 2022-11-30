@@ -184,7 +184,7 @@ def load_kenlm_model(
         src_lang: str = "en",
         pretrained_models: list = ['riverbed'],
         store_model: bool = True,
-        cache_dir: str = "./kenlm_models",
+        cache_dir: str = "./kenlm_edugp_models",
         default_kenlm_wikipedia: str = "./kenlm_ccnet_wikipedia_models"
 ) -> dict:
     """
