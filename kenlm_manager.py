@@ -42,7 +42,7 @@ except:
 mt5_underscore = "▁"
 
 
-## additional code to support kenlm entity querying
+## cache the models in main memory so we don't have to load them over and over
 kenlm_models = {
     'ccnet/wikipedia': {},
     'edugp/oscar': {},
@@ -72,9 +72,7 @@ def get_kenlm_models_from_savedir( default_kenlm_wikipedia="./kenlm_ccnet_wikipe
         print ("copying kenlm models")
         os.system(f"cp -rf {save_dir} {default_kenlm_wikipedia}")
 
-# WOULD be good if we can create models based on cc100.
-
-# TODO figure out actual numbers. Also, add languge specific kenlm models. Check if there are variations b/c of
+# TODO figure out actual numbers for riverbed_kenlm. Check if there are variations b/c of
 # gender, so we would have at least two patterns.
 public_figure_kenlm_cutoff_map = {
     'en': {'wikipedia': [{'cutoff': 500, 'pattern': "{} (born"}],  # in wikipedia, you often have: Lincoln (born .... )
