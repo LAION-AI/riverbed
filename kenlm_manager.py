@@ -44,10 +44,10 @@ mt5_underscore = "▁"
 
 ## additional code to support kenlm entity querying
 kenlm_models = {
-    'wikipedia': {},
-    'oscar': {},
-    'mc4': {},
-    'riverbed': {},
+    'ccnet/wikipedia': {},
+    'edugp/oscar': {},
+    'edugp/mc4': {},
+    'ontocord/riverbed_kenlm': {},
 }
 
 #NOTE: If you want to use the default cc_net kenlm wikipedia models, you will need to download them. You can manually download per the below or copy them from a saved dir.
@@ -186,12 +186,11 @@ def train_kenlm_model(model_name, data_files,  parse_file=None, min_num_tokens=5
   os.system(f"rm {temp_name}")
   os.sytem(f"./{build_binary} -i {model_name}.arpa {model_name}.bin")        
 
-# TODO: Instead of defaulting to the ccnet models, we will want to pick and choose from the ccnet/edugp wikipedia model
 def load_kenlm_model(
-        src_lang: str = "en",
-        pretrained_models: list = ['riverbed'],
+        language: str = "*",
+        pretrained_models: list = ['ontocord/riverbed_kenlm'],
         store_model: bool = True,
-        cache_dir: str = "./kenlm_edugp_models",
+        cache_dir: str = None,
         default_kenlm_wikipedia: str = "./kenlm_ccnet_wikipedia_models"
 ) -> dict:
     """
@@ -200,69 +199,69 @@ def load_kenlm_model(
     """
     assert len(pretrained_models) <= len(
         kenlm_models), 'Total of number kenlm models loads larger than supported kenlm models'
-    src_lang = src_lang if src_lang in public_figure_kenlm_cutoff_map else "en"
     all_models = {}
     model_files = ["arpa.bin", "sp.model", ] # "sp.vocab"
     # cache to dir
     if cache_dir is None:
         cache_dir = os.path.expanduser('~') + "/.cache"
-    
+    if language is None: language = '*'
     # check if pretrain model exist
-    for model_type in pretrained_models:
-
-        if ('*' if model_type == 'riverbed' else src_lang) in kenlm_models[model_type]:
-            all_models[model_type] = kenlm_models[model_type][src_lang if model_type != 'riverbed' else '*']
-        elif model_type == "wikipedia" and os.path.exists(f"{default_kenlm_wikipedia}/{src_lang}.arpa.bin"):
-            model = KenlmModel(default_kenlm_wikipedia, src_lang, do_normalize_spacing_for_tok=True)
-            all_models[model_type] = model
+    for model_name in pretrained_models:
+        if language in kenlm_models[model_name]:
+            all_models[model_name] = kenlm_models[model_name][language]
+        elif "wikipedia" in model_name  and os.path.exists(f"{default_kenlm_wikipedia}/{language}.arpa.bin"):
+            model = KenlmModel(default_kenlm_wikipedia, language, do_normalize_spacing_for_tok=True)
+            all_models[model_name] = model
             if store_model:
-              kenlm_models[model_type][src_lang] = model
-        elif model_type == "wikipedia" and src_lang in ccnet_langs:
-            download_ccnet_sp_kenlm_models(src_lang, default_kenlm_wikipedia)
-            model = KenlmModel(default_kenlm_wikipedia, src_lang, do_normalize_spacing_for_tok=True)
-            all_models[model_type] = model
+              kenlm_models[model_name][language] = model
+        elif "wikipedia" in model_name  and language in ccnet_langs:
+            download_ccnet_sp_kenlm_models(language, default_kenlm_wikipedia)
+            model = KenlmModel(default_kenlm_wikipedia, language, do_normalize_spacing_for_tok=True)
+            all_models[model_name] = model
             if store_model:
-              kenlm_models[model_type][src_lang] = model
-        elif model_type not in kenlm_models:
-            warnings.warn(f"{model_type} pretrained model is not supported!")
+              kenlm_models[model_name][language] = model
+        elif model_name not in kenlm_models:
+            warnings.warn(f"{model_name} pretrained model is not supported!")
         else:
-            os.system(f"mkdir -p {cache_dir}/{model_type}")
+            os.system(f"mkdir -p {cache_dir}/{model_name}")
             found = True
-            if model_type == "riverbed":
-              if not os.path.exists(f"{cache_dir}/{model_type}/arpa.bin"):
+            if language == '*':
+              if not os.path.exists(f"{cache_dir}/{model_name}/arpa.bin"):
                     try:
-                        print (f"loading ontocord/riverbed_kenlm/arpa.bin")
-                        file_url = hf_hub_url(repo_id="ontocord/riverbed_kenlm",
+                        print (f"{cache_dir}/{model_name}/arpa.bin")
+                        file_url = hf_hub_url(repo_id=model_name,
                                               filename=f"arpa.bin")
                         file = cached_download(file_url)
-                        os.system(f"ln -s {file} {cache_dir}/{model_type}/arpa.bin")
+                        os.system(f"ln -s {file} {cache_dir}/{model_name}/arpa.bin")
                     except:
                         warnings.warn(f'could not find model ontocord/riverbed_kenlm/arpa.bin. will stop searching...')
                         found = False
             else:        
               for model_file in model_files:
-                if not os.path.exists(f"{cache_dir}/{model_type}/{src_lang}.{model_file}"):
+                if not os.path.exists(f"{cache_dir}/{model_name}/{language}.{model_file}"):
                     try:
-                        print (f"loading edugp/kenlm/{model_type}/{src_lang}.{model_file}")
-                        file_url = hf_hub_url(repo_id="edugp/kenlm",
-                                              filename=f"{model_type}/{src_lang}.{model_file}")
+                        repo_id = "/".join(model_name.split("/")[:1])
+                        model_subtype = "/".join(model_name.split("/")[1:])
+                        print (f"loading {model_name}/{language}.{model_file}")
+                        file_url = hf_hub_url(repo_id=repo_id,
+                                              filename=f"{model_subtype}/{language}.{model_file}")
                         file = cached_download(file_url)
-                        os.system(f"ln -s {file} {cache_dir}/{model_type}/{src_lang}.{model_file}")
+                        os.system(f"ln -s {file} {cache_dir}/{model_name}/{language}.{model_file}")
                     except:
-                        warnings.warn(f'could not find model {src_lang}.{model_file}. will stop searching...')
+                        warnings.warn(f'could not find model {language}.{model_file}. will stop searching...')
                         found = False
                         break
             if found:
-                model = KenlmModel(f"{cache_dir}/{model_type}", src_lang)
-                all_models[model_type] = model
+                model = KenlmModel(f"{cache_dir}/{model_name}", language)
+                all_models[model_name] = model
                 if store_model:
-                    kenlm_models[model_type][src_lang if model_type != 'riverbed' else '*'] = model
+                    kenlm_models[model_name][language] = model
     return all_models
 
 
 # TODO: refactor code in the faker_extensions with this code
 def check_for_common_name(
-        src_lang: str = "en",
+        language: str = "en",
         pretrained_models: list = ['wikipedia'],
         name: str = None,
         verbose: bool = False,
@@ -274,10 +273,10 @@ def check_for_common_name(
     """
     # load all kenlm models and cutoff patterns
     if kenlm_models is None:
-        kenlm_models = load_kenlm_model(src_lang, pretrained_models)
-    public_patterns = public_figure_kenlm_cutoff_map.get(src_lang, public_figure_kenlm_cutoff_map.get('en'))
-    for model_type, model in kenlm_models.items():
-        for pattern in public_patterns.get(model_type, public_patterns.get('wikipedia')):
+        kenlm_models = load_kenlm_model(language, pretrained_models)
+    public_patterns = public_figure_kenlm_cutoff_map.get(language, public_figure_kenlm_cutoff_map.get('en'))
+    for model_name, model in kenlm_models.items():
+        for pattern in public_patterns.get(model_name, public_patterns.get('wikipedia')):
             test_name = pattern['pattern'].format(name)
             score = model.get_perplexity(test_name)
             if score < pattern['cutoff']:
@@ -358,7 +357,7 @@ class KenlmModel:
     # does it make a difference?
     def __init__(
             self,
-            model_dataset: str=None,
+            model_name: str=None,
             language: str=None,
             lowercase: bool = False,
             remove_accents: bool = False,
@@ -368,17 +367,17 @@ class KenlmModel:
             tokenizer=None,
             model_path: str=None,
     ):
-        print (model_dataset)
-        self.model_dataset = model_dataset
+        print (model_name)
+        self.model_name = model_name
         if model_path is not None:
           self.model = kenlm.Model(model_path)
-        elif "riverbed" in model_dataset:
-          self.model = kenlm.Model(os.path.join(self.model_dataset, f"arpa.bin"))
+        elif "riverbed" in model_name:
+          self.model = kenlm.Model(os.path.join(self.model_name, f"arpa.bin"))
           tokenizer = mt5_tokenizer
         else:
-          self.model = kenlm.Model(os.path.join(self.model_dataset, f"{language}.arpa.bin"))
+          self.model = kenlm.Model(os.path.join(self.model_name, f"{language}.arpa.bin"))
         if tokenizer is None:
-          self.tokenizer = SentencePiece(os.path.join(self.model_dataset, f"{language}.sp.model"))
+          self.tokenizer = SentencePiece(os.path.join(self.model_name, f"{language}.sp.model"))
         else:
           self.tokenizer = tokenizer
         self.do_normalize_spacing_for_tok = do_normalize_spacing_for_tok
@@ -391,16 +390,19 @@ class KenlmModel:
     @classmethod
     def from_pretrained(
             cls,
-            model_dataset: str,
-            language: str,
+            model_name: str,
+            language: str='*',
     ):
+        load_kenlm_model(
+            language = language,
+            pretrained_models =[model_name],
+            )
         return cls(
-            model_dataset,
-            language,
-            False,
-            language  in {"en", "my"},
-            True,
-            1,
+            model_name = model_name,
+            language = language,
+            lowercase = "edugp" not in model_name,
+            remove_accents = language  in {"en", "my"},
+            do_normalize_spacing_for_tok = "edugp" not in model_name,
         )
 
     def pp(self, log_score, length):
@@ -568,8 +570,8 @@ class KenlmModel:
         :return: True if name is a common name, False otherwise.
         """
         public_patterns = public_figure_kenlm_cutoff_map.get(self.language, public_figure_kenlm_cutoff_map.get('en'))
-        model_type = self.model_dataset.split("/")[-1]
-        for pattern in public_patterns.get(model_type, public_patterns.get('wikipedia')):
+        model_name = self.model_name.split("/")[-1]
+        for pattern in public_patterns.get(model_name, public_patterns.get('wikipedia')):
             test_name = pattern['pattern'].format(name)
             score = self.get_perplexity(test_name)
             if score < pattern['cutoff']:
