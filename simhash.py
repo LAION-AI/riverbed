@@ -81,7 +81,7 @@ def hashing(
     return int(simhash.compute(map(simhash.unsigned_hash, tokens)))
 
 
-def find_clusters_batch(visited, hash2cluster, cluster2hash, hashes, num_blocks, hamming_distance):
+def index_clusters_batch_python_only(visited, hash2cluster, cluster2hash, hashes, num_blocks, hamming_distance):
     """
     Create clusters within hamming distance. 
     Collapses a->b, b->c to all be in the same cluster.
@@ -123,7 +123,7 @@ def find_clusters_batch(visited, hash2cluster, cluster2hash, hashes, num_blocks,
 
     return visited, hash2cluster, cluster2hash,
 
-def find_clusters(hashes, num_blocks, hamming_distance, do_sort=True, batch_size=900000, verbose=False):
+def index_clusters_python_only(hashes, num_blocks, hamming_distance, do_sort=True, batch_size=900000, verbose=False):
   """ Incrementally find clusters of int64 bit hashes of *around* the same hamming distance from each other. 
   Returns hash2cluster and cluster2hash dicts, where the ids are all int64 bit hashes.
   """
@@ -156,9 +156,51 @@ def find_clusters(hashes, num_blocks, hamming_distance, do_sort=True, batch_size
     #print (len(hashes3))
     hashes2.extend(hashes3)
     #print (len(hashes2))
-    visited, hash2cluster, cluster2hash = find_clusters_batch(visited, hash2cluster, cluster2hash, hashes2, num_blocks, hamming_distance)
+    visited, hash2cluster, cluster2hash = index_clusters_batch_python_only(visited, hash2cluster, cluster2hash, hashes2, num_blocks, hamming_distance)
   return hash2cluster, cluster2hash
 
+import faiss
+
+def index_clusters_faiss(hashes, num_blocks, hamming_distance, do_sort=True, batch_size=900000, verbose=False):
+
+    # Dimension of the vectors.
+    d = 16
+    
+    sqrt_size = int(math.sqrt(len(hashes)))
+    
+    # Vectors to train the quantizer.
+    training = [hashes[i] for i in random.sample(range(len(hashes)), 2*sqrt_size)]
+
+
+    # Initializing the quantizer.
+    quantizer = faiss.IndexBinaryFlat(d)
+
+    sqrt_size = int(math.sqrt(len(hashes)))
+    
+    # Number of clusters.
+    nlist = sqrt_size
+
+    # Initializing index.
+    index = faiss.IndexBinaryIVF(quantizer, d, nlist)
+    index.nprobe = 4 # Number of nearest clusters to be searched per query. 
+
+    # Training the quantizer.
+    index.train(training)
+
+    # Adding the database vectors.
+    index.add(hashes)
+
+    # Number of nearest neighbors to retrieve per query vector.
+    k = max(50, int(sqrt_size/2))
+
+    # Querying the index.
+    D, I = index.search(queries, k)
+    
+    #go through each D[i, j] and only keep those within hamming_distance
+    # D[i, j] contains the distance from the i-th query vector to its j-th nearest neighbor.
+    # I[i, j] contains the id of the j-th nearest neighbor of the i-th query vector.
+    #create cluster per 
+    
 def incremental_span_and_document_neardedup( dup_span, dup_doc, unformatted_text, formatted_text=None, shingle_size = 5, cleanup_dup_span_limit=1000000, cleanup_dup_doc_limit=1000000, normalize_text=True, keep_first_dup_in_unformatted_text=False, keep_first_dup_in_formatted_text=True, replace_char='*'):
     """
     Given a document text and a dict representing any near duplicate spans and duplicate docs, remove duplicate spans of shingle size sentences from the text.
