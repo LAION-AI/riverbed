@@ -81,7 +81,7 @@ def hashing(
     return int(simhash.compute(map(simhash.unsigned_hash, tokens)))
 
 
-def index_clusters_batch_python_only(visited, hash2cluster, cluster2hash, hashes, num_blocks, hamming_distance):
+def index_clusters_batch_python(visited, hash2cluster, cluster2hash, hashes, num_blocks, hamming_distance):
     """
     Create clusters within hamming distance. 
     Collapses a->b, b->c to all be in the same cluster.
@@ -123,7 +123,7 @@ def index_clusters_batch_python_only(visited, hash2cluster, cluster2hash, hashes
 
     return visited, hash2cluster, cluster2hash,
 
-def index_clusters_python_only(hashes, num_blocks, hamming_distance, do_sort=True, batch_size=900000, verbose=False):
+def index_clusters_python(hashes, num_blocks, hamming_distance, do_sort=True, batch_size=900000, verbose=False):
   """ Incrementally find clusters of int64 bit hashes of *around* the same hamming distance from each other. 
   Returns hash2cluster and cluster2hash dicts, where the ids are all int64 bit hashes.
   """
@@ -156,16 +156,17 @@ def index_clusters_python_only(hashes, num_blocks, hamming_distance, do_sort=Tru
     #print (len(hashes3))
     hashes2.extend(hashes3)
     #print (len(hashes2))
-    visited, hash2cluster, cluster2hash = index_clusters_batch_python_only(visited, hash2cluster, cluster2hash, hashes2, num_blocks, hamming_distance)
+    visited, hash2cluster, cluster2hash = index_clusters_batch_python(visited, hash2cluster, cluster2hash, hashes2, num_blocks, hamming_distance)
   return hash2cluster, cluster2hash
 
 import faiss
 
-def index_clusters_faiss(hashes, num_blocks, hamming_distance, do_sort=True, batch_size=900000, verbose=False):
-
-    # Dimension of the vectors.
-    d = 16
+def index_faiss(hashes, d=16):
+    """ 
+    hashes: the array of ints representing the simhash
+    d: Dimension of the ints.
     
+    """
     sqrt_size = int(math.sqrt(len(hashes)))
     
     # Vectors to train the quantizer.
@@ -190,20 +191,36 @@ def index_clusters_faiss(hashes, num_blocks, hamming_distance, do_sort=True, bat
     # Adding the database vectors.
     index.add(hashes)
 
-    # Number of nearest neighbors to retrieve per query vector.
-    k = max(50, int(sqrt_size/2))
+    return index
 
+
+def search_python_only(queries, num_blocks, hamming_distance):
+    """
+    Create clusters within hamming distance. 
+    Collapses a->b, b->c to all be in the same cluster.
+    NOTE: this isn't always true that a and c are within hamming_distance. 
+    NOTE: The cluster_id is the hashcode of the first item in the cluster and thus can be used to do further clustering and hamming distance matching.
+    """
+    returnb simhash.find_all(queries, num_blocks, hamming_distance)
+    
+def search_faiss(queries, qindices, hamming_distance, k=500, index=None):
+    """
+    k: Number of nearest neighbors to retrieve per query vector.
+    """
+    if index is None:
+        index = index_faiss(queries)
+    ret = []
     # Querying the index.
     D, I = index.search(queries, k)
-    
-    #go through each D[i, j] and only keep those within hamming_distance
-    # D[i, j] contains the distance from the i-th query vector to its j-th nearest neighbor.
-    # I[i, j] contains the id of the j-th nearest neighbor of the i-th query vector.
-    #create cluster per 
+    for i, matches, indices in zip(qindices, D, I):
+        for score, j in zip(matches, indices):
+            if score <= hamming_distance:
+                ret.append((i, j))
+    return ret
     
 def incremental_span_and_document_neardedup( dup_span, dup_doc, unformatted_text, formatted_text=None, shingle_size = 5, cleanup_dup_span_limit=1000000, cleanup_dup_doc_limit=1000000, normalize_text=True, keep_first_dup_in_unformatted_text=False, keep_first_dup_in_formatted_text=True, replace_char='*'):
     """
-    Given a document text and a dict representing any near duplicate spans and duplicate docs, remove duplicate spans of shingle size sentences from the text.
+    Given a document text and a dict representing any near duplicate spans and duplicate docs, remove duplicate spans of shingle size from the text.
     The text can be in the form of clean unformatted text, e.g., removed formatting and any extraneous tags, and the corresponding formatted text, 
     Assumes that double spaces denote sentence break in the text, and formatted_text.
     normalize_text will add double spaces between common punctuations and quotes. 
@@ -212,9 +229,8 @@ def incremental_span_and_document_neardedup( dup_span, dup_doc, unformatted_text
       doc_is_dup, deduped unformatted_text, deduped formatted_text
         where doc_is_dup is 0 if there is no duplicates, 1 if there are partial span dups, and 2 if the whole document is a near dup.
         text is the original text with any duplicate spans replaced with the replace_char, collapsing multiple replace chars into one char.
-      NOTE: the formatted_text are ot guaranted to be deduped b/c there may be formatting in between spans that affects deduplication. 
-      If this doesn't work for you, then try calling the function with text as the formatted text, and not passing in formatted text at all.
-
+      NOTE: the formatted_text are not guaranted to be deduped b/c there may be formatting in between spans that affects deduplication. 
+      
     """
     is_dup_chunk={}
     if normalize_text:
@@ -355,7 +371,7 @@ def incremental_span_and_document_neardedup( dup_span, dup_doc, unformatted_text
     return doc_is_dup, unformatted_text, formatted_text
 
     
-def test_simhash(): # test on a medium size dataset
+def test_simhash(): # test clustering on a medium size dataset
   num = 40000*1000
   import numpy as np
   import sys
