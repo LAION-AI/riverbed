@@ -11,6 +11,7 @@ from typing import Dict, Set
 import tqdm 
 import random
 import itertools
+import faiss
 
 PUNCTUATION_REGEX = re.compile(r"\p{P}")
 DIGIT_REGEX = re.compile(r"\d")
@@ -159,8 +160,16 @@ def index_clusters_python(hashes, num_blocks, hamming_distance, do_sort=True, ba
     visited, hash2cluster, cluster2hash = index_clusters_batch_python(visited, hash2cluster, cluster2hash, hashes2, num_blocks, hamming_distance)
   return hash2cluster, cluster2hash
 
-import faiss
-
+def search_python_only(queries, num_blocks, hamming_distance):
+    """
+    Create clusters within hamming distance. 
+    Collapses a->b, b->c to all be in the same cluster.
+    NOTE: this isn't always true that a and c are within hamming_distance. 
+    NOTE: The cluster_id is the hashcode of the first item in the cluster and thus can be used to do further clustering and hamming distance matching.
+    """
+    returnb simhash.find_all(queries, num_blocks, hamming_distance)
+    
+    
 def index_faiss(hashes, d=16):
     """ 
     hashes: the array of ints representing the simhash
@@ -194,15 +203,6 @@ def index_faiss(hashes, d=16):
     return index
 
 
-def search_python_only(queries, num_blocks, hamming_distance):
-    """
-    Create clusters within hamming distance. 
-    Collapses a->b, b->c to all be in the same cluster.
-    NOTE: this isn't always true that a and c are within hamming_distance. 
-    NOTE: The cluster_id is the hashcode of the first item in the cluster and thus can be used to do further clustering and hamming distance matching.
-    """
-    returnb simhash.find_all(queries, num_blocks, hamming_distance)
-    
 def search_faiss(queries, qindices, hamming_distance, k=500, index=None):
     """
     k: Number of nearest neighbors to retrieve per query vector.
