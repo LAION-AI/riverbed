@@ -167,7 +167,7 @@ def search_python_only(queries, num_blocks, hamming_distance):
     NOTE: this isn't always true that a and c are within hamming_distance. 
     NOTE: The cluster_id is the hashcode of the first item in the cluster and thus can be used to do further clustering and hamming distance matching.
     """
-    returnb simhash.find_all(queries, num_blocks, hamming_distance)
+    return simhash.find_all(queries, num_blocks, hamming_distance)
     
     
 def index_faiss(hashes, d=16):
