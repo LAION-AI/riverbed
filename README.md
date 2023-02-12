@@ -22,3 +22,7 @@ pip install tsnecuda==3.0.1+cu112 -f https://tsnecuda.isx.ai/tsnecuda_stable.htm
 python -m spacy download en_core_web_md
 python -m nltk.downloader stopwords
 ```
+
+## history
+
+Originally written by Ontocord, LLC. Donated to LAION for the open source community.
