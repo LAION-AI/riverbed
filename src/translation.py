@@ -10,7 +10,7 @@ from transformers import M2M100ForConditionalGeneration, M2M100Tokenizer, BertMo
 
 import torch
 from torch.nn.functional import cosine_similarity
-from .filtering import *
+from filtering import *
 import string
 punc = string.punctuation + "¿？,،、º。゜ "
 

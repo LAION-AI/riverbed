@@ -14,10 +14,10 @@ limitations under the License.
 
 #https://github.com/piisa/muliwai/blob/7ccf36d016fa66a9b1ed00b0ce8b89d01a57dfc9/langid_manager.py which are under Apache 2.0
 
-from .stopwords import all_stopwords
-from .char_manager import *
-from .filtering import *
-from .cjk import *
+from stopwords import all_stopwords
+from char_manager import *
+from filtering import *
+from cjk import *
 
 import fasttext, langid
 import os
