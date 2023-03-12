@@ -1,0 +1,1030 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+      <link rel="shortcut icon" href="../../img/favicon.ico" />
+    <title>utils - Riverbed Docs</title>
+    <link rel="stylesheet" href="../../css/theme.css" />
+    <link rel="stylesheet" href="../../css/theme_extra.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/10.5.0/styles/github.min.css" />
+        <link href="../../assets/_mkdocstrings.css" rel="stylesheet" />
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "utils";
+        var mkdocs_page_input_path = "reference/utils.md";
+        var mkdocs_page_url = null;
+      </script>
+    
+    <script src="../../js/jquery-3.6.0.min.js" defer></script>
+    <!--[if lt IE 9]>
+      <script src="../../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/10.5.0/highlight.min.js"></script>
+      <script>hljs.initHighlightingOnLoad();</script> 
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href="../.." class="icon icon-home"> Riverbed Docs
+        </a><div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../..">Home</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../../about/">About</a>
+                </li>
+              </ul>
+              
+                      <p class="caption"><span class="caption-text">Code Reference</span></p>
+              
+              <ul class="current">
+                  <li class="toctree-l1"><a class="reference internal" href="../banned_words/">banned_words</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../char_manager/">char_manager</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../cjk/">cjk</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../filtering/">filtering</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../flagged_words/">flagged_words</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../kenlm_manager/">kenlm_manager</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../langid_manager/">langid_manager</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../pdf_and_ocr/">pdf_and_ocr</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../pii_manager/">pii_manager</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../searcher_indexer/">searcher_indexer</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../simhash/">simhash</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../stopwords/">stopwords</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../translation/">translation</a>
+                  </li>
+                  <li class="toctree-l1 current"><a class="reference internal current" href="./">utils</a>
+    <ul class="current">
+    </ul>
+                  </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../..">Riverbed Docs</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../.." class="icon icon-home" alt="Docs"></a> &raquo;</li>
+          <li>Code Reference &raquo;</li>
+      <li>utils</li>
+    <li class="wy-breadcrumbs-aside">
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <div class="doc doc-object doc-module">
+
+
+<a id="utils"></a>
+  <div class="doc doc-contents first">
+
+  
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="utils.FileByLineIdx" class="doc doc-heading">
+        <code>FileByLineIdx</code>
+
+
+</h2>
+
+
+  <div class="doc doc-contents ">
+
+  
+      <p>A class for accessing a file by line numbers. Requires  fobj that provides a seek, and tell method.
+Optionally, the dat representing the line seek points can also be passed as dat.</p>
+
+
+        <details class="quote">
+          <summary>Source code in <code>src/utils.py</code></summary>
+          <pre class="highlight"><code class="language-python">class FileByLineIdx:
+    """ A class for accessing a file by line numbers. Requires  fobj that provides a seek, and tell method.
+    Optionally, the dat representing the line seek points can also be passed as dat. """
+    def __init__(self, fobj, dat=None):
+      self.dat = dat
+      self.fobj = fobj
+      pos = fobj.tell()
+      fobj.seek(0, os.SEEK_END)
+      self.file_size = file_size = fobj.tell() 
+      if self.dat is not None:
+        fobj.seek(pos,0)
+      else:
+        def reader(fobj, rng, max_rng, ret):
+          fobj.seek(rng,0)
+          pos = fobj.tell()
+          while rng &lt; max_rng:
+            fobj.readline()
+            pos = fobj.tell() 
+            if pos &lt; max_rng:
+              ret.append(pos)
+            else:
+              break
+          rng = pos
+        workers=[]
+        line_nums = []
+        for rng in range(0, file_size, 10000000):                    
+          max_rng = min(rng + 10000000, file_size)
+          line_nums.append([])
+          worker = threading.Thread(target=reader, args=(copy.copy(fobj), rng, max_rng, line_nums[-1]))
+          workers.append(worker)
+          worker.start()
+        for worker in workers:
+          worker.join()
+        self.dat = [0]+list(itertools.chain(*line_nums))
+        fobj.seek(pos,0)
+
+
+    def __iter__(self):
+        fobj = self.fobj
+        len_self = len(self)
+        for start in range(0, len_self, 1000):
+          end = min(len_self, start+1000)
+          start = self.dat[start]
+          if end == len_self:
+            end = self.file_size
+          else:
+            end= self.dat[end]-1
+          ret = []
+          pos = self.tell()
+          fobj.seek(start, 0)
+          ret= fobj.read(end-start).split(b'\n')
+          fobj.seek(pos, 0)
+          for line in ret:
+            yield line
+
+    def __len__(self):
+        return len(self.dat)
+
+    def __getitem__(self, keys):
+        fobj = self.fobj
+        start, end = None, None
+        if isinstance(keys, int):
+          contiguous = False
+        else:
+          contiguous, start, end = _is_contiguous(keys)
+        if isinstance(keys, slice):
+          contiguous = True
+          start = 0 if keys.start is None else keys.start
+          end = len(self) if keys.stop is None else keys.stop
+
+        if contiguous:
+          start = self.dat[start]
+          if end &gt;= len(self.dat):
+            end = self.file_size
+          else:
+            end= self.dat[end+1]-1
+          pos = fobj.tell()
+          fobj.seek(start, 0)
+          ret= fobj.read(end-start).split(b'\n')
+          fobj.seek(pos, 0)
+          return ret
+        elif isinstance(keys, int):
+          start = self.dat[keys]
+          pos = fobj.tell()
+          fobj.seek(start, 0)
+          ret= fobj.readline()
+          fobj.seek(pos, 0)
+          return ret
+        else:
+          return [self[idx] for idx in keys]</code></pre>
+        </details>
+
+  
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+  </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="utils.GzipByLineIdx" class="doc doc-heading">
+        <code>GzipByLineIdx</code>
+
+
+</h2>
+
+
+  <div class="doc doc-contents ">
+      <p class="doc doc-class-bases">
+        Bases: <code><span title="indexed_gzip">igzip</span>.<span title="indexed_gzip.IndexedGzipFile">IndexedGzipFile</span></code></p>
+
+  
+      <p>This class inheriets from <code>ingdex_gzip.IndexedGzipFile</code>. This class allows in addition to the functionality 
+of IndexedGzipFile, access to a specific line based on the seek point of the line, using the <strong>getitem</strong> method.
+Additionally, a (conginguous) list or slice can be used, which will be more efficient then doing line by line access. </p>
+<p>The base IndexedGzipFile class allows for fast random access of a gzip
+file by using the <code>zran</code> library to build and maintain an index of seek
+points into the file.
+<code>IndexedGzipFile</code> is an <code>io.BufferedReader</code> which wraps an
+:class:<code>_IndexedGzipFile</code> instance. By accessing the <code>_IndexedGzipFile</code>
+instance through an <code>io.BufferedReader</code>, read performance is improved
+through buffering, and access to the I/O methods is made thread-safe.
+A :meth:<code>pread</code> method is also implemented, as it is not implemented by
+the <code>io.BufferedReader</code>.</p>
+
+
+        <details class="quote">
+          <summary>Source code in <code>src/utils.py</code></summary>
+          <pre class="highlight"><code class="language-python">class GzipByLineIdx(igzip.IndexedGzipFile):
+  #TODO: refactor to use FileByLineIdx as a member obj.
+
+    """This class inheriets from `` ingdex_gzip.IndexedGzipFile``. This class allows in addition to the functionality 
+    of IndexedGzipFile, access to a specific line based on the seek point of the line, using the __getitem__ method.
+    Additionally, a (conginguous) list or slice can be used, which will be more efficient then doing line by line access. 
+
+    The base IndexedGzipFile class allows for fast random access of a gzip
+    file by using the ``zran`` library to build and maintain an index of seek
+    points into the file.
+    ``IndexedGzipFile`` is an ``io.BufferedReader`` which wraps an
+    :class:`_IndexedGzipFile` instance. By accessing the ``_IndexedGzipFile``
+    instance through an ``io.BufferedReader``, read performance is improved
+    through buffering, and access to the I/O methods is made thread-safe.
+    A :meth:`pread` method is also implemented, as it is not implemented by
+    the ``io.BufferedReader``.
+    """
+
+
+    def __init__(self, *args, **kwargs):
+        """Create an ``LineIndexGzipFileExt``. The file may be specified either
+        with an open file handle (``fileobj``), or with a ``filename``. If the
+        former, the file must have been opened in ``'rb'`` mode.
+        .. note:: The ``auto_build`` behaviour only takes place on calls to
+                  :meth:`seek`.
+        :arg filename:         File name or open file handle.
+        :arg fileobj:          Open file handle.
+        :arg mode:             Opening mode. Must be either ``'r'`` or ``'rb``.
+        :arg auto_build:       If ``True`` (the default), the index is
+                               automatically built on calls to :meth:`seek`.
+        :arg skip_crc_check:   Defaults to ``False``. If ``True``, CRC/size
+                               validation of the uncompressed data is not
+                               performed.
+        :arg spacing:          Number of bytes between index seek points.
+        :arg window_size:      Number of bytes of uncompressed data stored with
+                               each seek point.
+        :arg readbuf_size:     Size of buffer in bytes for storing compressed
+                               data read in from the file.
+        :arg readall_buf_size: Size of buffer in bytes used by :meth:`read`
+                               when reading until EOF.
+        :arg drop_handles:     Has no effect if an open ``fid`` is specified,
+                               rather than a ``filename``.  If ``True`` (the
+                               default), a handle to the file is opened and
+                               closed on every access. Otherwise the file is
+                               opened at ``__cinit__``, and kept open until
+                               this ``_IndexedGzipFile`` is destroyed.
+        :arg index_file:       Pre-generated index for this ``gz`` file -
+                               if provided, passed through to
+                               :meth:`import_index`.
+        :arg buffer_size:      Optional, must be passed as a keyword argument.
+                               Passed through to
+                               ``io.BufferedReader.__init__``. If not provided,
+                               a default value of 1048576 is used.
+        :arg line2seekpoint:      Optional, must be passed as a keyword argument.
+                               If not passed, this will automatically be created.                               
+        """
+        filename = kwargs.get("filename") 
+        if args and not filename:
+          filename = args[0]
+        need_export_index = False
+        if filename:
+          if not os.path.exists(filename+"_idx"):
+            need_export_index = True
+            os.makedirs(filename+"_idx")
+          if not os.path.exists(filename+"_idx/igzip.pickle"):
+            need_export_index = True
+          else:
+            kwargs['index_file'] = kwargs.pop('index_file', filename+"_idx/igzip.pickle")
+
+        if 'file_size' in kwargs:
+          file_size = self.file_size = kwargs.pop('file_size', None)
+          need_export_index = False
+        self.line2seekpoint  = kwargs.pop('line2seekpoint', None)
+        if need_export_index and 'auto_build' not in kwargs: kwargs['auto_build'] = True
+        super(GzipByLineIdx, self).__init__(*args, **kwargs)
+        if not hasattr(self, 'file_size'):
+          self.build_full_index()
+          pos = self.tell()
+          self.seek(0, os.SEEK_END)
+          self.file_size = file_size = self.tell() 
+          if self.line2seekpoint is None:
+            def reader(fobj, rng, max_rng, ret):
+              fobj.seek(rng,0)
+              pos = fobj.tell()
+              while rng &lt; max_rng:
+                fobj.readline()
+                pos = fobj.tell() 
+                if pos &lt; max_rng:
+                  ret.append(pos)
+                else:
+                  break
+                rng = pos
+
+            workers=[]
+            line_nums = []
+            for rng in range(0, file_size, 10000000):                    
+              max_rng = min(rng + 10000000, file_size)
+              line_nums.append([])
+              worker = threading.Thread(target=reader, args=(copy.copy(self), rng, max_rng, line_nums[-1]))
+              workers.append(worker)
+              worker.start()
+            for worker in workers:
+              worker.join()
+            self.line2seekpoint = [0]+list(itertools.chain(*line_nums))
+        if filename and need_export_index: 
+          self.export_index(filename+"_idx/igzip.pickle")
+
+    def __reduce__(self):
+        """Used to pickle an ``GzipByLineIdx``.
+        Returns a tuple containing:
+          - a reference to the ``unpickle`` function
+          - a tuple containing a "state" object, which can be passed
+            to ``unpickle``.
+        """
+
+        fobj = self._IndexedGzipFile__igz_fobj
+
+        if (not fobj.drop_handles) or (not fobj.own_file):
+            raise pickle.PicklingError(
+                'Cannot pickle GzipByLineIdx that has been created '
+                'with an open file object, or that has been created '
+                'with drop_handles=False')
+
+        # export and serialise the index if
+        # any index points have been created.
+        # The index data is serialised as a
+        # bytes object.
+        if fobj.npoints == 0:
+            index = None
+
+        else:
+            index = io.BytesIO()
+            self.export_index(fileobj=index)
+            index = index.getvalue()
+
+        state = {
+            'filename'         : fobj.filename,
+            'auto_build'       : fobj.auto_build,
+            'spacing'          : fobj.spacing,
+            'window_size'      : fobj.window_size,
+            'readbuf_size'     : fobj.readbuf_size,
+            'readall_buf_size' : fobj.readall_buf_size,
+            'buffer_size'      : self._IndexedGzipFile__buffer_size,
+            'line2seekpoint'   : self.line2seekpoint,
+            'file_size'   : self.file_size,
+            'tell'             : self.tell(),
+            'index'            : index}
+
+        return (_unpickle_gzip_by_line, (state, ))
+
+    #TODO: refactor to do     
+    def __iter__(self):
+        len_self = len(self)
+        for start in range(0, len_self, 1000):
+          end = min(len_self, start+1000)
+          orig_start = start
+          orig_end = end
+          while start &lt; len_self and self.line2seekpoint[start] == -1:
+            start+=1
+          while end &gt;= 0 and self.line2seekpoint[end] == -1:
+            end-=1            
+          start = self.line2seekpoint[start]
+          if end == len_self:
+            seek_points = self.line2seekpoint[orig_start:]
+            end = self.file_size
+          else:
+            seek_points = self.line2seekpoint[orig_start:orig_end]
+            end= self.line2seekpoint[end]-1
+
+          ret = []
+          with self._IndexedGzipFile__file_lock:
+            pos = self.tell()
+            self.seek(start, 0)
+            ret= self.read(end-start).split(b'\n')
+            self.seek(pos, 0)
+          #if a seekpoint is -1, this means the data has been deleted - either not in the file at all or
+          #blanked out
+          for line in ret:
+            while seek_points and seek_points[0] == -1 and line.strip():
+              yield ""
+              seek_points.pop()
+            if not seek_points: break
+            if seek_points[0] == -1 and line.strip():
+              yield ""
+            else:
+              yield line
+            seek_points.pop()
+          while seek_points and seek_points[0] == -1:
+            yield ""
+            seek_points.pop()
+
+
+    def __len__(self):
+        return len(self.line2seekpoint)
+
+    def __getitem__(self, keys):
+        start, end = None, None
+        if isinstance(keys, int):
+          contiguous = False
+        else:
+          contiguous, start, end = _is_contiguous(keys)
+        if isinstance(keys, slice):
+          contiguous = True
+          start = 0 if keys.start is None else keys.start
+          end = len(self) if keys.stop is None else keys.stop
+
+        if contiguous:
+          start = self.line2seekpoint[start]
+          if end &gt;= len(self.line2seekpoint):
+            end = self.file_size
+          else:
+            end= self.line2seekpoint[end+1]-1
+          with self._IndexedGzipFile__file_lock:
+            pos = self.tell()
+            self.seek(start, 0)
+            ret= self.read(end-start).split(b'\n')
+            self.seek(pos, 0)
+            return ret
+        elif isinstance(keys, int):
+          start = self.line2seekpoint[keys]
+          if start &lt; 0: return b""
+          with self._IndexedGzipFile__file_lock:
+            pos = self.tell()
+            self.seek(start, 0)
+            ret= self.readline()
+            self.seek(pos, 0)
+            return ret
+        else:
+          return [self[idx] for idx in keys]
+
+    @staticmethod
+    def open(filename):
+       if os.path.exists(filename+"_idx/index.pickle"):
+          return GzipByLineIdx(filename, index_file=filename+"_idx/index.pickle")
+       else:
+          return GzipByLineIdx(filename) </code></pre>
+        </details>
+
+  
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+
+<h3 id="utils.GzipByLineIdx.__init__" class="doc doc-heading">
+<code class="highlight language-python">__init__(*args, **kwargs)</code>
+
+</h3>
+
+
+  <div class="doc doc-contents ">
+  
+      <p>Create an <code>LineIndexGzipFileExt</code>. The file may be specified either
+with an open file handle (<code>fileobj</code>), or with a <code>filename</code>. If the
+former, the file must have been opened in <code>'rb'</code> mode.
+.. note:: The <code>auto_build</code> behaviour only takes place on calls to
+          :meth:<code>seek</code>.
+:arg filename:         File name or open file handle.
+:arg fileobj:          Open file handle.
+:arg mode:             Opening mode. Must be either <code>'r'</code> or <code>'rb</code>.
+:arg auto_build:       If <code>True</code> (the default), the index is
+                       automatically built on calls to :meth:<code>seek</code>.
+:arg skip_crc_check:   Defaults to <code>False</code>. If <code>True</code>, CRC/size
+                       validation of the uncompressed data is not
+                       performed.
+:arg spacing:          Number of bytes between index seek points.
+:arg window_size:      Number of bytes of uncompressed data stored with
+                       each seek point.
+:arg readbuf_size:     Size of buffer in bytes for storing compressed
+                       data read in from the file.
+:arg readall_buf_size: Size of buffer in bytes used by :meth:<code>read</code>
+                       when reading until EOF.
+:arg drop_handles:     Has no effect if an open <code>fid</code> is specified,
+                       rather than a <code>filename</code>.  If <code>True</code> (the
+                       default), a handle to the file is opened and
+                       closed on every access. Otherwise the file is
+                       opened at <code>__cinit__</code>, and kept open until
+                       this <code>_IndexedGzipFile</code> is destroyed.
+:arg index_file:       Pre-generated index for this <code>gz</code> file -
+                       if provided, passed through to
+                       :meth:<code>import_index</code>.
+:arg buffer_size:      Optional, must be passed as a keyword argument.
+                       Passed through to
+                       <code>io.BufferedReader.__init__</code>. If not provided,
+                       a default value of 1048576 is used.
+:arg line2seekpoint:      Optional, must be passed as a keyword argument.
+                       If not passed, this will automatically be created.</p>
+
+      <details class="quote">
+        <summary>Source code in <code>src/utils.py</code></summary>
+        <pre class="highlight"><code class="language-python">def __init__(self, *args, **kwargs):
+    """Create an ``LineIndexGzipFileExt``. The file may be specified either
+    with an open file handle (``fileobj``), or with a ``filename``. If the
+    former, the file must have been opened in ``'rb'`` mode.
+    .. note:: The ``auto_build`` behaviour only takes place on calls to
+              :meth:`seek`.
+    :arg filename:         File name or open file handle.
+    :arg fileobj:          Open file handle.
+    :arg mode:             Opening mode. Must be either ``'r'`` or ``'rb``.
+    :arg auto_build:       If ``True`` (the default), the index is
+                           automatically built on calls to :meth:`seek`.
+    :arg skip_crc_check:   Defaults to ``False``. If ``True``, CRC/size
+                           validation of the uncompressed data is not
+                           performed.
+    :arg spacing:          Number of bytes between index seek points.
+    :arg window_size:      Number of bytes of uncompressed data stored with
+                           each seek point.
+    :arg readbuf_size:     Size of buffer in bytes for storing compressed
+                           data read in from the file.
+    :arg readall_buf_size: Size of buffer in bytes used by :meth:`read`
+                           when reading until EOF.
+    :arg drop_handles:     Has no effect if an open ``fid`` is specified,
+                           rather than a ``filename``.  If ``True`` (the
+                           default), a handle to the file is opened and
+                           closed on every access. Otherwise the file is
+                           opened at ``__cinit__``, and kept open until
+                           this ``_IndexedGzipFile`` is destroyed.
+    :arg index_file:       Pre-generated index for this ``gz`` file -
+                           if provided, passed through to
+                           :meth:`import_index`.
+    :arg buffer_size:      Optional, must be passed as a keyword argument.
+                           Passed through to
+                           ``io.BufferedReader.__init__``. If not provided,
+                           a default value of 1048576 is used.
+    :arg line2seekpoint:      Optional, must be passed as a keyword argument.
+                           If not passed, this will automatically be created.                               
+    """
+    filename = kwargs.get("filename") 
+    if args and not filename:
+      filename = args[0]
+    need_export_index = False
+    if filename:
+      if not os.path.exists(filename+"_idx"):
+        need_export_index = True
+        os.makedirs(filename+"_idx")
+      if not os.path.exists(filename+"_idx/igzip.pickle"):
+        need_export_index = True
+      else:
+        kwargs['index_file'] = kwargs.pop('index_file', filename+"_idx/igzip.pickle")
+
+    if 'file_size' in kwargs:
+      file_size = self.file_size = kwargs.pop('file_size', None)
+      need_export_index = False
+    self.line2seekpoint  = kwargs.pop('line2seekpoint', None)
+    if need_export_index and 'auto_build' not in kwargs: kwargs['auto_build'] = True
+    super(GzipByLineIdx, self).__init__(*args, **kwargs)
+    if not hasattr(self, 'file_size'):
+      self.build_full_index()
+      pos = self.tell()
+      self.seek(0, os.SEEK_END)
+      self.file_size = file_size = self.tell() 
+      if self.line2seekpoint is None:
+        def reader(fobj, rng, max_rng, ret):
+          fobj.seek(rng,0)
+          pos = fobj.tell()
+          while rng &lt; max_rng:
+            fobj.readline()
+            pos = fobj.tell() 
+            if pos &lt; max_rng:
+              ret.append(pos)
+            else:
+              break
+            rng = pos
+
+        workers=[]
+        line_nums = []
+        for rng in range(0, file_size, 10000000):                    
+          max_rng = min(rng + 10000000, file_size)
+          line_nums.append([])
+          worker = threading.Thread(target=reader, args=(copy.copy(self), rng, max_rng, line_nums[-1]))
+          workers.append(worker)
+          worker.start()
+        for worker in workers:
+          worker.join()
+        self.line2seekpoint = [0]+list(itertools.chain(*line_nums))
+    if filename and need_export_index: 
+      self.export_index(filename+"_idx/igzip.pickle")</code></pre>
+      </details>
+  </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+
+<h3 id="utils.GzipByLineIdx.__reduce__" class="doc doc-heading">
+<code class="highlight language-python">__reduce__()</code>
+
+</h3>
+
+
+  <div class="doc doc-contents ">
+  
+      <p>Used to pickle an <code>GzipByLineIdx</code>.</p>
+
+<details class="returns-a-tuple-containing">
+  <summary>Returns a tuple containing</summary>
+  <ul>
+<li>a reference to the <code>unpickle</code> function</li>
+<li>a tuple containing a "state" object, which can be passed
+  to <code>unpickle</code>.</li>
+</ul>
+</details>
+      <details class="quote">
+        <summary>Source code in <code>src/utils.py</code></summary>
+        <pre class="highlight"><code class="language-python">def __reduce__(self):
+    """Used to pickle an ``GzipByLineIdx``.
+    Returns a tuple containing:
+      - a reference to the ``unpickle`` function
+      - a tuple containing a "state" object, which can be passed
+        to ``unpickle``.
+    """
+
+    fobj = self._IndexedGzipFile__igz_fobj
+
+    if (not fobj.drop_handles) or (not fobj.own_file):
+        raise pickle.PicklingError(
+            'Cannot pickle GzipByLineIdx that has been created '
+            'with an open file object, or that has been created '
+            'with drop_handles=False')
+
+    # export and serialise the index if
+    # any index points have been created.
+    # The index data is serialised as a
+    # bytes object.
+    if fobj.npoints == 0:
+        index = None
+
+    else:
+        index = io.BytesIO()
+        self.export_index(fileobj=index)
+        index = index.getvalue()
+
+    state = {
+        'filename'         : fobj.filename,
+        'auto_build'       : fobj.auto_build,
+        'spacing'          : fobj.spacing,
+        'window_size'      : fobj.window_size,
+        'readbuf_size'     : fobj.readbuf_size,
+        'readall_buf_size' : fobj.readall_buf_size,
+        'buffer_size'      : self._IndexedGzipFile__buffer_size,
+        'line2seekpoint'   : self.line2seekpoint,
+        'file_size'   : self.file_size,
+        'tell'             : self.tell(),
+        'index'            : index}
+
+    return (_unpickle_gzip_by_line, (state, ))</code></pre>
+      </details>
+  </div>
+
+</div>
+
+
+
+  </div>
+
+  </div>
+
+</div>
+
+
+<div class="doc doc-object doc-function">
+
+
+
+<h2 id="utils.create_hiearchical_clusters" class="doc doc-heading">
+<code class="highlight language-python">create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, mmap_len=0, embed_dim=25, dtype=np.float16, skip_idxs=None, idxs=None, max_level=4, max_cluster_size=200, min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000, recluster_start_iter=0.85, max_decluster_iter=0.95, use_tqdm=True, grouping_fn=None, grouping_fn_callback_data=None)</code>
+
+</h2>
+
+
+  <div class="doc doc-contents ">
+  
+      <p>Incremental hiearchical clustering from embeddings stored in a mmap file. Can also used to create an index for searching.     <br />
+with a max of 4 levels, and each node containing 200 items, we can have up to 1.6B items approximately
+span2cluster_label maps a child span to a parent span. spans can be of the form int|(int,int).
+leaf nodes are ints. non-leaf nodes are (int,int) tuples
+clusters maps cluster_label =&gt; list of spans<br />
+when we use the term 'idx', we normally refer to the index in an embedding file.</p>
+<p>:arg clusters:      the dict mapping parent span to list of child span
+:arg span2cluster_label: the inverse of the above.
+:arg mmap_file:     the name of the mmap file.
+:arg mmap_len:      the current length of the mmap file.
+:arg embed_dim:     the dimension of an embedding.
+:arg dtype:         the numpy dtype.
+:arg skip_idxs:     Optioal. the idx into the embeddings that will not be clustered or searched for.
+:arg idxs:          Optioal. if provided, the particular embedding idx that will be clustered in this call.
+:arg max_level:      the maximum level of the cluster hiearchy.
+:arg max_cluster_size:the maximum size of any particular cluster.
+:arg min_overlap_merge_cluster. When incremental clustering, the minimum overlap between one cluster and another before merging them.
+:arg kmeans_batch_size: the size of each batch of embeddings that are kmean batched.
+:arg use_tqdm:        whether to report the progress of the clustering.
+:arg grouping_fn:       Optional. a function that takes in a grouping_fn_callback_data, embeddings, and a list of spans, will return a hash of form {'group_X': [...], 'group_Y': [...], etc.}
+:arg grouping_fn_callback_data: Optional. arbitrary data to pass to the grouping_fn</p>
+
+      <details class="quote">
+        <summary>Source code in <code>src/utils.py</code></summary>
+        <pre class="highlight"><code class="language-python">def create_hiearchical_clusters(clusters, span2cluster_label, mmap_file, mmap_len=0, embed_dim=25, dtype=np.float16, skip_idxs=None, idxs=None, max_level=4, \
+                                max_cluster_size=200, min_overlap_merge_cluster=2, prefered_leaf_node_size=None, kmeans_batch_size=250000, \
+                                recluster_start_iter=0.85, max_decluster_iter=0.95, use_tqdm=True, grouping_fn=None, grouping_fn_callback_data=None):
+  """
+  Incremental hiearchical clustering from embeddings stored in a mmap file. Can also used to create an index for searching.       
+  with a max of 4 levels, and each node containing 200 items, we can have up to 1.6B items approximately
+  span2cluster_label maps a child span to a parent span. spans can be of the form int|(int,int).
+  leaf nodes are ints. non-leaf nodes are (int,int) tuples
+  clusters maps cluster_label =&gt; list of spans  
+  when we use the term 'idx', we normally refer to the index in an embedding file.
+
+  :arg clusters:      the dict mapping parent span to list of child span
+  :arg span2cluster_label: the inverse of the above.
+  :arg mmap_file:     the name of the mmap file.
+  :arg mmap_len:      the current length of the mmap file.
+  :arg embed_dim:     the dimension of an embedding.
+  :arg dtype:         the numpy dtype.
+  :arg skip_idxs:     Optioal. the idx into the embeddings that will not be clustered or searched for.
+  :arg idxs:          Optioal. if provided, the particular embedding idx that will be clustered in this call.
+  :arg max_level:      the maximum level of the cluster hiearchy.
+  :arg max_cluster_size:the maximum size of any particular cluster.
+  :arg min_overlap_merge_cluster. When incremental clustering, the minimum overlap between one cluster and another before merging them.
+  :arg kmeans_batch_size: the size of each batch of embeddings that are kmean batched.
+  :arg use_tqdm:        whether to report the progress of the clustering.
+  :arg grouping_fn:       Optional. a function that takes in a grouping_fn_callback_data, embeddings, and a list of spans, will return a hash of form {'group_X': [...], 'group_Y': [...], etc.}
+  :arg grouping_fn_callback_data: Optional. arbitrary data to pass to the grouping_fn
+  """
+  global device
+  if skip_idxs is None: 
+    skip_idxs = set()
+  else:
+    skip_idxs = set(skip_idxs)
+  if clusters is None: clusters = {}
+  if span2cluster_label is None: 
+    span2cluster_label = {}
+    for label, a_cluster in clusters:
+      for span in a_cluster:
+        span2cluster_label[span] = label
+  else:      
+    #make sure clusters have the same data as span2cluster_label
+    for span, label in span2cluster_label.items():
+      if span not in clusters.get(label,[]):
+        clusters[label] = clusters.get(label,[]) + [span]
+  #we are not going to cluster idxs that should be skipped
+  if idxs:
+    idxs = [idx for idx in idxs if idx not in skip_idxs]
+  #remove some idx from the clusters so we can re-compute the clusters
+  remove_idxs = list(skip_idxs) + ([] if idxs is None else idxs)
+  if remove_idxs is not None:
+    need_recompute_clusters=False
+    for idx in remove_idxs:
+      label = span2cluster_label.get(idx)
+      if label is not None:
+        clusters[label].remove(idx)
+        a_cluster = clusters[label]
+        del span2cluster_label[idx]
+        need_recompute_clusters=True
+        # now re-create the label if the idx is the proto index.
+        if idx == label[1]:
+          new_idx = a_cluster[0]          
+          for level in range(0, max_level):   
+            new_label2 = (level, new_idx)       
+            old_label2 = (level, idx)
+            if old_label2 in span2cluster_label:
+              #rename the label for the children
+              clusters[new_label2] = clusters[old_label2]
+              del clusters[old_label2]
+              for span in clusters[new_label2]:
+                span2cluster_label[span] = new_label2
+              #make the parent refer to the new label
+              parent_label = span2cluster_label[old_label2]
+              clusters[parent_label].remove(old_label2)
+              clusters[parent_label].append(new_label2)
+              span2cluster_label[new_label2] = parent_label
+
+    #belt and suspenders, let's just recreate the clusters                       
+    if need_recompute_clusters:
+      clusters.clear()
+      for span, label in span2cluster_label.items():
+        clusters[label] = clusters.get(label, []) + [span]
+  #print (mmap_len, clusters, span2cluster_label)
+
+  if prefered_leaf_node_size is None: prefered_leaf_node_size = max_cluster_size
+  cluster_embeddings = np_memmap(mmap_file, shape=[mmap_len, embed_dim], dtype=dtype)
+  # at level 0, the spans are the indexes themselves, so no need to map using all_spans
+  all_spans = None
+  for level in range(max_level):
+    assert level == 0 or (all_spans is not None and idxs is not None)
+    #print ("got here")
+    if idxs is None: 
+      len_spans = mmap_len
+    else:
+      len_spans = len(idxs)
+    # we are going to do a minimum of 6 times in case there are not already clustered items
+    # from previous iterations. 
+    num_times = max(6,math.ceil(len_spans/int(.7*kmeans_batch_size)))
+    recluster_at = max(0,num_times*recluster_start_iter)
+    rng = 0
+    if use_tqdm:
+      num_times2 = tqdm.tqdm(range(num_times))
+    else:
+      num_times2 = range(num_times)
+    for times in num_times2:
+        max_rng = min(len_spans, rng+int(.7*kmeans_batch_size))
+        #create the next batch to cluster
+        if idxs is None:
+          spans = list(range(rng, max_rng))
+          not_already_clustered = [idx for idx in range(rng) if (all_spans is not None and all_spans[idx] not in span2cluster_label) or \
+                        (all_spans is None and idx not in span2cluster_label)]
+        else:
+          spans = idxs[rng: max_rng] 
+          not_already_clustered = [idx for idx in range(rng) if idxs[:rng] if (all_spans is not None and all_spans[idx] not in span2cluster_label) or \
+                        (all_spans is None and idx not in span2cluster_label)]
+        num_itmes_left = kmeans_batch_size - len(spans)
+        if len(not_already_clustered) &gt; int(.5*num_itmes_left):
+          spans.extend(random.sample(not_already_clustered, int(.5*num_itmes_left)))
+        else:
+          spans.extend(not_already_clustered)
+        if len(spans) == 0: continue
+        if level == 0:
+          already_clustered = [idx for idx in range(mmap_len) if idx in span2cluster_label]
+        else:
+          already_clustered = [idx for idx, span in enumerate(all_spans) if span in span2cluster_label]
+        if len(already_clustered)  &gt; int(.5*num_itmes_left):
+          spans.extend(random.sample(already_clustered, int(.5*num_itmes_left)))
+        else:
+          spans.extend(already_clustered)
+        # get the embedding indexs for the cluster
+        if level == 0:
+          spans = [span for span in spans if span not in skip_idxs]
+          embedding_idxs = spans
+        else:
+          spans = [all_spans[idx] for idx in spans]
+          spans = [span for span in spans  if span[1] not in skip_idxs] 
+          embedding_idxs = [span[1] for span in spans]
+        #print (spans)
+        #do kmeans clustering in batches with the embedding indexes
+        if level == 0:
+          true_k = int(len(embedding_idxs)/prefered_leaf_node_size)
+        else:
+          true_k = int(len(embedding_idxs)/max_cluster_size)
+        _cluster_one_batch(true_k,  spans, embedding_idxs, clusters, span2cluster_label, level, cluster_embeddings, min_overlap_merge_cluster, grouping_fn, grouping_fn_callback_data)
+        # re-cluster any small clusters or break up large clusters   
+        if times &gt;= recluster_at:  
+            need_recompute_clusters = False   
+            for parent, spans in list(clusters.items()): 
+              if  times &lt; max(0, num_times*max_decluster_iter) and \
+                ((level == 0 and len(spans) &lt; prefered_leaf_node_size*.5) or
+                 (level != 0 and len(spans) &lt; max_cluster_size*.5)):
+                need_recompute_clusters = True
+                for span in spans:
+                  del span2cluster_label[span]  
+              elif len(spans) &gt; max_cluster_size:
+                need_recompute_clusters = True
+                for token in spans:
+                  del span2cluster_label[token]
+                embedding_idxs = [span if type(span) is int else span[1] for span in spans]
+                if level == 0:
+                  true_k = int(len(embedding_idxs)/prefered_leaf_node_size)
+                else:
+                  true_k = int(len(embedding_idxs)/max_cluster_size)
+                _cluster_one_batch(true_k,  spans, embedding_idxs, clusters, span2cluster_label, level, cluster_embeddings,  min_overlap_merge_cluster, grouping_fn, grouping_fn_callback_data)
+
+            if need_recompute_clusters:
+              clusters.clear()
+              for span, label in span2cluster_label.items():
+                clusters[label] = clusters.get(label, []) + [span]
+        rng = max_rng
+
+    # prepare data for next level clustering
+    all_spans = [label for label in clusters.keys() if label[0] == level]
+    if len(all_spans) &lt; max_cluster_size: break
+    idxs = [idx for idx, label in enumerate(all_spans) if label not in span2cluster_label]
+
+  return clusters, span2cluster_label</code></pre>
+      </details>
+  </div>
+
+</div>
+
+
+
+  </div>
+
+  </div>
+
+</div>
+              
+            </div>
+          </div><footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
+        <a href="../translation/" class="btn btn-neutral float-left" title="translation"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+    
+      <span><a href="../translation/" style="color: #fcfcfc">&laquo; Previous</a></span>
+    
+    
+  </span>
+</div>
+    <script>var base_url = '../..';</script>
+    <script src="../../js/theme_extra.js" defer></script>
+    <script src="../../js/theme.js" defer></script>
+      <script src="../../search/main.js" defer></script>
+    <script defer>
+        window.onload = function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        };
+    </script>
+
+</body>
+</html>

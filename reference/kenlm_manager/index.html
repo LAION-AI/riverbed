@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+      <link rel="shortcut icon" href="../../img/favicon.ico" />
+    <title>kenlm_manager - Riverbed Docs</title>
+    <link rel="stylesheet" href="../../css/theme.css" />
+    <link rel="stylesheet" href="../../css/theme_extra.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/10.5.0/styles/github.min.css" />
+        <link href="../../assets/_mkdocstrings.css" rel="stylesheet" />
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "kenlm_manager";
+        var mkdocs_page_input_path = "reference/kenlm_manager.md";
+        var mkdocs_page_url = null;
+      </script>
+    
+    <script src="../../js/jquery-3.6.0.min.js" defer></script>
+    <!--[if lt IE 9]>
+      <script src="../../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/10.5.0/highlight.min.js"></script>
+      <script>hljs.initHighlightingOnLoad();</script> 
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href="../.." class="icon icon-home"> Riverbed Docs
+        </a><div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../..">Home</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../../about/">About</a>
+                </li>
+              </ul>
+              
+                      <p class="caption"><span class="caption-text">Code Reference</span></p>
+              
+              <ul class="current">
+                  <li class="toctree-l1"><a class="reference internal" href="../banned_words/">banned_words</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../char_manager/">char_manager</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../cjk/">cjk</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../filtering/">filtering</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../flagged_words/">flagged_words</a>
+                  </li>
+                  <li class="toctree-l1 current"><a class="reference internal current" href="./">kenlm_manager</a>
+    <ul class="current">
+    </ul>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../langid_manager/">langid_manager</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../pdf_and_ocr/">pdf_and_ocr</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../pii_manager/">pii_manager</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../searcher_indexer/">searcher_indexer</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../simhash/">simhash</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../stopwords/">stopwords</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../translation/">translation</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../utils/">utils</a>
+                  </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../..">Riverbed Docs</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../.." class="icon icon-home" alt="Docs"></a> &raquo;</li>
+          <li>Code Reference &raquo;</li>
+      <li>kenlm_manager</li>
+    <li class="wy-breadcrumbs-aside">
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <div class="doc doc-object doc-module">
+
+
+<a id="kenlm_manager"></a>
+  <div class="doc doc-contents first">
+  
+      <p>Copyright, 2021-2022 Ontocord, LLC, and other authors of Muliwai, All rights reserved.
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+    http://www.apache.org/licenses/LICENSE-2.0
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.</p>
+
+  
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="kenlm_manager.KenlmModel" class="doc doc-heading">
+        <code>KenlmModel</code>
+
+
+</h2>
+
+
+  <div class="doc doc-contents ">
+
+
+
+        <details class="quote">
+          <summary>Source code in <code>src/kenlm_manager.py</code></summary>
+          <pre class="highlight"><code class="language-python">class KenlmModel:
+    digit_re: re.Pattern = re.compile(r"\d")
+    unicode_punct: Dict[str, str] = {
+        "，": ",",
+        "。": ".",
+        "、": ",",
+        "„": '"',
+        "”": '"',
+        "“": '"',
+        "«": '"',
+        "»": '"',
+        "１": '"',
+        "」": '"',
+        "「": '"',
+        "《": '"',
+        "》": '"',
+        "´": "'",
+        "∶": ":",
+        "：": ":",
+        "？": "?",
+        "！": "!",
+        "（": "(",
+        "）": ")",
+        "；": ";",
+        "–": "-",
+        "—": " - ",
+        "．": ". ",
+        "～": "~",
+        "’": "'",
+        "…": "...",
+        "━": "-",
+        "〈": "&lt;",
+        "〉": "&gt;",
+        "【": "[",
+        "】": "]",
+        "％": "%",
+        "►": "-",
+    }
+    unicode_punct_re = re.compile(f"[{''.join(unicode_punct.keys())}]")
+    non_printing_chars_re = re.compile(
+        f"[{''.join(map(chr, list(range(0, 32)) + list(range(127, 160))))}]"
+    )
+    kenlm_model_dir = None
+    sentence_piece_model_dir = None
+
+    # TODO: we are not doing the sacremoses tokenizer to get put spaces between escaped chars 
+    # but consider whether we should do this for the ccnet models 
+    # https://github.com/facebookresearch/cc_net/blob/bda555bd1cf1ee2e0b925363e62a61cd46c8b60d/cc_net/tokenizer.py#L23
+    # does it make a difference?
+    def __init__(
+            self,
+            model_name: str=None,
+            language: str=None,
+            lowercase: bool = False,
+            remove_accents: bool = False,
+            normalize_numbers: bool = True,
+            punctuation: int = 1,
+            do_normalize_spacing_for_tok: bool = False,
+            tokenizer=None,
+            model_path: str=None,
+    ):
+        print (model_name)
+        self.model_name = model_name
+        if model_path is not None:
+          self.model = kenlm.Model(model_path)
+        elif "riverbed" in model_name:
+          self.model = kenlm.Model(os.path.join(self.model_name, f"arpa.bin"))
+          tokenizer = mt5_tokenizer
+        else:
+          self.model = kenlm.Model(os.path.join(self.model_name, f"{language}.arpa.bin"))
+        if tokenizer is None:
+          self.tokenizer = SentencePiece(os.path.join(self.model_name, f"{language}.sp.model"))
+        else:
+          self.tokenizer = tokenizer
+        self.do_normalize_spacing_for_tok = do_normalize_spacing_for_tok
+        self.accent = remove_accents
+        self.lowercase = lowercase
+        self.numbers = normalize_numbers
+        self.punct = punctuation
+        self.language = language
+
+    @classmethod
+    def from_pretrained(
+            cls,
+            model_name: str,
+            language: str='*',
+    ):
+        load_kenlm_model(
+            language = language,
+            pretrained_models =[model_name],
+            )
+        return cls(
+            model_name = model_name,
+            language = language,
+            lowercase = "edugp" not in model_name,
+            remove_accents = language  in {"en", "my"},
+            do_normalize_spacing_for_tok = "edugp" not in model_name,
+        )
+
+    def pp(self, log_score, length):
+        return 10.0 ** (-log_score / length)
+
+    # Tokenize (after normalizing): See https://github.com/facebookresearch/cc_net/blob/bda555bd1cf1ee2e0b925363e62a61cd46c8b60d/cc_net/mine.py#L352 for full pipeline        
+    def get_perplexity(self, doc: str):
+        doc = self.normalize(
+                doc,
+                accent=self.accent,
+                lowercase=self.lowercase,
+                numbers=self.numbers,
+                punct=self.punct,
+                tokenizer=self.tokenizer,
+                do_tokenize=True,
+                do_normalize_spacing_for_tok=self.do_normalize_spacing_for_tok
+            )
+        doc_log_score, doc_length = 0, 0
+        for line in doc.split("\n"):
+            log_score = self.model.score(line)
+            length = len(line.split()) + 1
+            doc_log_score += log_score
+            doc_length += length
+        return round(self.pp(doc_log_score, doc_length), 1)
+
+    @staticmethod
+    def normalize(
+            line: str,
+            accent: bool = False,
+            lowercase: bool = True,
+            numbers: bool = True,
+            punct: int = 1,
+            do_tokenize: bool = True,
+            tokenizer = None,
+            do_normalize_spacing_for_tok: bool = True
+    ) -&gt; str:
+        line = line.strip()
+        if not line:
+            return line
+        if lowercase:
+            line = line.lower()
+        if accent:
+            line = KenlmModel.strip_accents(line)
+        if numbers:
+            line = KenlmModel.digit_re.sub("0", line)
+        if punct == 1:
+            line = KenlmModel.replace_unicode_punct(line)
+        elif punct == 2:
+            line = KenlmModel.remove_unicode_punct(line)
+        line = KenlmModel.remove_non_printing_char(line)
+        if do_tokenize:
+          assert tokenizer is not None
+          if do_normalize_spacing_for_tok:
+            line = KenlmModel.normalize_spacing_for_tok(line)
+          line = tokenizer.tokenize(line)
+          line  = " ".join(" ".join(line).replace(mt5_underscore, " ").split())
+          for w in punc_char:
+            line = line.replace(" "+w, w)
+        return line
+
+    @staticmethod
+    def normalize_spacing_for_tok(text: str, language: str = "en") -&gt; str:
+      res = (
+          text.replace("\r", "")
+          # remove extra spaces
+          .replace("(", " (")
+          .replace(")", ") ")
+          .replace(" +", " ")
+      )
+      res = re.sub(r"\) ([\.\!\:\?\;\,])", r"\)\1", res)
+      res = res.replace("( ", "(").replace(" )", ")")
+      res = re.sub(r"(\d) \%", r"\1\%", res)
+      res = res.replace(" :", ":").replace(" ;", ";")
+      res = res.replace("`", "'").replace("''", ' " ')
+
+      res = (
+          res.replace("„", '"')
+          .replace("“", '"')
+          .replace("”", '"')
+          .replace("–", "-")
+          .replace("—", " - ")
+          .replace(" +", " ")
+          .replace("´", "'")
+          .replace("([a-z])‘([a-z])", r"\1'\2/")
+          .replace("([a-z])’([a-z])", r"\1'\2/")
+          .replace("‘", '"')
+          .replace("‚", '"')
+          .replace("’", '"')
+          .replace("''", '"')
+          .replace("´´", '"')
+          .replace("…", "...")
+          # French quotes
+          .replace(" « ", ' "')
+          .replace("« ", '"')
+          .replace("«", '"')
+          .replace(" » ", '" ')
+          .replace(" »", '"')
+          .replace("»", '"')
+          # handle pseudo-spaces
+          .replace(" %", "%")
+          .replace("nº ", "nº ")
+          .replace(" :", ":")
+          .replace(" ºC", " ºC")
+          .replace(" cm", " cm")
+          .replace(" ?", "?")
+          .replace(" !", "!")
+          .replace(" ;", ";")
+          .replace(", ", ", ")
+          .replace(" +", " ")
+          .replace("．", ". ")
+      )
+      # English "quotation," followed by comma, style
+      if language == "en":
+          res = re.sub(r"\"([,\.]+)", r"\1\"", res)
+      # Czech is confused
+      elif language == "cs" or language == "cz":
+          pass
+      # German/Spanish/French "quotation", followed by comma, style
+      else:
+          res = res.replace(',"', '",')
+          res = re.sub(
+              r"(\.+)\"(\s*[^&lt;])", r"\"\1\2", res
+          )  # don't fix period at end of sentence
+
+      if (
+          language == "de"
+          or language == "es"
+          or language == "cz"
+          or language == "cs"
+          or language == "fr"
+      ):
+          res = re.sub(r"(\d) (\d)", r"\1,\2", res)
+      else:
+          res = re.sub(r"(\d) (\d)", r"\1.\2", res)
+      return res
+
+    @staticmethod
+    def strip_accents(line: str) -&gt; str:
+        """Strips accents from a piece of text."""
+        nfd = unicodedata.normalize("NFD", line)
+        output = [c for c in nfd if unicodedata.category(c) != "Mn"]
+        if len(output) == line:
+            return line
+        return "".join(output)
+
+    @staticmethod
+    def replace_unicode_punct(text: str) -&gt; str:
+        return "".join(KenlmModel.unicode_punct.get(c, c) for c in text)
+
+    @staticmethod
+    def remove_unicode_punct(text: str) -&gt; str:
+        """More aggressive version of replace_unicode_punct but also faster."""
+        return KenlmModel.unicode_punct_re.sub("", text)
+
+    @staticmethod
+    def remove_non_printing_char(text: str) -&gt; str:
+        return KenlmModel.non_printing_chars_re.sub("", text)
+
+    def check_common_name(self, name: str, return_score: bool = False):
+        """
+        Check if a name is a common name.
+
+        :param name: Name to check.
+        :param return_score: If True, return the score of the name and cutoff threshold of the pattern.
+        :return: True if name is a common name, False otherwise.
+        """
+        public_patterns = public_figure_kenlm_cutoff_map.get(self.language, public_figure_kenlm_cutoff_map.get('en'))
+        model_name = self.model_name.split("/")[-1]
+        for pattern in public_patterns.get(model_name, public_patterns.get('wikipedia')):
+            test_name = pattern['pattern'].format(name)
+            score = self.get_perplexity(test_name)
+            if score &lt; pattern['cutoff']:
+                if return_score:
+                    return True, score, pattern['cutoff']
+                return True
+        if return_score:
+            return False, 0.0, 0.0
+        return False</code></pre>
+        </details>
+
+  
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+
+<h3 id="kenlm_manager.KenlmModel.check_common_name" class="doc doc-heading">
+<code class="highlight language-python">check_common_name(name, return_score=False)</code>
+
+</h3>
+
+
+  <div class="doc doc-contents ">
+  
+      <p>Check if a name is a common name.</p>
+<p>:param name: Name to check.
+:param return_score: If True, return the score of the name and cutoff threshold of the pattern.
+:return: True if name is a common name, False otherwise.</p>
+
+      <details class="quote">
+        <summary>Source code in <code>src/kenlm_manager.py</code></summary>
+        <pre class="highlight"><code class="language-python">def check_common_name(self, name: str, return_score: bool = False):
+    """
+    Check if a name is a common name.
+
+    :param name: Name to check.
+    :param return_score: If True, return the score of the name and cutoff threshold of the pattern.
+    :return: True if name is a common name, False otherwise.
+    """
+    public_patterns = public_figure_kenlm_cutoff_map.get(self.language, public_figure_kenlm_cutoff_map.get('en'))
+    model_name = self.model_name.split("/")[-1]
+    for pattern in public_patterns.get(model_name, public_patterns.get('wikipedia')):
+        test_name = pattern['pattern'].format(name)
+        score = self.get_perplexity(test_name)
+        if score &lt; pattern['cutoff']:
+            if return_score:
+                return True, score, pattern['cutoff']
+            return True
+    if return_score:
+        return False, 0.0, 0.0
+    return False</code></pre>
+      </details>
+  </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+
+<h3 id="kenlm_manager.KenlmModel.remove_unicode_punct" class="doc doc-heading">
+<code class="highlight language-python">remove_unicode_punct(text)</code>
+  
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-staticmethod"><code>staticmethod</code></small>
+  </span>
+
+</h3>
+
+
+  <div class="doc doc-contents ">
+  
+      <p>More aggressive version of replace_unicode_punct but also faster.</p>
+
+      <details class="quote">
+        <summary>Source code in <code>src/kenlm_manager.py</code></summary>
+        <pre class="highlight"><code class="language-python">@staticmethod
+def remove_unicode_punct(text: str) -&gt; str:
+    """More aggressive version of replace_unicode_punct but also faster."""
+    return KenlmModel.unicode_punct_re.sub("", text)</code></pre>
+      </details>
+  </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+
+<h3 id="kenlm_manager.KenlmModel.strip_accents" class="doc doc-heading">
+<code class="highlight language-python">strip_accents(line)</code>
+  
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-staticmethod"><code>staticmethod</code></small>
+  </span>
+
+</h3>
+
+
+  <div class="doc doc-contents ">
+  
+      <p>Strips accents from a piece of text.</p>
+
+      <details class="quote">
+        <summary>Source code in <code>src/kenlm_manager.py</code></summary>
+        <pre class="highlight"><code class="language-python">@staticmethod
+def strip_accents(line: str) -&gt; str:
+    """Strips accents from a piece of text."""
+    nfd = unicodedata.normalize("NFD", line)
+    output = [c for c in nfd if unicodedata.category(c) != "Mn"]
+    if len(output) == line:
+        return line
+    return "".join(output)</code></pre>
+      </details>
+  </div>
+
+</div>
+
+
+
+  </div>
+
+  </div>
+
+</div>
+
+
+<div class="doc doc-object doc-function">
+
+
+
+<h2 id="kenlm_manager.check_for_common_name" class="doc doc-heading">
+<code class="highlight language-python">check_for_common_name(language='en', pretrained_models=['wikipedia'], name=None, verbose=False, kenlm_models=None, return_score=False)</code>
+
+</h2>
+
+
+  <div class="doc doc-contents ">
+  
+      <p>Check if a name is a public figure or a very common name</p>
+
+      <details class="quote">
+        <summary>Source code in <code>src/kenlm_manager.py</code></summary>
+        <pre class="highlight"><code class="language-python">def check_for_common_name(
+        language: str = "en",
+        pretrained_models: list = ['wikipedia'],
+        name: str = None,
+        verbose: bool = False,
+        kenlm_models=None,
+        return_score=False,
+):
+    """
+    Check if a name is a public figure or a very common name
+    """
+    # load all kenlm models and cutoff patterns
+    if kenlm_models is None:
+        kenlm_models = load_kenlm_model(language, pretrained_models)
+    public_patterns = public_figure_kenlm_cutoff_map.get(language, public_figure_kenlm_cutoff_map.get('en'))
+    for model_name, model in kenlm_models.items():
+        for pattern in public_patterns.get(model_name, public_patterns.get('wikipedia')):
+            test_name = pattern['pattern'].format(name)
+            score = model.get_perplexity(test_name)
+            if score &lt; pattern['cutoff']:
+                #if verbose:
+                #    print(name, score)
+                if return_score:
+                    return True, score, pattern['cutoff']
+                return True
+    if return_score:
+        return False, 0.0, 0.0
+    return False</code></pre>
+      </details>
+  </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+
+<h2 id="kenlm_manager.load_kenlm_model" class="doc doc-heading">
+<code class="highlight language-python">load_kenlm_model(language='*', pretrained_models=['ontocord/riverbed_kenlm'], store_model=True, cache_dir=None, default_kenlm_wikipedia='./kenlm_ccnet_wikipedia_models')</code>
+
+</h2>
+
+
+  <div class="doc doc-contents ">
+  
+      <p>Load all supported kenlm model for source language. Consider if we want to use an LRU.
+TODO: Incorporate OSCAR kenlm models. They are quite big, and we still need patterns and cutoffs.</p>
+
+      <details class="quote">
+        <summary>Source code in <code>src/kenlm_manager.py</code></summary>
+        <pre class="highlight"><code class="language-python">def load_kenlm_model(
+        language: str = "*",
+        pretrained_models: list = ['ontocord/riverbed_kenlm'],
+        store_model: bool = True,
+        cache_dir: str = None,
+        default_kenlm_wikipedia: str = "./kenlm_ccnet_wikipedia_models"
+) -&gt; dict:
+    """
+    Load all supported kenlm model for source language. Consider if we want to use an LRU.
+    TODO: Incorporate OSCAR kenlm models. They are quite big, and we still need patterns and cutoffs.
+    """
+    assert len(pretrained_models) &lt;= len(
+        kenlm_models), 'Total of number kenlm models loads larger than supported kenlm models'
+    all_models = {}
+    model_files = ["arpa.bin", "sp.model", ] # "sp.vocab"
+    # cache to dir
+    if cache_dir is None:
+        cache_dir = os.path.expanduser('~') + "/.cache"
+    if language is None: language = '*'
+    # check if pretrain model exist
+    for model_name in pretrained_models:
+        if language in kenlm_models[model_name]:
+            all_models[model_name] = kenlm_models[model_name][language]
+        elif "wikipedia" in model_name  and os.path.exists(f"{default_kenlm_wikipedia}/{language}.arpa.bin"):
+            model = KenlmModel(default_kenlm_wikipedia, language, do_normalize_spacing_for_tok=True)
+            all_models[model_name] = model
+            if store_model:
+              kenlm_models[model_name][language] = model
+        elif "wikipedia" in model_name  and language in ccnet_langs:
+            download_ccnet_sp_kenlm_models(language, default_kenlm_wikipedia)
+            model = KenlmModel(default_kenlm_wikipedia, language, do_normalize_spacing_for_tok=True)
+            all_models[model_name] = model
+            if store_model:
+              kenlm_models[model_name][language] = model
+        elif model_name not in kenlm_models:
+            warnings.warn(f"{model_name} pretrained model is not supported!")
+        else:
+            os.system(f"mkdir -p {cache_dir}/{model_name}")
+            found = True
+            if language == '*':
+              if not os.path.exists(f"{cache_dir}/{model_name}/arpa.bin"):
+                    try:
+                        print (f"{cache_dir}/{model_name}/arpa.bin")
+                        file_url = hf_hub_url(repo_id=model_name,
+                                              filename=f"arpa.bin")
+                        file = cached_download(file_url)
+                        os.system(f"ln -s {file} {cache_dir}/{model_name}/arpa.bin")
+                    except:
+                        warnings.warn(f'could not find model ontocord/riverbed_kenlm/arpa.bin. will stop searching...')
+                        found = False
+            else:        
+              for model_file in model_files:
+                if not os.path.exists(f"{cache_dir}/{model_name}/{language}.{model_file}"):
+                    try:
+                        repo_id = "/".join(model_name.split("/")[:1])
+                        model_subtype = "/".join(model_name.split("/")[1:])
+                        print (f"loading {model_name}/{language}.{model_file}")
+                        file_url = hf_hub_url(repo_id=repo_id,
+                                              filename=f"{model_subtype}/{language}.{model_file}")
+                        file = cached_download(file_url)
+                        os.system(f"ln -s {file} {cache_dir}/{model_name}/{language}.{model_file}")
+                    except:
+                        warnings.warn(f'could not find model {language}.{model_file}. will stop searching...')
+                        found = False
+                        break
+            if found:
+                model = KenlmModel(f"{cache_dir}/{model_name}", language)
+                all_models[model_name] = model
+                if store_model:
+                    kenlm_models[model_name][language] = model
+    return all_models</code></pre>
+      </details>
+  </div>
+
+</div>
+
+
+
+  </div>
+
+  </div>
+
+</div>
+              
+            </div>
+          </div><footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
+        <a href="../flagged_words/" class="btn btn-neutral float-left" title="flagged_words"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+        <a href="../langid_manager/" class="btn btn-neutral float-right" title="langid_manager">Next <span class="icon icon-circle-arrow-right"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+    
+      <span><a href="../flagged_words/" style="color: #fcfcfc">&laquo; Previous</a></span>
+    
+    
+      <span><a href="../langid_manager/" style="color: #fcfcfc">Next &raquo;</a></span>
+    
+  </span>
+</div>
+    <script>var base_url = '../..';</script>
+    <script src="../../js/theme_extra.js" defer></script>
+    <script src="../../js/theme.js" defer></script>
+      <script src="../../search/main.js" defer></script>
+    <script defer>
+        window.onload = function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        };
+    </script>
+
+</body>
+</html>

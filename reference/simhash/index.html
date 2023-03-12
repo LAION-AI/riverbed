@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+      <link rel="shortcut icon" href="../../img/favicon.ico" />
+    <title>simhash - Riverbed Docs</title>
+    <link rel="stylesheet" href="../../css/theme.css" />
+    <link rel="stylesheet" href="../../css/theme_extra.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/10.5.0/styles/github.min.css" />
+        <link href="../../assets/_mkdocstrings.css" rel="stylesheet" />
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "simhash";
+        var mkdocs_page_input_path = "reference/simhash.md";
+        var mkdocs_page_url = null;
+      </script>
+    
+    <script src="../../js/jquery-3.6.0.min.js" defer></script>
+    <!--[if lt IE 9]>
+      <script src="../../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/10.5.0/highlight.min.js"></script>
+      <script>hljs.initHighlightingOnLoad();</script> 
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href="../.." class="icon icon-home"> Riverbed Docs
+        </a><div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../..">Home</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../../about/">About</a>
+                </li>
+              </ul>
+              
+                      <p class="caption"><span class="caption-text">Code Reference</span></p>
+              
+              <ul class="current">
+                  <li class="toctree-l1"><a class="reference internal" href="../banned_words/">banned_words</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../char_manager/">char_manager</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../cjk/">cjk</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../filtering/">filtering</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../flagged_words/">flagged_words</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../kenlm_manager/">kenlm_manager</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../langid_manager/">langid_manager</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../pdf_and_ocr/">pdf_and_ocr</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../pii_manager/">pii_manager</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../searcher_indexer/">searcher_indexer</a>
+                  </li>
+                  <li class="toctree-l1 current"><a class="reference internal current" href="./">simhash</a>
+    <ul class="current">
+    </ul>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../stopwords/">stopwords</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../translation/">translation</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../utils/">utils</a>
+                  </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../..">Riverbed Docs</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../.." class="icon icon-home" alt="Docs"></a> &raquo;</li>
+          <li>Code Reference &raquo;</li>
+      <li>simhash</li>
+    <li class="wy-breadcrumbs-aside">
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <div class="doc doc-object doc-module">
+
+
+<a id="simhash"></a>
+  <div class="doc doc-contents first">
+
+  
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+
+<h2 id="simhash.hashing" class="doc doc-heading">
+<code class="highlight language-python">hashing(document, tokenization='character', window_size=20, ignore_punctuation=True, lowercase=True)</code>
+
+</h2>
+
+
+  <div class="doc doc-contents ">
+  
+      <p>Hashing a document with SimHash.
+spanmeters</p>
+<hr />
+
+<details class="document-">
+  <summary>str</summary>
+  <p>The text to use for hashing, by default "text"</p>
+</details>
+<details class="tokenization-">
+  <summary>str, optional</summary>
+  <p>Method to use for tokenization, by default "character"</p>
+</details>
+<details class="window_size-">
+  <summary>int, optional</summary>
+  <p>The size of the token window, by default 6</p>
+</details>
+<details class="ignore_punctuation-">
+  <summary>bool, optional</summary>
+  <p>To ignore punctuation or not, by default True</p>
+</details>
+<details class="lowercase-">
+  <summary>bool, optional</summary>
+  <p>To lowercase the text or not, by default True</p>
+</details>      <h4 id="simhash.hashing--returns">Returns</h4>
+<p>int: The hash code</p>
+<h4 id="simhash.hashing--raises">Raises</h4>
+<p>Exception
+    Unrecognized tokenization spanmeter</p>
+
+      <details class="quote">
+        <summary>Source code in <code>src/simhash.py</code></summary>
+        <pre class="highlight"><code class="language-python">def hashing(
+    document: str,
+    tokenization: str = "character",
+    window_size: int = 20,
+    ignore_punctuation: bool = True,
+    lowercase: bool = True
+) -&gt; Dict[str, int]:
+    """Hashing a document with SimHash.
+    spanmeters
+    ----------
+    document : str
+        The text to use for hashing, by default "text"
+    tokenization : str, optional
+        Method to use for tokenization, by default "character"
+    window_size : int, optional
+        The size of the token window, by default 6
+    ignore_punctuation : bool, optional
+        To ignore punctuation or not, by default True
+    lowercase : bool, optional
+        To lowercase the text or not, by default True
+    Returns
+    -------
+    int: The hash code
+
+    Raises
+    ------
+    Exception
+        Unrecognized tokenization spanmeter
+    """
+    if lowercase:
+        document = document.lower()
+
+    if ignore_punctuation:
+        document = PUNCTUATION_REGEX.sub("", document)
+
+    if tokenization == "character":
+        document = " ".join(document.split())
+        tokens = [
+            str.encode(document[i : i + window_size])
+            for i in range(len(document) - window_size)
+        ]
+        if not tokens: tokens = [str.encode(document)]
+    elif tokenization == "punctuation":
+        tokens0 = PUNCTUATION_REGEX.split(document)
+        tokens = [
+            str.encode(" ".join(tokens0[i : i + window_size]))
+            for i in range(len(tokens0) - window_size)
+        ]
+        if not tokens: tokens = [str.encode(t) for t in tokens0]
+    elif tokenization == "space":
+        tokens0 = document.split(" ") #consider whether we want to just use .split() to match \n and \t
+        tokens = [
+            str.encode(" ".join(tokens0[i : i + window_size]))
+            for i in range(len(tokens0) - window_size)
+        ]
+        if not tokens: tokens = [str.encode(t) for t in tokens0]
+    # we could try other types of tokenizations such as stemming and removal of stopwords
+    else:
+        raise Exception(f"Unrecognized tokenization spanmeter {tokenization}")
+    assert tokens
+    #TODO: the hash code is actually a 64bit int. Check sys.maxsize. 
+    #Was having a problem with serialzing np.int64 in json so i casted to int. 
+    #might not be an issue in parquet in which case we should revert back to np.int64.
+    return int(simhash.compute(map(simhash.unsigned_hash, tokens)))</code></pre>
+      </details>
+  </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+
+<h2 id="simhash.incremental_span_and_document_neardedup" class="doc doc-heading">
+<code class="highlight language-python">incremental_span_and_document_neardedup(dup_span, dup_doc, unformatted_text, formatted_text=None, shingle_size=5, cleanup_dup_span_limit=1000000, cleanup_dup_doc_limit=1000000, normalize_text=True, keep_first_dup_in_unformatted_text=False, keep_first_dup_in_formatted_text=True, replace_char='*')</code>
+
+</h2>
+
+
+  <div class="doc doc-contents ">
+  
+      <p>Given a document text and a dict representing any near duplicate spans and duplicate docs, remove duplicate spans of shingle size from the text.
+The text can be in the form of clean unformatted text, e.g., removed formatting and any extraneous tags, and the corresponding formatted text, 
+Assumes that double spaces denote sentence break in the text, and formatted_text.
+normalize_text will add double spaces between common punctuations and quotes. </p>
+
+<details class="return">
+  <summary>Return</summary>
+  <p>doc_is_dup, deduped unformatted_text, deduped formatted_text
+  where doc_is_dup is 0 if there is no duplicates, 1 if there are partial span dups, and 2 if the whole document is a near dup.
+  text is the original text with any duplicate spans replaced with the replace_char, collapsing multiple replace chars into one char.
+NOTE: the formatted_text are not guaranted to be deduped b/c there may be formatting in between spans that affects deduplication.</p>
+</details>
+      <details class="quote">
+        <summary>Source code in <code>src/simhash.py</code></summary>
+        <pre class="highlight"><code class="language-python">def incremental_span_and_document_neardedup( dup_span, dup_doc, unformatted_text, formatted_text=None, shingle_size = 5, cleanup_dup_span_limit=1000000, cleanup_dup_doc_limit=1000000, normalize_text=True, keep_first_dup_in_unformatted_text=False, keep_first_dup_in_formatted_text=True, replace_char='*'):
+    """
+    Given a document text and a dict representing any near duplicate spans and duplicate docs, remove duplicate spans of shingle size from the text.
+    The text can be in the form of clean unformatted text, e.g., removed formatting and any extraneous tags, and the corresponding formatted text, 
+    Assumes that double spaces denote sentence break in the text, and formatted_text.
+    normalize_text will add double spaces between common punctuations and quotes. 
+    Return:
+
+      doc_is_dup, deduped unformatted_text, deduped formatted_text
+        where doc_is_dup is 0 if there is no duplicates, 1 if there are partial span dups, and 2 if the whole document is a near dup.
+        text is the original text with any duplicate spans replaced with the replace_char, collapsing multiple replace chars into one char.
+      NOTE: the formatted_text are not guaranted to be deduped b/c there may be formatting in between spans that affects deduplication. 
+
+    """
+    is_dup_chunk={}
+    if normalize_text:
+      #simple normalize and add double spaces after sentences. TODO, add other lang punc.
+      unformatted_text = unformatted_text.replace("! ", "!  ").replace("? ", "?  ").replace(". ", ".  ").replace("．", "．  ").replace("。", "。  ").replace("？", "？  ")\
+        .replace("!\" ", "!\"  ").replace("?\" ", "?\"  ").replace(".\" ", ".\"  ").replace("．\"", "．\"  ").replace("。\"", "。\"  ").replace("？\"", "？\"  ")\
+        .replace("!” ", "!”  ").replace("?” ", "?”  ").replace(".” ", ".”  ").replace("．”", "．”  ").replace("。”", "。”  ").replace("？”", "？”  ")\
+        .replace("!》 ", "!》  ").replace("?》 ", "?》  ").replace(".》 ", ".》  ").replace("．》", "．》  ").replace("。》", "。》  ").replace("？》", "？》  ")\
+        .replace("、", "、 ").replace("’s", " 's").replace("`s", " 's").replace("'s", " 's")
+    if formatted_text is None: formatted_text = unformatted_text
+    text_arr = [a.strip() for a in unformatted_text.split("  ") if a.strip()]
+
+    #chunkify into sentences
+    chunks = []
+    for sent in text_arr:
+      if not sent: continue
+      if " " not in sent and len(sent) &gt; 20:
+          while sent:
+            chunks.append(sent[:20])
+            sent = sent[20:]
+      else:
+          chunks.append(sent)
+
+    replace_text = " "+replace_char+" "
+    shingles = [" ".join(chunks[i : i + shingle_size]) for i in range(len(chunks) - shingle_size)]
+    is_dup_within_doc = {}
+    unformatted_text = " ".join(unformatted_text.split())
+
+    #dedup spans other than the first matching span using shingle_size of sentences (e.g., a span) 
+    for ch_idx in range(len(chunks) - shingle_size):
+      orig_shingle= " ".join(chunks[ch_idx : ch_idx + shingle_size])
+      shingle = DIGIT_REGEX.sub('1', orig_shingle).strip()
+      if not shingle: continue
+      hashcode = hashing(shingle)
+      if hashcode in is_dup_within_doc:
+        prev_ch_idx = is_dup_within_doc[hashcode][0]
+        prev_chunk = chunks[prev_ch_idx]
+        clean_position = unformatted_text.find(prev_chunk)
+        formatted_text_position = formatted_text.find(prev_chunk)
+        if clean_position &gt;= 0 and formatted_text_position &gt;= 0:
+          clean_position += len(shingle)
+          formatted_text_position += len(shingle)
+          unformatted_text2 = unformatted_text[clean_position+1:]
+          formatted_text2 = formatted_text[formatted_text_position+1:]
+          if shingle in unformatted_text2:
+            unformatted_text2 = unformatted_text2.replace(shingle, replace_text)
+          else:
+            for chunk in chunks[ch_idx : ch_idx + shingle_size]:
+              if len(chunk) &gt; 3: unformatted_text2 = unformatted_text2.replace(chunk, replace_text)
+          if shingle in formatted_text2:
+            formatted_text2 = formatted_text2.replace(shingle, replace_text)
+          else:
+            for chunk in chunks[ch_idx : ch_idx + shingle_size]:
+              if len(chunk) &gt; 3: formatted_text2 = formatted_text2.replace(chunk, replace_text)
+          unformatted_text = unformatted_text[:clean_position+1] + unformatted_text2
+          formatted_text = formatted_text[:formatted_text_position+1] + formatted_text2
+
+      is_dup_within_doc[hashcode] = is_dup_within_doc.get(hashcode, []) + [ch_idx]
+
+      if hashcode in dup_span:
+        dup_span[hashcode] += 1
+      else:
+        dup_span[hashcode] = 1
+
+    if not keep_first_dup_in_formatted_text:      
+      for hashcode, ch_idx in is_dup_within_doc.items():  
+        if hashcode in dup_span and dup_span.get(hashcode, len(ch_idx)) &gt; len(ch_idx): #this item is a duplicate across documents
+          ch_idx = ch_idx[0]
+          shingle= " ".join(chunks[ch_idx : ch_idx + shingle_size])
+          if shingle in formatted_text: 
+            formatted_text = formatted_text.replace(shingle, replace_text)
+          else:
+            for chunk in chunks[ch_idx : ch_idx + shingle_size]:
+                formatted_text = formatted_text.replace(chunk, replace_text)
+
+    if not keep_first_dup_in_unformatted_text:      
+      for hashcode, ch_idx in is_dup_within_doc.items():  
+        if hashcode in dup_span and dup_span.get(hashcode,0) &gt; len(ch_idx): #this item is a duplicate across documents
+          ch_idx = ch_idx[0]
+          shingle= " ".join(chunks[ch_idx : ch_idx + shingle_size])
+          if shingle in unformatted_text: 
+            unformatted_text = unformatted_text.replace(shingle, replace_text)
+          else:
+            for chunk in chunks[ch_idx : ch_idx + shingle_size]:
+                unformatted_text = unformatted_text.replace(chunk, replace_text)
+
+    unformatted_text = unformatted_text.replace(replace_char+" .", replace_text).\
+        replace(replace_char+" !", replace_text).\
+        replace(replace_char+" ?", replace_text).\
+        replace(replace_char+" .", replace_text).\
+        replace(replace_char+" ．", replace_text).\
+        replace(replace_char+" 。", replace_text).\
+        replace(replace_char+" ？", replace_text).\
+        replace("  ", " ").\
+        replace(' '+replace_char+' '+replace_char, " "+replace_char).\
+        replace(' '+replace_char+' '+replace_char, " "+replace_char).\
+        replace(' '+replace_char+' '+replace_char, " "+replace_char)
+
+    unformatted_text = " ".join(unformatted_text.split())
+
+
+
+    formatted_text = formatted_text.replace(replace_char+" .", replace_text).\
+        replace(replace_char+" !", replace_text).\
+        replace(replace_char+" ?", replace_text).\
+        replace(replace_char+" .", replace_text).\
+        replace(replace_char+" ．", replace_text).\
+        replace(replace_char+" 。", replace_text).\
+        replace(replace_char+" ？", replace_text).\
+        replace("  ", " ").\
+        replace(' '+replace_char+' '+replace_char, " "+replace_char).\
+        replace(' '+replace_char+' '+replace_char, " "+replace_char)
+    formatted_text = " ".join(formatted_text.split())
+
+
+    #TODO: improve this so we cleaup by value until we reach the limit
+    if len(dup_span) &gt; cleanup_dup_span_limit:
+      for key, val in list(dup_span.items()):
+        if val &lt;= 1: del dup_span[key]
+
+    if len(dup_doc) &gt; cleanup_dup_doc_limit:
+      for key, val in list(dup_doc.items()):
+        if val &lt;= 1: del dup_doc[key]
+
+    doc_is_dup = 0
+    if any([a for h, a in is_dup_within_doc.items() if len(a) &gt; 1 or len(a) &lt; dup_span.get(h,len(a))]):
+      hashcode = " ".join(unformatted_text.replace("*", "").split())
+      hashcode = hashcode.strip(' '+replace_char).lower()
+      hashcode = DIGIT_REGEX.sub('1', hashcode)
+      hashcode = hashing(hashcode)
+      if hashcode in dup_doc:
+        dup_doc[hashcode] += 1
+        doc_is_dup=2
+      else:
+        dup_doc[hashcode] = 1
+        doc_is_dup=1
+
+    return doc_is_dup, unformatted_text, formatted_text</code></pre>
+      </details>
+  </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+
+<h2 id="simhash.index_clusters_batch_python" class="doc doc-heading">
+<code class="highlight language-python">index_clusters_batch_python(visited, hash2cluster, cluster2hash, hashes, num_blocks, hamming_distance)</code>
+
+</h2>
+
+
+  <div class="doc doc-contents ">
+  
+      <p>Create clusters within hamming distance. 
+Collapses a-&gt;b, b-&gt;c to all be in the same cluster.
+NOTE: this isn't always true that a and c are within hamming_distance. 
+NOTE: The cluster_id is the hashcode of the first item in the cluster and thus can be used to do further clustering and hamming distance matching.</p>
+
+      <details class="quote">
+        <summary>Source code in <code>src/simhash.py</code></summary>
+        <pre class="highlight"><code class="language-python">def index_clusters_batch_python(visited, hash2cluster, cluster2hash, hashes, num_blocks, hamming_distance):
+    """
+    Create clusters within hamming distance. 
+    Collapses a-&gt;b, b-&gt;c to all be in the same cluster.
+    NOTE: this isn't always true that a and c are within hamming_distance. 
+    NOTE: The cluster_id is the hashcode of the first item in the cluster and thus can be used to do further clustering and hamming distance matching.
+    """
+    matches = simhash.find_all(hashes, num_blocks, hamming_distance)
+    graph = defaultdict(dict)
+    for x, y in matches:
+      graph[x][y] = True
+      graph[y][x] = True
+    hashes = set(hashes)
+
+    while hashes:
+        hash = hashes.pop()
+        if hash in visited:
+            continue
+
+        # BFS to find the cluster
+        if hash not in graph:
+            hash2cluster[hash] = -1
+            continue
+
+        q = deque([hash])
+        visited.add(hash)
+        cluster_id = hash
+        hash2cluster[hash] = cluster_id
+        cluster2hash[cluster_id] = cluster2hash.get(cluster_id, []) + [hash]
+
+        while q:
+            node = q.popleft()
+            for neighbor in graph[node]:
+                if neighbor in visited:
+                    continue
+                visited.add(neighbor)
+                q.append(neighbor)
+                hash2cluster[neighbor] = cluster_id
+                cluster2hash[cluster_id] = cluster2hash.get(cluster_id, []) + [neighbor]
+
+    return visited, hash2cluster, cluster2hash,</code></pre>
+      </details>
+  </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+
+<h2 id="simhash.index_clusters_python" class="doc doc-heading">
+<code class="highlight language-python">index_clusters_python(hashes, num_blocks, hamming_distance, do_sort=True, batch_size=900000, verbose=False)</code>
+
+</h2>
+
+
+  <div class="doc doc-contents ">
+  
+      <p>Incrementally find clusters of int64 bit hashes of <em>around</em> the same hamming distance from each other. 
+Returns hash2cluster and cluster2hash dicts, where the ids are all int64 bit hashes.</p>
+
+      <details class="quote">
+        <summary>Source code in <code>src/simhash.py</code></summary>
+        <pre class="highlight"><code class="language-python">def index_clusters_python(hashes, num_blocks, hamming_distance, do_sort=True, batch_size=900000, verbose=False):
+  """ Incrementally find clusters of int64 bit hashes of *around* the same hamming distance from each other. 
+  Returns hash2cluster and cluster2hash dicts, where the ids are all int64 bit hashes.
+  """
+  if do_sort: 
+    hashes.sort()
+  # we are assuming no exact duplicates. if we want to deal with exact duplicates, we can easily just collapse them in sequence
+  # since this is a sorted list
+  cluster2hash = {}
+  hash2cluster = {}
+  visited: Set[int] = set()
+  if len(hashes) &lt;= batch_size:
+    visited, hash2cluster, cluster2hash = find_clusters_batch(visited, hash2cluster, cluster2hash, hashes, num_blocks, hamming_distance)
+    return hash2cluster, cluster2hash
+  batch_size2 = int(batch_size/2)
+  if verbose:
+    a_iter = tqdm.tqdm(range(0, len(hashes), batch_size2))
+  else:
+    a_iter = range(0, len(hashes), batch_size2)
+  for rng in a_iter:
+    max_rng = min(len(hashes), rng+batch_size2)
+    hashes2 = hashes[rng:max_rng]
+    hashes3 = []
+    if cluster2hash:
+      iterms_per_clusters = int(max(1, batch_size2/len(cluster2hash)))
+      hashes3 = list(itertools.chain(*[val[:iterms_per_clusters] for val in cluster2hash.values()]))
+      if len(hashes3) &gt; int(batch_size2/2):
+        hashes3 = random.sample(hashes3, batch_size2)
+    if rng &gt; 0 and len(hashes3) &lt; batch_size2:
+        hashes3 = list(set(hashes3+random.sample(hashes[:rng], batch_size2-len(hashes3))))
+    #print (len(hashes3))
+    hashes2.extend(hashes3)
+    #print (len(hashes2))
+    visited, hash2cluster, cluster2hash = index_clusters_batch_python(visited, hash2cluster, cluster2hash, hashes2, num_blocks, hamming_distance)
+  return hash2cluster, cluster2hash</code></pre>
+      </details>
+  </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+
+<h2 id="simhash.index_faiss" class="doc doc-heading">
+<code class="highlight language-python">index_faiss(hashes, d=16)</code>
+
+</h2>
+
+
+  <div class="doc doc-contents ">
+  
+      <p>hashes: the array of ints representing the simhash
+d: Dimension of the ints.</p>
+
+      <details class="quote">
+        <summary>Source code in <code>src/simhash.py</code></summary>
+        <pre class="highlight"><code class="language-python">def index_faiss(hashes, d=16):
+    """ 
+    hashes: the array of ints representing the simhash
+    d: Dimension of the ints.
+
+    """
+    sqrt_size = int(math.sqrt(len(hashes)))
+
+    # Vectors to train the quantizer.
+    training = [hashes[i] for i in random.sample(range(len(hashes)), 2*sqrt_size)]
+
+
+    # Initializing the quantizer.
+    quantizer = faiss.IndexBinaryFlat(d)
+
+    sqrt_size = int(math.sqrt(len(hashes)))
+
+    # Number of clusters.
+    nlist = sqrt_size
+
+    # Initializing index.
+    index = faiss.IndexBinaryIVF(quantizer, d, nlist)
+    index.nprobe = 4 # Number of nearest clusters to be searched per query. 
+
+    # Training the quantizer.
+    index.train(training)
+
+    # Adding the database vectors.
+    index.add(hashes)
+
+    return index</code></pre>
+      </details>
+  </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+
+<h2 id="simhash.search_faiss" class="doc doc-heading">
+<code class="highlight language-python">search_faiss(queries, qindices, hamming_distance, k=500, index=None)</code>
+
+</h2>
+
+
+  <div class="doc doc-contents ">
+  
+      <p>k: Number of nearest neighbors to retrieve per query vector.</p>
+
+      <details class="quote">
+        <summary>Source code in <code>src/simhash.py</code></summary>
+        <pre class="highlight"><code class="language-python">def search_faiss(queries, qindices, hamming_distance, k=500, index=None):
+    """
+    k: Number of nearest neighbors to retrieve per query vector.
+    """
+    if index is None:
+        index = index_faiss(queries)
+    ret = []
+    # Querying the index.
+    D, I = index.search(queries, k)
+    for i, matches, indices in zip(qindices, D, I):
+        for score, j in zip(matches, indices):
+            if score &lt;= hamming_distance:
+                ret.append((i, j))
+    return ret</code></pre>
+      </details>
+  </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+
+<h2 id="simhash.search_python_only" class="doc doc-heading">
+<code class="highlight language-python">search_python_only(queries, num_blocks, hamming_distance)</code>
+
+</h2>
+
+
+  <div class="doc doc-contents ">
+  
+      <p>Create clusters within hamming distance. 
+Collapses a-&gt;b, b-&gt;c to all be in the same cluster.
+NOTE: this isn't always true that a and c are within hamming_distance. 
+NOTE: The cluster_id is the hashcode of the first item in the cluster and thus can be used to do further clustering and hamming distance matching.</p>
+
+      <details class="quote">
+        <summary>Source code in <code>src/simhash.py</code></summary>
+        <pre class="highlight"><code class="language-python">def search_python_only(queries, num_blocks, hamming_distance):
+    """
+    Create clusters within hamming distance. 
+    Collapses a-&gt;b, b-&gt;c to all be in the same cluster.
+    NOTE: this isn't always true that a and c are within hamming_distance. 
+    NOTE: The cluster_id is the hashcode of the first item in the cluster and thus can be used to do further clustering and hamming distance matching.
+    """
+    return simhash.find_all(queries, num_blocks, hamming_distance)</code></pre>
+      </details>
+  </div>
+
+</div>
+
+
+
+  </div>
+
+  </div>
+
+</div>
+              
+            </div>
+          </div><footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
+        <a href="../searcher_indexer/" class="btn btn-neutral float-left" title="searcher_indexer"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+        <a href="../stopwords/" class="btn btn-neutral float-right" title="stopwords">Next <span class="icon icon-circle-arrow-right"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+    
+      <span><a href="../searcher_indexer/" style="color: #fcfcfc">&laquo; Previous</a></span>
+    
+    
+      <span><a href="../stopwords/" style="color: #fcfcfc">Next &raquo;</a></span>
+    
+  </span>
+</div>
+    <script>var base_url = '../..';</script>
+    <script src="../../js/theme_extra.js" defer></script>
+    <script src="../../js/theme.js" defer></script>
+      <script src="../../search/main.js" defer></script>
+    <script defer>
+        window.onload = function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        };
+    </script>
+
+</body>
+</html>

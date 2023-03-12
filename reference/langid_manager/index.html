@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+      <link rel="shortcut icon" href="../../img/favicon.ico" />
+    <title>langid_manager - Riverbed Docs</title>
+    <link rel="stylesheet" href="../../css/theme.css" />
+    <link rel="stylesheet" href="../../css/theme_extra.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/10.5.0/styles/github.min.css" />
+        <link href="../../assets/_mkdocstrings.css" rel="stylesheet" />
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "langid_manager";
+        var mkdocs_page_input_path = "reference/langid_manager.md";
+        var mkdocs_page_url = null;
+      </script>
+    
+    <script src="../../js/jquery-3.6.0.min.js" defer></script>
+    <!--[if lt IE 9]>
+      <script src="../../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/10.5.0/highlight.min.js"></script>
+      <script>hljs.initHighlightingOnLoad();</script> 
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href="../.." class="icon icon-home"> Riverbed Docs
+        </a><div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../..">Home</a>
+                </li>
+              </ul>
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="../../about/">About</a>
+                </li>
+              </ul>
+              
+                      <p class="caption"><span class="caption-text">Code Reference</span></p>
+              
+              <ul class="current">
+                  <li class="toctree-l1"><a class="reference internal" href="../banned_words/">banned_words</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../char_manager/">char_manager</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../cjk/">cjk</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../filtering/">filtering</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../flagged_words/">flagged_words</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../kenlm_manager/">kenlm_manager</a>
+                  </li>
+                  <li class="toctree-l1 current"><a class="reference internal current" href="./">langid_manager</a>
+    <ul class="current">
+    </ul>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../pdf_and_ocr/">pdf_and_ocr</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../pii_manager/">pii_manager</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../searcher_indexer/">searcher_indexer</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../simhash/">simhash</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../stopwords/">stopwords</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../translation/">translation</a>
+                  </li>
+                  <li class="toctree-l1"><a class="reference internal" href="../utils/">utils</a>
+                  </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../..">Riverbed Docs</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../.." class="icon icon-home" alt="Docs"></a> &raquo;</li>
+          <li>Code Reference &raquo;</li>
+      <li>langid_manager</li>
+    <li class="wy-breadcrumbs-aside">
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <div class="doc doc-object doc-module">
+
+
+<a id="langid_manager"></a>
+  <div class="doc doc-contents first">
+  
+      <p>Copyright, 2021-2022 Ontocord, LLC, All rights reserved.
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+    http://www.apache.org/licenses/LICENSE-2.0
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.</p>
+
+  
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+
+<h2 id="langid_manager.get_lang_groups" class="doc doc-heading">
+<code class="highlight language-python">get_lang_groups(src_lang)</code>
+
+</h2>
+
+
+  <div class="doc doc-contents ">
+  
+      <p>we use langid because it's pretty fast but it has difficulties in low resource languages
+langid can sometimes mistake languages that are in the same group. that is ok for our purpose as
+we mainly use the langid check to confirm the labels from other models.</p>
+
+      <details class="quote">
+        <summary>Source code in <code>src/langid_manager.py</code></summary>
+        <pre class="highlight"><code class="language-python">def get_lang_groups(src_lang):
+    """ we use langid because it's pretty fast but it has difficulties in low resource languages
+    langid can sometimes mistake languages that are in the same group. that is ok for our purpose as
+    we mainly use the langid check to confirm the labels from other models. """
+    lang_groups={src_lang}
+    if src_lang in {'ig', 'sn', 'ny', 'st', 'zu', 'xh', 'rw', 'sw', 'yo', 'so'}:
+      lang_groups = {'ig', 'sn', 'ny', 'st', 'zu', 'xh', 'rw', 'sw', 'yo', 'so'}
+    elif src_lang in {'mr', 'ne', 'hi', }:
+      lang_groups = {'mr', 'ne', 'hi', }
+    elif src_lang in {'fr', 'br'}:
+      lang_groups = {'fr','la', 'br' }
+    elif src_lang in {'pt', }:
+      lang_groups = {'pt','la', 'gl' }
+    elif src_lang in {'eo', 'es', 'oc', 'ca', 'eu', 'an', 'gl' }:
+      lang_groups = {'eo', 'es', 'oc', 'ca', 'eu', 'an', 'gl', 'la' }
+    elif src_lang in {'arz', 'ar', 'fa', 'ur', 'az', 'azb', 'ckb', 'ps' }:
+      lang_groups = {'arz', 'ar', 'fa', 'ur', 'az', 'azb', 'ckb', 'ps' }
+    elif src_lang in {'id', 'ms', }:
+      lang_groups = {'id', 'ms',}
+    elif src_lang in {'as', 'bn', 'bpy'}:
+      lang_groups = {'as', 'bn', 'bpy'}
+    elif src_lang in {'af', 'nl', }:
+      lang_groups = {'af', 'nl',}
+    elif src_lang in {'bo', 'dz', }:
+      lang_groups = {'bo', 'dz',}
+    elif src_lang in {'bs', 'hr', }:
+      lang_groups = {'bs', 'hr',}
+    elif src_lang in {'bxr', 'mn', }:
+      lang_groups = {'bxr', 'mn',}
+    elif src_lang in {'ceb', 'tl', }:
+      lang_groups = {'ceb', 'tl',}
+    elif src_lang in {'cs', 'sk', }:
+      lang_groups = {'cs', 'sk',}
+    elif src_lang in {'da', 'no', }:
+      lang_groups = {'da', 'no',}
+    elif src_lang in {'eml', 'wa', }:
+      lang_groups = {'eml', 'wa',}
+    elif src_lang in {'de', 'lb', 'pl', 'dsb'}:
+      lang_groups = {'de', 'lb', 'pl', 'dsb'}
+    elif src_lang in {'id', 'jv', 'ms', 'tl',}:
+      lang_groups = {'id', 'jv', 'ms', 'tl', }
+    elif src_lang in {'av', 'ru', 'bg', 'ba', 'kk', 'ky', 'uk', 'be', 'ce', 'cv'}:
+      lang_groups = {'av', 'ru', 'bg', 'ba', 'kk', 'ky', 'uk', 'be', 'ce', 'cv'}
+    return lang_groups</code></pre>
+      </details>
+  </div>
+
+</div>
+
+
+
+  </div>
+
+  </div>
+
+</div>
+              
+            </div>
+          </div><footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
+        <a href="../kenlm_manager/" class="btn btn-neutral float-left" title="kenlm_manager"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+        <a href="../pdf_and_ocr/" class="btn btn-neutral float-right" title="pdf_and_ocr">Next <span class="icon icon-circle-arrow-right"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+    
+      <span><a href="../kenlm_manager/" style="color: #fcfcfc">&laquo; Previous</a></span>
+    
+    
+      <span><a href="../pdf_and_ocr/" style="color: #fcfcfc">Next &raquo;</a></span>
+    
+  </span>
+</div>
+    <script>var base_url = '../..';</script>
+    <script src="../../js/theme_extra.js" defer></script>
+    <script src="../../js/theme.js" defer></script>
+      <script src="../../search/main.js" defer></script>
+    <script defer>
+        window.onload = function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        };
+    </script>
+
+</body>
+</html>
