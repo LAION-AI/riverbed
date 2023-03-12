@@ -14,10 +14,10 @@ limitations under the License.
 
 #adapted from https://github.com/piisa/muliwai/blob/main/preprocess_manager.py, and
 
-from .stopwords import all_stopwords
-from .flagged_words import flagged_words
-from .char_manager import *
-from .cjk import *
+from stopwords import all_stopwords
+from flagged_words import flagged_words
+from char_manager import *
+from cjk import *
 
 from collections import Counter
 def get_ngram(text, window_size=3, lang="en"):

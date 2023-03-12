@@ -24,10 +24,10 @@ import kenlm
 import sentencepiece
 from huggingface_hub import cached_download, hf_hub_url
 from filelock import FileLock
-from .filtering import *
-from .cjk import *
+from filtering import *
+from cjk import *
 import tempfile, os, gzip
-from .char_manager import *
+from char_manager import *
 
 try:
   import transformers
