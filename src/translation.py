@@ -12,6 +12,23 @@ import torch
 from torch.nn.functional import cosine_similarity
 from filtering import *
 import string
+
+def get_ngram(sent, window_size=3, lang="en"):
+  if lang in {"zh", "ja", "ko", "th"}:
+    tokens = sent
+    ret= ["".join(tokens[i : i + window_size])   for i in range(len(tokens) - window_size)]
+  else:
+    tokens = sent.split()
+  ret= [" ".join(tokens[i : i + window_size])   for i in range(len(tokens) - window_size)]
+  return Counter(ret)
+
+def high_ngram(sent, cutoff=0.09):
+  aHash = get_ngram(sent)
+  sent_len = sent.count(" ")+1
+  for key in list(aHash.keys()):
+    aHash[key] = aHash[key]/sent_len
+  return any(a > cutoff for a in aHash.values())
+
 punc = string.punctuation + "¿？,،、º。゜ "
 
 #We assume we are running on CPU only
