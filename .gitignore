@@ -1,0 +1,6 @@
+llm-data-quality/.idea
+llm-data-quality/examples
+llm-data-quality/llmdq/__pycache__
+llm-data-quality/llmdq/clustering/__pycache__
+llm-data-quality/llmdq/scorefilter/__pycache__
+llm-data-quality/llmdq/scorer/__pycache__
