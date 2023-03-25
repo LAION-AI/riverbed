@@ -1,0 +1,74 @@
+scorer:
+- _impl_: PerplexityScorer
+  score_id: perplexity
+  model_id: gpt2
+  batch_size: 8
+  max_length: 1024
+  device: 0
+- _impl_: ToxicityScorer
+  score_id: toxicity
+  model_id: unitary/toxic-bert
+  batch_size: 8
+  max_length: 512
+  device: 0
+- _impl_: GibberishScorer
+  score_id: gibberish
+  model_id: madhurjindal/autonlp-Gibberish-Detector-492513457
+  batch_size: 8
+  max_length: 512
+  device: 0
+- _impl_: ContradictionScorer
+  score_id: contradiction
+  model_id: MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli
+  batch_size: 8
+  max_length: 512
+  device: 0
+- _impl_: ReplacedTokenScorer
+  score_id: replacedtoken
+  model_id: google/electra-large-discriminator
+  batch_size: 8
+  max_length: 512
+  device: 0
+- _impl_: LengthScorer
+  score_id: length
+
+scorefilter:
+  absolute:
+  - score_id: reward
+    threshold: 0.5
+    direction: ge
+  - score_id: toxicity
+    threshold: 0.1
+    direction: le
+  - score_id: gibberish
+    threshold: 0.1
+    direction: le
+  - score_id: contradiction
+    threshold: 0.5
+    direction: le
+  - score_id: replacedtoken
+    threshold: 0.06
+    direction: le
+  - score_id: length
+    threshold: 2000
+    direction: le
+  - score_id: length
+    threshold: 10
+    direction: ge
+  relative:
+  - score_id: perplexity
+    threshold: 1.65
+    direction: le
+  - score_id: perplexity
+    threshold: -1.65
+    direction: ge
+
+clustering:
+- _impl_: Dedup
+- _impl_: SemanticKmeansClustering
+  batch_size: 8
+  device: 0
+  model_id: facebook/contriever
+  n_cluster: 100
+  niter: 10
+  sample_rate: 0.1
