@@ -1,0 +1,28 @@
+site_name: Riverbed Docs
+# site_url: https://example.com/
+
+nav:
+- Home: index.md
+- About: about.md
+# defer to gen-files + literate-nav
+- Code Reference: reference/  # 
+# rest of the navigation...
+theme: readthedocs
+
+plugins:
+- search
+- gen-files:
+    scripts:
+    - docs/gen_ref_pages.py
+- literate-nav:
+    nav_file: SUMMARY.md
+- section-index
+- mkdocstrings:
+    handlers:
+      python:
+        paths: [src]
+
+markdown_extensions:
+- pymdownx.highlight:
+    use_pygments: true
+    pygments_lang_class: true

@@ -1,16 +1,15 @@
 #@title KenLM code
-"""
-Copyright, 2021-2022 Ontocord, LLC, and other authors of Muliwai, All rights reserved.
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-    http://www.apache.org/licenses/LICENSE-2.0
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-"""
+#Copyright, 2021-2022 Ontocord, LLC, and other authors of Muliwai, All rights reserved.
+#Licensed under the Apache License, Version 2.0 (the "License");
+#you may not use this file except in compliance with the License.
+#You may obtain a copy of the License at
+#    http://www.apache.org/licenses/LICENSE-2.0
+#Unless required by applicable law or agreed to in writing, software
+#distributed under the License is distributed on an "AS IS" BASIS,
+#WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#See the License for the specific language governing permissions and
+#limitations under the License.
+
 # from https://github.com/piisa/muliwai/blob/main/kenlm_manager.py
 # which is based Eduardo Gonzalez Ponferrada/edugp's repo: https://huggingface.co/edugp/kenlm/blob/main/model.py which is under the Apache 2 License
 # which is also based on https://github.com/facebookresearch/cc_net/ which is under the MIT License
@@ -24,10 +23,10 @@ import kenlm
 import sentencepiece
 from huggingface_hub import cached_download, hf_hub_url
 from filelock import FileLock
-from .filtering import *
-from .cjk import *
+from filtering import *
+from cjk import *
 import tempfile, os, gzip
-from .char_manager import *
+from char_manager import *
 
 try:
   import transformers

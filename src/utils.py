@@ -943,24 +943,47 @@ class GzipByLineIdx(igzip.IndexedGzipFile):
 
         return (_unpickle_gzip_by_line, (state, ))
 
-    
+    #TODO: refactor to do     
     def __iter__(self):
         len_self = len(self)
         for start in range(0, len_self, 1000):
           end = min(len_self, start+1000)
+          orig_start = start
+          orig_end = end
+          while start < len_self and self.line2seekpoint[start] == -1:
+            start+=1
+          while end >= 0 and self.line2seekpoint[end] == -1:
+            end-=1            
           start = self.line2seekpoint[start]
           if end == len_self:
+            seek_points = self.line2seekpoint[orig_start:]
             end = self.file_size
           else:
+            seek_points = self.line2seekpoint[orig_start:orig_end]
             end= self.line2seekpoint[end]-1
+            
           ret = []
           with self._IndexedGzipFile__file_lock:
             pos = self.tell()
             self.seek(start, 0)
             ret= self.read(end-start).split(b'\n')
             self.seek(pos, 0)
+          #if a seekpoint is -1, this means the data has been deleted - either not in the file at all or
+          #blanked out
           for line in ret:
-            yield line
+            while seek_points and seek_points[0] == -1 and line.strip():
+              yield ""
+              seek_points.pop()
+            if not seek_points: break
+            if seek_points[0] == -1 and line.strip():
+              yield ""
+            else:
+              yield line
+            seek_points.pop()
+          while seek_points and seek_points[0] == -1:
+            yield ""
+            seek_points.pop()
+            
 
     def __len__(self):
         return len(self.line2seekpoint)
@@ -990,6 +1013,7 @@ class GzipByLineIdx(igzip.IndexedGzipFile):
             return ret
         elif isinstance(keys, int):
           start = self.line2seekpoint[keys]
+          if start < 0: return b""
           with self._IndexedGzipFile__file_lock:
             pos = self.tell()
             self.seek(start, 0)

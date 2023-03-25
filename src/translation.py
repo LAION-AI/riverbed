@@ -10,8 +10,35 @@ from transformers import M2M100ForConditionalGeneration, M2M100Tokenizer, BertMo
 
 import torch
 from torch.nn.functional import cosine_similarity
-from .filtering import *
+from filtering import *
 import string
+from collections import Counter
+
+def get_ngram(sent, window_size=3, lang="en"):
+  
+  if lang in {"zh", "th", "ko", "ja", "bo"}:
+    tokens = sent
+    window_size = min(window_size, window_size*int(len(tokens)/(window_size*window_size))) 
+    if int(len(tokens)/(window_size*window_size)) < 1:
+      return dict()
+    ret= ["".join(tokens[i : i + window_size])   for i in range(len(tokens) - window_size)]
+  else:
+    tokens = sent.split()
+    if int(len(tokens)/(window_size*window_size)) < 1:
+      return dict()
+    ret= [" ".join(tokens[i : i + window_size])   for i in range(len(tokens) - window_size)]
+  return Counter(ret)
+
+def high_ngram(sent, cutoff=0.09, lang="en"):
+  aHash = get_ngram(sent)
+  if lang in {"zh", "th", "ko", "ja", "bo"}:
+    sent_len = len(sent)+1
+  else:
+    sent_len = sent.count(" ")+1
+  for key in list(aHash.keys()):
+    aHash[key] = aHash[key]/sent_len
+  return any(a > cutoff for a in aHash.values())
+
 punc = string.punctuation + "¿？,،、º。゜ "
 
 #We assume we are running on CPU only
@@ -55,10 +82,10 @@ def get_translation_set(text, threshold=0.75, langs = ["af", "am", "ar", "ast", 
       similarity = cosine_similarity(en_embed,all_trans_embed, dim=1)
       #trs = []
       for sim, tr in zip(similarity,  trans_text):
-        #print (sim, tr)
-        if sim >= threshold and not high_ngram(tr):
+        if sim >= threshold and not high_ngram(tr, lang=target_lang):
           ret.append(tr)
           #trs.append(tr)
       #if add_backtrans:
 
     return set(text+ret) # [a.lower() for a in ret]) 
+

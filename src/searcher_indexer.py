@@ -40,7 +40,7 @@ from collections import OrderedDict
 import multiprocessing
 import math 
 import json
-from ..utils import *
+from utils import *
 
 if torch.cuda.is_available():
   device = 'cuda'
