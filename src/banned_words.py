@@ -15,6 +15,8 @@ banned_words = {
       'id': {'gadis muda','gadis kecil','anak laki-laki kecil','remaja',  'perempuan', 'laki-laki' , 'anak', 'mandi',},
       'fa': {'دختر جوان',  'دختر کوچولو',  'پسر کوچولو',  'نوجوان',  'لولی',  'لولا',  'لولیتا',  'لولی',  'لولی',  'لولیتاگو',  'دختر',  'پسر' ,'کودک',  'حمام', },
       'es': {'niña',  'niño', 'adolescente', 'baño',},
+      'fi': {"tyttö", "poika", "teini", "kylpyhuone",},
+      'ja': {'「女の子」','「男の子」','「ティーンエイジャー」', '「バスルーム」'},
       'pt': {'menina', 'menino', 'adolescente', 'pirulito',  'criança', 'banho',},
       'ig': {'nwa agbọghọ', 'nwa agbọghọ', 'nwa agbọghọ',' iri na ụma', 'nwa agbọghọ', 'nwoke' , 'nwa', },
       'sw': {'msichana mdogo','msichana mdogo','kijana mdogo', 'mtoto', 'kuoga',},
