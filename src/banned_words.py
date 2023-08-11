@@ -1,7 +1,7 @@
 # note: this list is used in conjunction with the flagged words. So words of a sexual nature + words below MIGHT indicate child sexual abuse materials (CSAM).
 # see https://www.researchgate.net/publication/259179064_Comparing_Methods_for_Detecting_Child_Exploitation_Content_Online for common CSAM words
 # http://antipaedo.lip6.fr/T12/keywords_cnrs.pdf - for top 20 from table 7 and 8 of the paper, plus other similar words , ignoring stopwords like "tuesday"
-# WARNING: Translations are probably not accurate and the words, and the original words from the above papers may be out of date. And the list below is complete.
+# WARNING: Translations are probably not accurate and the words, and the original words from the above papers may be out of date. And the list below is incomplete.
 banned_words = {
       'ar': {"فتاة صغيرة" , "فتاة صغيرة" , "فتى صغير", "مراهق" , "لولي" , "لولا" , "لوليتا" , "لولي" , "لولي" , "لوليتاغوي" , "فتاة" , "صبي" ,"طفل" , "حمام" },
       'ur': {'نوجوان لڑکی', 'چھوٹی لڑکی', 'چھوٹا لڑکا', 'نوجوان لڑکا','نوعمر','لولی','لولا','لولیتا','لولی','لولی','لولیتاگو','لڑکی','لڑکا','بچہ','بچہ','غسل', 'غسل', 'غسل'},
