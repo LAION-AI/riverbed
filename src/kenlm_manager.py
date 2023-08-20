@@ -441,7 +441,7 @@ class KenlmModel:
             return line
         if lowercase:
             line = line.lower()
-        if accent:
+        if accent: #stripping accents in languages with accents is a bad idea
             line = KenlmModel.strip_accents(line)
         if numbers:
             line = KenlmModel.digit_re.sub("0", line)
@@ -481,7 +481,7 @@ class KenlmModel:
           .replace("”", '"')
           .replace("–", "-")
           .replace("—", " - ")
-          .replace(" +", " ")
+          .replace(" +", " ") # this is from the original cc_net code, but it strips out information. https://github.com/facebookresearch/cc_net/blob/main/cc_net/text_normalizer.py
           .replace("´", "'")
           .replace("([a-z])‘([a-z])", r"\1'\2/")
           .replace("([a-z])’([a-z])", r"\1'\2/")
@@ -508,7 +508,7 @@ class KenlmModel:
           .replace(" !", "!")
           .replace(" ;", ";")
           .replace(", ", ", ")
-          .replace(" +", " ")
+          .replace(" +", " ") # this is from the original cc_net code, but it strips out information. https://github.com/facebookresearch/cc_net/blob/main/cc_net/text_normalizer.py
           .replace("．", ". ")
       )
       # English "quotation," followed by comma, style
