@@ -4,8 +4,6 @@ Tools for content datamining and NLP at scale.
 ## motiviation
 Given a set of text content in human language, or code, we would like to:
 - Filter for quality, NSFW and potential illegal text
-- create interesting features for the content, including augmenting the content.
-- cluster, explore, search and visualize the content.
 - label and create classifiers for the content. 
 - search, store and share the content to user and to other AI models 
 
