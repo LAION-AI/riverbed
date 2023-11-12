@@ -17,7 +17,7 @@ banned_words = {
       'es': {'niña',  'niño', 'adolescente',},
       'fi': {"tyttö", "poika", "teini", "kylpyhuone",},
       'ja': {'「女の子」','「男の子」','「ティーンエイジャー」', '「バスルーム」'},
-      'pt': {'menina', 'menino', 'adolescente', 'pirulito',  'criança', 'banho',},
+      'pt': {'menina', 'menino', 'adolescente', 'pirulito',  'criança', },
       'ig': {'nwa agbọghọ', 'nwa agbọghọ', 'nwa agbọghọ',' iri na ụma', 'nwa agbọghọ', 'nwoke' , 'nwa', },
       'sw': {'msichana mdogo','msichana mdogo','kijana mdogo', 'mtoto', 'kuoga',},
       'yo': {'kekere', 'omobinrin', 'omokunrin', 'ọmọ', 'wẹwẹ',},
