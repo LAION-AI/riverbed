@@ -23,9 +23,12 @@ banned_words = {
       'yo': {'kekere', 'omobinrin', 'omokunrin', 'ọmọ', 'wẹwẹ',},
       'xh': {'intombazana encinci', 'intsha', 'umntwana', 'hlamba', 'inkwenkwe', },
       'zu': {'intombazane', 'intsha', 'intombazane encane',  'umfana omncane','geza', 'ingane', 'yomfana'},
-      'default': {'young girl', 'little girl','little boy', 'young boy', 'teen', 'lolli', 'lola', 'lolita', 'lolly', 'loli', 'lolitaguy', 'girl', 'boy', 'child', 'kid',  \
-                  'bath', 'baths', 'bathing', "pedo", 'nymphet', 'nimphet', 'babyj', 'voglia', 'eurololita', '349', 'hussyfan', 'kidzilla', 'raygold', 'ygold', 'qwerty', 'qqaazz', 'ptsc', \
-                  'pthc', 'nn', 'tanta', 'mylola', 'arina', 'newstar', 'playtoy', 'imouto', 'lourinha', 'amateurz', 'kacy', 'vicky', 'lsm', 'sandra', \
+      'default': {'young girl', 'little girl','little boy', 'young boy', 'teen', 'lolli', 'lola', 'lolita', 'lolly', 'loli', 'lolitaguy', 'child', 'kid',  \
+                  'incest', "pedo", 'nymphet', 'nimphet', 'babyj', 'voglia', 'eurololita', 'hussyfan', 'kidzilla', 'raygold', 'ygold', 'qwerty', 'qqaazz', 'ptsc', \
+                  'pthc', 'tanta', 'mylola', 'arina', 'newstar', 'playtoy', 'imouto', 'lourinha', 'amateurz', \
                   'babyshivid', 'shiori', 'tvg', 'chiharu','kidzilla', 'izzy', 'rika', 'kdquality', 'cbaby', 'nablot', 'lso',  'kinderficker', \
+                  '1 yo',  '1 yr',   '2 yo',  '2 yr',   '3 yo',  '3 yr',   '4 yo',  '4 yr',   '5 yo',  '5 yr',   
+                  '6 yo',  '6 yr',   '7 yo',  '7 yr',   '8 yo',  '8 yr',   '9 yo',  '9 yr',   '10 yo',  '10 yr',   
+                  '11 yo',  '11 yr',   '12 yo',  '12 yr',   '13 yo',  '13 yr',   '14 yo',  '14 yr',   '15 yo',  '15 yr',   '16 yo',  '16 yr',   '17 yo',  '17 yr',   
                   'yo',  'yr',  }
   }
